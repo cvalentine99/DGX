@@ -7,14 +7,14 @@ import { Client } from "ssh2";
 const DGX_HOSTS = {
   alpha: {
     name: "DGX Spark Alpha",
-    host: process.env.DGX_SSH_HOST || "4.tcp.ngrok.io",
-    port: parseInt(process.env.DGX_SSH_PORT || "19838"),
+    host: process.env.DGX_SSH_HOST || "0.tcp.ngrok.io",
+    port: parseInt(process.env.DGX_SSH_PORT || "17974"),
     localIp: "192.168.50.139", // Original local IP for reference
   },
   beta: {
     name: "DGX Spark Beta",
-    host: process.env.DGX_SSH_HOST || "4.tcp.ngrok.io",
-    port: parseInt(process.env.DGX_SSH_PORT || "19838"),
+    host: process.env.DGX_SSH_HOST || "0.tcp.ngrok.io",
+    port: parseInt(process.env.DGX_SSH_PORT || "17974"),
     localIp: "192.168.50.110", // Original local IP for reference
   },
 } as const;

@@ -4,8 +4,8 @@ import { Client } from "ssh2";
 
 // DGX Spark host configuration
 // Using ngrok TCP tunnel for SSH access from cloud
-const NGROK_SSH_HOST = process.env.DGX_SSH_HOST || "4.tcp.ngrok.io";
-const NGROK_SSH_PORT = parseInt(process.env.DGX_SSH_PORT || "19838");
+const NGROK_SSH_HOST = process.env.DGX_SSH_HOST || "0.tcp.ngrok.io";
+const NGROK_SSH_PORT = parseInt(process.env.DGX_SSH_PORT || "17974");
 
 const DGX_HOSTS = [
   { id: "alpha", name: "DGX Spark Alpha", ip: "192.168.50.139", sshHost: NGROK_SSH_HOST, sshPort: NGROK_SSH_PORT },
