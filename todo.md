@@ -78,3 +78,13 @@
 - [x] Add NeMo Requirements tab
 - [x] Add CUDA tab to sidebar navigation
 - [x] Test CUDA tab integration
+
+# NGC Catalog Browser Integration
+
+- [x] Research NGC catalog API and container structure
+- [x] Create NGC container catalog data with NeMo, PyTorch, TensorRT images
+- [x] Build NGC browser component with search and filtering
+- [x] Add container details panel with tags and pull commands
+- [x] Integrate NGC browser as new tab in CUDA page
+- [x] Add pull command copy functionality
+- [x] Test NGC catalog browser integration

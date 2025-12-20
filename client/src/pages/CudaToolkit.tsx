@@ -32,6 +32,7 @@ import {
   Gauge,
 } from "lucide-react";
 import DashboardLayout from "@/components/DashboardLayout";
+import NgcCatalogBrowser from "@/components/NgcCatalogBrowser";
 import { toast } from "sonner";
 
 // Version compatibility data
@@ -334,6 +335,10 @@ export default function CudaToolkit() {
             <TabsTrigger value="nemo" className="gap-2">
               <Gauge className="w-4 h-4" />
               NeMo Requirements
+            </TabsTrigger>
+            <TabsTrigger value="ngc" className="gap-2">
+              <Download className="w-4 h-4" />
+              NGC Catalog
             </TabsTrigger>
           </TabsList>
 
@@ -647,6 +652,17 @@ export default function CudaToolkit() {
                 </CardContent>
               </Card>
             </div>
+          </TabsContent>
+
+          {/* NGC Catalog Browser Tab */}
+          <TabsContent value="ngc" className="min-h-[600px]">
+            <NgcCatalogBrowser
+              onPullContainer={(container, tag) => {
+                toast.success(`Ready to pull ${container.displayName}:${tag}`, {
+                  description: `Execute on ${currentHost.hostname} (${currentHost.ip})`,
+                });
+              }}
+            />
           </TabsContent>
         </Tabs>
       </div>
