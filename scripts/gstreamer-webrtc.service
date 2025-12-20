@@ -1,0 +1,55 @@
+[Unit]
+Description=GStreamer WebRTC Camera Streaming Service
+Documentation=https://github.com/nemo-command-center
+After=network-online.target docker.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=nvidia
+Group=nvidia
+WorkingDirectory=/opt/nemo
+
+# Environment variables
+Environment="SIGNALING_SERVER=https://your-nemo-command-center.manus.space"
+Environment="CAMERA_DEVICE=/dev/video0"
+Environment="RESOLUTION=1920x1080"
+Environment="FRAMERATE=30"
+Environment="BITRATE=4000000"
+
+# GStreamer environment
+Environment="GST_DEBUG=2"
+Environment="GST_PLUGIN_PATH=/usr/lib/aarch64-linux-gnu/gstreamer-1.0"
+
+# Start the WebRTC sender
+ExecStart=/usr/bin/python3 /opt/nemo/gstreamer-webrtc-sender.py \
+    --signaling-server ${SIGNALING_SERVER} \
+    --camera ${CAMERA_DEVICE} \
+    --resolution ${RESOLUTION} \
+    --framerate ${FRAMERATE} \
+    --bitrate ${BITRATE}
+
+# Restart policy
+Restart=always
+RestartSec=10
+StartLimitInterval=300
+StartLimitBurst=5
+
+# Resource limits
+Nice=-5
+IOSchedulingClass=realtime
+IOSchedulingPriority=0
+
+# Security hardening
+NoNewPrivileges=false
+ProtectSystem=false
+ProtectHome=false
+PrivateTmp=false
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=gstreamer-webrtc
+
+[Install]
+WantedBy=multi-user.target

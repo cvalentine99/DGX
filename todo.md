@@ -394,3 +394,37 @@
 - [x] Add confidence threshold slider
 - [x] Display FPS and inference latency overlay
 - [ ] Sync overlay with video frame timestamps (pending real stream)
+
+## Testing & Integration Enhancements - December 2024
+
+### vitest Tests for vLLM Integration
+- [x] Create vllmRouter.test.ts with comprehensive test coverage
+- [x] Test chat completion endpoint with mock responses
+- [x] Test streaming response handling
+- [x] Test reasoning_content extraction
+- [x] Test error handling for connection failures
+- [x] Test model listing endpoint
+
+### SSH Integration Testing with Both Hosts
+- [x] Create sshIntegration.test.ts for end-to-end testing
+- [x] Test connection to DGX Spark Alpha (192.168.50.139)
+- [x] Test connection to DGX Spark Beta (192.168.50.110)
+- [x] Test GPU metrics retrieval from both hosts
+- [x] Test container listing on both hosts
+- [x] Test storage info retrieval
+- [x] Add connection health check endpoint
+
+### Live Inference Testing in Interaction Module
+- [x] Add inference test panel to Interaction page
+- [x] Create test prompts for different scenarios
+- [x] Display latency metrics for each request
+- [x] Show token throughput statistics
+- [x] Add batch testing capability
+- [ ] Compare results between hosts (future enhancement)
+
+### Systemd Service for GStreamer Auto-start
+- [x] Create gstreamer-webrtc.service systemd unit file
+- [x] Add deployment endpoint for systemd service installation
+- [x] Implement service status check endpoint
+- [x] Add start/stop/restart controls via API
+- [ ] Test auto-start on system boot (requires DGX access)

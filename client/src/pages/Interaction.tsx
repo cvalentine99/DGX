@@ -42,6 +42,7 @@ import { Switch } from "@/components/ui/switch";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
+import { InferenceTestPanel } from "@/components/InferenceTestPanel";
 
 // System Prompt Presets
 const SYSTEM_PROMPTS = [
@@ -622,6 +623,7 @@ export default function Interaction() {
             onCustomPromptChange={setCustomPrompt}
           />
           <InferenceConfigCard config={config} onConfigChange={setConfig} />
+          <InferenceTestPanel />
         </motion.div>
       </div>
     </motion.div>

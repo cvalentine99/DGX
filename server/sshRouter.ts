@@ -1670,4 +1670,209 @@ SCRIPT_EOF`
         };
       }
     }),
+
+  // Deploy systemd service for GStreamer WebRTC auto-start
+  deploySystemdService: publicProcedure
+    .input(z.object({
+      hostId: z.enum(["alpha", "beta"]),
+      signalingServer: z.string().url(),
+      cameraDevice: z.string().default("/dev/video0"),
+      resolution: z.string().default("1920x1080"),
+      framerate: z.number().default(30),
+      bitrate: z.number().default(4000000),
+    }))
+    .mutation(async ({ input }) => {
+      try {
+        const conn = await createSSHConnection(input.hostId);
+        
+        // Create systemd service file content
+        const serviceContent = `[Unit]
+Description=GStreamer WebRTC Camera Streaming Service
+Documentation=https://github.com/nemo-command-center
+After=network-online.target docker.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=nvidia
+Group=nvidia
+WorkingDirectory=/opt/nemo
+
+# Environment variables
+Environment="SIGNALING_SERVER=${input.signalingServer}"
+Environment="CAMERA_DEVICE=${input.cameraDevice}"
+Environment="RESOLUTION=${input.resolution}"
+Environment="FRAMERATE=${input.framerate}"
+Environment="BITRATE=${input.bitrate}"
+
+# GStreamer environment
+Environment="GST_DEBUG=2"
+Environment="GST_PLUGIN_PATH=/usr/lib/aarch64-linux-gnu/gstreamer-1.0"
+
+# Start the WebRTC sender
+ExecStart=/usr/bin/python3 /opt/nemo/gstreamer-webrtc-sender.py
+
+# Restart policy
+Restart=always
+RestartSec=10
+StartLimitInterval=300
+StartLimitBurst=5
+
+# Resource limits
+Nice=-5
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=gstreamer-webrtc
+
+[Install]
+WantedBy=multi-user.target
+`;
+        
+        // Write service file
+        const writeResult = await executeSSHCommand(
+          conn,
+          `echo '${serviceContent.replace(/'/g, "'\"'\"'")}' | sudo tee /etc/systemd/system/gstreamer-webrtc.service`
+        );
+        
+        // Reload systemd
+        await executeSSHCommand(conn, 'sudo systemctl daemon-reload');
+        
+        // Enable service
+        await executeSSHCommand(conn, 'sudo systemctl enable gstreamer-webrtc.service');
+        
+        conn.end();
+        
+        return {
+          success: true,
+          message: "Systemd service deployed and enabled",
+          host: DGX_HOSTS[input.hostId],
+        };
+      } catch (error: any) {
+        return {
+          success: false,
+          error: error.message,
+          host: DGX_HOSTS[input.hostId],
+        };
+      }
+    }),
+
+  // Control systemd service (start/stop/restart/status)
+  controlSystemdService: publicProcedure
+    .input(z.object({
+      hostId: z.enum(["alpha", "beta"]),
+      action: z.enum(["start", "stop", "restart", "status"]),
+    }))
+    .mutation(async ({ input }) => {
+      try {
+        const conn = await createSSHConnection(input.hostId);
+        
+        const result = await executeSSHCommand(
+          conn,
+          `sudo systemctl ${input.action} gstreamer-webrtc.service`
+        );
+        
+        // Get current status
+        const statusResult = await executeSSHCommand(
+          conn,
+          'systemctl is-active gstreamer-webrtc.service'
+        );
+        
+        // Get recent logs
+        const logsResult = await executeSSHCommand(
+          conn,
+          'journalctl -u gstreamer-webrtc.service -n 20 --no-pager'
+        );
+        
+        conn.end();
+        
+        return {
+          success: result.code === 0 || input.action === 'status',
+          status: statusResult.stdout.trim(),
+          logs: logsResult.stdout,
+          host: DGX_HOSTS[input.hostId],
+        };
+      } catch (error: any) {
+        return {
+          success: false,
+          error: error.message,
+          status: 'unknown',
+          logs: '',
+          host: DGX_HOSTS[input.hostId],
+        };
+      }
+    }),
+
+  // Get systemd service status
+  getSystemdServiceStatus: publicProcedure
+    .input(z.object({
+      hostId: z.enum(["alpha", "beta"]),
+    }))
+    .query(async ({ input }) => {
+      try {
+        const conn = await createSSHConnection(input.hostId);
+        
+        // Check if service exists
+        const existsResult = await executeSSHCommand(
+          conn,
+          'systemctl list-unit-files | grep gstreamer-webrtc'
+        );
+        
+        const serviceExists = existsResult.stdout.includes('gstreamer-webrtc');
+        
+        if (!serviceExists) {
+          conn.end();
+          return {
+            success: true,
+            installed: false,
+            enabled: false,
+            active: false,
+            status: 'not-installed',
+            logs: '',
+            host: DGX_HOSTS[input.hostId],
+          };
+        }
+        
+        // Get service status
+        const statusResult = await executeSSHCommand(
+          conn,
+          'systemctl is-active gstreamer-webrtc.service'
+        );
+        
+        const enabledResult = await executeSSHCommand(
+          conn,
+          'systemctl is-enabled gstreamer-webrtc.service'
+        );
+        
+        // Get recent logs
+        const logsResult = await executeSSHCommand(
+          conn,
+          'journalctl -u gstreamer-webrtc.service -n 30 --no-pager'
+        );
+        
+        conn.end();
+        
+        return {
+          success: true,
+          installed: true,
+          enabled: enabledResult.stdout.trim() === 'enabled',
+          active: statusResult.stdout.trim() === 'active',
+          status: statusResult.stdout.trim(),
+          logs: logsResult.stdout,
+          host: DGX_HOSTS[input.hostId],
+        };
+      } catch (error: any) {
+        return {
+          success: false,
+          installed: false,
+          enabled: false,
+          active: false,
+          status: 'error',
+          error: error.message,
+          logs: '',
+          host: DGX_HOSTS[input.hostId],
+        };
+      }
+    }),
 });
