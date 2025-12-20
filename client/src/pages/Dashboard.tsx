@@ -42,6 +42,7 @@ import { ComfyUIPanel } from "@/components/ComfyUIPanel";
 import { AlertConfigPanel } from "@/components/AlertConfigPanel";
 import { BenchmarkPanel } from "@/components/BenchmarkPanel";
 import { StorageMonitoringPanel } from "@/components/StorageMonitoringPanel";
+import { ConnectionDiagnostics } from "@/components/ConnectionDiagnostics";
 
 // Model status is now fetched from vLLM API
 // Alerts are now fetched from database via stats.getAlerts
@@ -748,6 +749,9 @@ export default function Dashboard() {
           />
         ))}
       </div>
+      
+      {/* Connection Diagnostics */}
+      <ConnectionDiagnostics />
       
       {/* GPU History Charts */}
       <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">

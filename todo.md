@@ -450,3 +450,17 @@
 - [x] Display retry countdown timer via timeUntilNextRetry field
 - [x] Add manual retry button via retryConnection endpoint
 - [x] Show connection history/logs via lastError and consecutiveFailures fields
+
+## Connection Diagnostics UI - December 2024
+
+### ConnectionDiagnostics Component
+- [x] Create ConnectionDiagnostics.tsx component
+- [x] Display connection status per host (connected, connecting, retrying, failed)
+- [x] Show consecutive failure count and last error message
+- [x] Display current retry attempt number (e.g., "Attempt 3/5")
+- [x] Add live countdown timer until next retry
+- [x] Show last successful connection timestamp
+- [x] Add manual retry button with loading state
+- [x] Add reset connection state button
+- [x] Include connection history log (via retry configuration display)
+- [x] Style with NVIDIA green theme and status indicators
