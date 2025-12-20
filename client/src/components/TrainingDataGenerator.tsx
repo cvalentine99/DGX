@@ -1,4 +1,4 @@
-import { useState, useCallback } from "react";
+import { useState, useMemo } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -31,6 +31,11 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
+import {
   Sparkles,
   Download,
   Play,
@@ -61,10 +66,23 @@ import {
   Square,
   AlertTriangle,
   RotateCcw,
+  ShieldCheck,
+  ShieldAlert,
+  ShieldX,
+  Info,
 } from "lucide-react";
 import { trpc } from "@/lib/trpc";
 import { toast } from "sonner";
 import ValidationPanel from "./ValidationPanel";
+import {
+  validateExtraHopResponse,
+  getValidationStatusColor,
+  getValidationStatusLabel,
+  formatValidationErrors,
+  ValidationResult,
+  VALID_METRIC_CATEGORIES,
+  VALID_OBJECT_TYPES,
+} from "@/lib/extrahopSchema";
 
 // Playbook icon mapping
 const playbookIcons: Record<string, React.ElementType> = {
@@ -117,6 +135,8 @@ interface GeneratedExample {
     content: string;
     reasoning_content?: string;
   }[];
+  // Validation state
+  validationResult?: ValidationResult;
 }
 
 interface GenerationResult {
@@ -151,8 +171,11 @@ export default function TrainingDataGenerator() {
   const [editedReasoningContent, setEditedReasoningContent] = useState("");
   const [selectedExamples, setSelectedExamples] = useState<Set<string>>(new Set());
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
-  const [filterStatus, setFilterStatus] = useState<"all" | "original" | "edited" | "deleted">("all");
+  const [filterStatus, setFilterStatus] = useState<"all" | "original" | "edited" | "deleted" | "valid" | "invalid">("all");
   const [searchQuery, setSearchQuery] = useState("");
+  
+  // Real-time validation for edit dialog
+  const [editValidation, setEditValidation] = useState<ValidationResult | null>(null);
 
   // Fetch playbooks
   const { data: playbooks, isLoading: playbooksLoading } = trpc.trainingData.getPlaybooks.useQuery();
@@ -160,20 +183,34 @@ export default function TrainingDataGenerator() {
   // Fetch stats
   const { data: stats } = trpc.trainingData.getStats.useQuery();
   
+  // Validate all examples when data changes
+  const validateAllExamples = (examples: GeneratedExample[]): GeneratedExample[] => {
+    return examples.map(ex => ({
+      ...ex,
+      validationResult: validateExtraHopResponse(ex.messages[1]?.content || ""),
+    }));
+  };
+  
   // Generate mutation
   const generateMutation = trpc.trainingData.generate.useMutation({
     onSuccess: (data) => {
-      // Add status to each example
+      // Add status and validation to each example
       const examplesWithStatus = data.examples.map(ex => ({
         ...ex,
         status: "original" as const,
         originalMessages: JSON.parse(JSON.stringify(ex.messages)),
+        validationResult: validateExtraHopResponse(ex.messages[1]?.content || ""),
       }));
       setGeneratedData({ ...data, examples: examplesWithStatus });
       setIsGenerating(false);
       setSelectedExamples(new Set());
       setSelectedExampleId(null);
-      toast.success(`Generated ${data.stats.total} training examples`);
+      
+      // Count validation results
+      const validCount = examplesWithStatus.filter(ex => ex.validationResult?.isValid).length;
+      const invalidCount = examplesWithStatus.length - validCount;
+      
+      toast.success(`Generated ${data.stats.total} examples (${validCount} valid, ${invalidCount} need review)`);
     },
     onError: (error) => {
       setIsGenerating(false);
@@ -247,15 +284,33 @@ export default function TrainingDataGenerator() {
   // Get the currently selected example for preview
   const selectedExample = generatedData?.examples.find(ex => ex.id === selectedExampleId);
 
-  // Filter examples based on status and search
-  const filteredExamples = generatedData?.examples.filter(ex => {
-    const matchesStatus = filterStatus === "all" || ex.status === filterStatus;
-    const matchesSearch = searchQuery === "" || 
-      ex.id.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      ex.playbook.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      ex.messages[0].content.toLowerCase().includes(searchQuery.toLowerCase());
-    return matchesStatus && matchesSearch;
-  }) || [];
+  // Filter examples based on status, validation, and search
+  const filteredExamples = useMemo(() => {
+    if (!generatedData) return [];
+    
+    return generatedData.examples.filter(ex => {
+      // Status filter
+      if (filterStatus === "valid") {
+        if (!ex.validationResult?.isValid) return false;
+      } else if (filterStatus === "invalid") {
+        if (ex.validationResult?.isValid !== false) return false;
+      } else if (filterStatus !== "all" && ex.status !== filterStatus) {
+        return false;
+      }
+      
+      // Search filter
+      if (searchQuery) {
+        const query = searchQuery.toLowerCase();
+        return (
+          ex.id.toLowerCase().includes(query) ||
+          ex.playbook.toLowerCase().includes(query) ||
+          ex.messages[0].content.toLowerCase().includes(query)
+        );
+      }
+      
+      return true;
+    });
+  }, [generatedData, filterStatus, searchQuery]);
 
   // Start editing an example
   const startEditing = (example: GeneratedExample) => {
@@ -263,12 +318,23 @@ export default function TrainingDataGenerator() {
     setEditedUserContent(example.messages[0].content);
     setEditedAssistantContent(example.messages[1].content);
     setEditedReasoningContent(example.messages[1].reasoning_content || "");
+    // Validate immediately
+    setEditValidation(validateExtraHopResponse(example.messages[1].content));
+  };
+
+  // Real-time validation as user edits
+  const handleAssistantContentChange = (value: string) => {
+    setEditedAssistantContent(value);
+    // Debounced validation
+    setEditValidation(validateExtraHopResponse(value));
   };
 
   // Save edited example
   const saveEdit = () => {
     if (!editingExample || !generatedData) return;
 
+    const newValidation = validateExtraHopResponse(editedAssistantContent);
+    
     const updatedExamples = generatedData.examples.map(ex => {
       if (ex.id === editingExample.id) {
         return {
@@ -282,6 +348,7 @@ export default function TrainingDataGenerator() {
               reasoning_content: editedReasoningContent || undefined,
             },
           ],
+          validationResult: newValidation,
         };
       }
       return ex;
@@ -289,12 +356,19 @@ export default function TrainingDataGenerator() {
 
     setGeneratedData({ ...generatedData, examples: updatedExamples });
     setEditingExample(null);
-    toast.success("Example updated successfully");
+    setEditValidation(null);
+    
+    if (newValidation.isValid) {
+      toast.success("Example updated and validated successfully");
+    } else {
+      toast.warning("Example saved with validation errors");
+    }
   };
 
   // Cancel editing
   const cancelEdit = () => {
     setEditingExample(null);
+    setEditValidation(null);
   };
 
   // Revert an edited example to original
@@ -303,10 +377,12 @@ export default function TrainingDataGenerator() {
 
     const updatedExamples = generatedData.examples.map(ex => {
       if (ex.id === exampleId && ex.originalMessages) {
+        const originalContent = ex.originalMessages[1]?.content || "";
         return {
           ...ex,
           status: "original" as const,
           messages: JSON.parse(JSON.stringify(ex.originalMessages)),
+          validationResult: validateExtraHopResponse(originalContent),
         };
       }
       return ex;
@@ -338,10 +414,8 @@ export default function TrainingDataGenerator() {
   const restoreExample = (exampleId: string) => {
     if (!generatedData) return;
 
-    const example = generatedData.examples.find(ex => ex.id === exampleId);
     const updatedExamples = generatedData.examples.map(ex => {
       if (ex.id === exampleId) {
-        // Check if it was edited before deletion
         const wasEdited = ex.originalMessages && 
           JSON.stringify(ex.messages) !== JSON.stringify(ex.originalMessages);
         return { ...ex, status: wasEdited ? "edited" as const : "original" as const };
@@ -393,12 +467,18 @@ export default function TrainingDataGenerator() {
   };
 
   // Get counts by status
-  const statusCounts = {
-    total: generatedData?.examples.length || 0,
-    original: generatedData?.examples.filter(ex => ex.status === "original").length || 0,
-    edited: generatedData?.examples.filter(ex => ex.status === "edited").length || 0,
-    deleted: generatedData?.examples.filter(ex => ex.status === "deleted").length || 0,
-  };
+  const statusCounts = useMemo(() => {
+    if (!generatedData) return { total: 0, original: 0, edited: 0, deleted: 0, valid: 0, invalid: 0 };
+    
+    return {
+      total: generatedData.examples.length,
+      original: generatedData.examples.filter(ex => ex.status === "original").length,
+      edited: generatedData.examples.filter(ex => ex.status === "edited").length,
+      deleted: generatedData.examples.filter(ex => ex.status === "deleted").length,
+      valid: generatedData.examples.filter(ex => ex.status !== "deleted" && ex.validationResult?.isValid).length,
+      invalid: generatedData.examples.filter(ex => ex.status !== "deleted" && ex.validationResult?.isValid === false).length,
+    };
+  }, [generatedData]);
 
   // Get status badge color
   const getStatusColor = (status?: string) => {
@@ -407,6 +487,14 @@ export default function TrainingDataGenerator() {
       case "deleted": return "bg-red-500/20 text-red-400 border-red-500/30";
       default: return "bg-green-500/20 text-green-400 border-green-500/30";
     }
+  };
+
+  // Get validation icon
+  const getValidationIcon = (result?: ValidationResult) => {
+    if (!result) return null;
+    if (!result.isValid) return <ShieldX className="w-3 h-3 text-red-400" />;
+    if (result.warnings.length > 0) return <ShieldAlert className="w-3 h-3 text-yellow-400" />;
+    return <ShieldCheck className="w-3 h-3 text-green-400" />;
   };
 
   return (
@@ -505,7 +593,7 @@ export default function TrainingDataGenerator() {
             <div className="space-y-3">
               <div className="flex items-center justify-between">
                 <Label>Playbooks</Label>
-                <div className="flex gap-2">
+                <div className="flex gap-1">
                   <Button variant="ghost" size="sm" onClick={selectAllPlaybooks} className="h-6 px-2 text-xs">
                     All
                   </Button>
@@ -530,24 +618,28 @@ export default function TrainingDataGenerator() {
                   </Button>
                 </CollapsibleTrigger>
                 <CollapsibleContent className="mt-2">
-                  <ScrollArea className="h-[200px] rounded-md border p-2">
+                  <ScrollArea className="h-[200px] rounded-md border border-border p-2">
                     {playbooksLoading ? (
                       <div className="flex items-center justify-center h-full">
                         <RefreshCw className="w-4 h-4 animate-spin" />
                       </div>
                     ) : (
-                      <div className="space-y-2">
-                        {playbooks?.map((playbook) => {
+                      <div className="space-y-1">
+                        {playbooks?.map(playbook => {
                           const Icon = playbookIcons[playbook.id] || Layers;
                           return (
                             <div
                               key={playbook.id}
-                              className="flex items-center gap-2 p-2 rounded hover:bg-accent cursor-pointer"
+                              className={`flex items-center gap-2 p-2 rounded cursor-pointer transition-colors ${
+                                selectedPlaybooks.includes(playbook.id)
+                                  ? "bg-primary/20"
+                                  : "hover:bg-white/5"
+                              }`}
                               onClick={() => togglePlaybook(playbook.id)}
                             >
                               <Checkbox
                                 checked={selectedPlaybooks.includes(playbook.id)}
-                                onCheckedChange={() => togglePlaybook(playbook.id)}
+                                className="pointer-events-none"
                               />
                               <Icon className="w-4 h-4 text-muted-foreground" />
                               <span className="text-sm truncate">{playbook.name}</span>
@@ -564,39 +656,38 @@ export default function TrainingDataGenerator() {
             {/* Negative Examples */}
             <div className="space-y-3">
               <div className="flex items-center justify-between">
-                <div>
-                  <Label>Include Negative Examples</Label>
-                  <p className="text-xs text-muted-foreground mt-1">
-                    Queries the agent should refuse
-                  </p>
-                </div>
+                <Label>Include Negative Examples</Label>
                 <Switch
                   checked={includeNegatives}
                   onCheckedChange={setIncludeNegatives}
                 />
               </div>
-              {includeNegatives && (
-                <div className="space-y-2">
-                  <div className="flex items-center justify-between">
-                    <Label className="text-sm">Negative Ratio</Label>
-                    <span className="text-sm font-mono">{Math.round(negativeRatio * 100)}%</span>
-                  </div>
-                  <Slider
-                    value={[negativeRatio]}
-                    onValueChange={([v]) => setNegativeRatio(v)}
-                    min={0.05}
-                    max={0.3}
-                    step={0.05}
-                    className="w-full"
-                  />
-                </div>
-              )}
+              <p className="text-xs text-muted-foreground">
+                Queries the agent should refuse
+              </p>
             </div>
 
+            {includeNegatives && (
+              <div className="space-y-3">
+                <div className="flex items-center justify-between">
+                  <Label>Negative Ratio</Label>
+                  <span className="text-sm font-mono">{Math.round(negativeRatio * 100)}%</span>
+                </div>
+                <Slider
+                  value={[negativeRatio]}
+                  onValueChange={([v]) => setNegativeRatio(v)}
+                  min={0.05}
+                  max={0.3}
+                  step={0.05}
+                  className="w-full"
+                />
+              </div>
+            )}
+
             {/* Export Format */}
-            <div className="space-y-2">
+            <div className="space-y-3">
               <Label>Export Format</Label>
-              <Select value={exportFormat} onValueChange={(v) => setExportFormat(v as typeof exportFormat)}>
+              <Select value={exportFormat} onValueChange={(v: any) => setExportFormat(v)}>
                 <SelectTrigger>
                   <SelectValue />
                 </SelectTrigger>
@@ -629,69 +720,96 @@ export default function TrainingDataGenerator() {
           </CardContent>
         </Card>
 
-        {/* Example Browser Panel */}
-        <Card className="xl:col-span-4 bg-card/50 border-border">
+        {/* Example Browser */}
+        <Card className="xl:col-span-5 bg-card/50 border-border">
           <CardHeader className="pb-3">
             <div className="flex items-center justify-between">
-              <div>
-                <CardTitle className="flex items-center gap-2">
-                  <FileJson className="w-5 h-5 text-primary" />
-                  Example Browser
-                </CardTitle>
-                <CardDescription>
-                  {generatedData ? `${statusCounts.total - statusCounts.deleted} exportable examples` : "Generate examples to browse"}
-                </CardDescription>
-              </div>
-              {generatedData && selectedExamples.size > 0 && (
-                <Button
-                  variant="destructive"
-                  size="sm"
-                  onClick={() => setShowDeleteConfirm(true)}
-                  className="gap-1"
-                >
-                  <Trash2 className="w-3 h-3" />
-                  Delete ({selectedExamples.size})
-                </Button>
-              )}
+              <CardTitle className="flex items-center gap-2">
+                <Database className="w-5 h-5 text-primary" />
+                Example Browser
+              </CardTitle>
+              <span className="text-sm text-muted-foreground">
+                {filteredExamples.length} exportable examples
+              </span>
             </div>
           </CardHeader>
-          <CardContent className="space-y-3">
-            {generatedData && (
-              <>
+          <CardContent>
+            {generatedData ? (
+              <div className="space-y-3">
                 {/* Status Filter Tabs */}
-                <div className="flex gap-1 p-1 bg-black/20 rounded-lg">
-                  {[
-                    { value: "all", label: "All", count: statusCounts.total },
-                    { value: "original", label: "Original", count: statusCounts.original },
-                    { value: "edited", label: "Edited", count: statusCounts.edited },
-                    { value: "deleted", label: "Deleted", count: statusCounts.deleted },
-                  ].map(tab => (
-                    <button
-                      key={tab.value}
-                      onClick={() => setFilterStatus(tab.value as typeof filterStatus)}
-                      className={`flex-1 px-2 py-1.5 text-xs rounded transition-colors ${
-                        filterStatus === tab.value
-                          ? "bg-primary text-primary-foreground"
-                          : "hover:bg-white/5"
-                      }`}
-                    >
-                      {tab.label} ({tab.count})
-                    </button>
-                  ))}
+                <div className="flex flex-wrap gap-2">
+                  <Button
+                    variant={filterStatus === "all" ? "default" : "outline"}
+                    size="sm"
+                    onClick={() => setFilterStatus("all")}
+                  >
+                    All ({statusCounts.total})
+                  </Button>
+                  <Button
+                    variant={filterStatus === "original" ? "default" : "outline"}
+                    size="sm"
+                    onClick={() => setFilterStatus("original")}
+                  >
+                    Original ({statusCounts.original})
+                  </Button>
+                  <Button
+                    variant={filterStatus === "edited" ? "default" : "outline"}
+                    size="sm"
+                    onClick={() => setFilterStatus("edited")}
+                  >
+                    Edited ({statusCounts.edited})
+                  </Button>
+                  <Button
+                    variant={filterStatus === "deleted" ? "default" : "outline"}
+                    size="sm"
+                    onClick={() => setFilterStatus("deleted")}
+                  >
+                    Deleted ({statusCounts.deleted})
+                  </Button>
+                  <div className="border-l border-border mx-1" />
+                  <Button
+                    variant={filterStatus === "valid" ? "default" : "outline"}
+                    size="sm"
+                    onClick={() => setFilterStatus("valid")}
+                    className="gap-1"
+                  >
+                    <ShieldCheck className="w-3 h-3" />
+                    Valid ({statusCounts.valid})
+                  </Button>
+                  <Button
+                    variant={filterStatus === "invalid" ? "default" : "outline"}
+                    size="sm"
+                    onClick={() => setFilterStatus("invalid")}
+                    className="gap-1"
+                  >
+                    <ShieldX className="w-3 h-3" />
+                    Invalid ({statusCounts.invalid})
+                  </Button>
                 </div>
 
-                {/* Search and Selection Controls */}
+                {/* Search and Bulk Actions */}
                 <div className="flex gap-2">
                   <Input
                     placeholder="Search examples..."
                     value={searchQuery}
                     onChange={(e) => setSearchQuery(e.target.value)}
-                    className="flex-1 h-8 text-sm bg-black/20"
+                    className="flex-1"
                   />
-                  <Button variant="ghost" size="sm" onClick={selectAllVisible} className="h-8 px-2">
+                  <Button
+                    variant="outline"
+                    size="icon"
+                    onClick={selectAllVisible}
+                    title="Select all visible"
+                  >
                     <CheckSquare className="w-4 h-4" />
                   </Button>
-                  <Button variant="ghost" size="sm" onClick={clearSelection} className="h-8 px-2">
+                  <Button
+                    variant="outline"
+                    size="icon"
+                    onClick={clearSelection}
+                    title="Clear selection"
+                    disabled={selectedExamples.size === 0}
+                  >
                     <Square className="w-4 h-4" />
                   </Button>
                 </div>
@@ -699,50 +817,64 @@ export default function TrainingDataGenerator() {
                 {/* Example List */}
                 <ScrollArea className="h-[400px]">
                   <div className="space-y-1 pr-2">
-                    {filteredExamples.map((example) => (
-                      <div
+                    {filteredExamples.map(example => (
+                      <motion.div
                         key={example.id}
-                        className={`group p-2 rounded-lg border cursor-pointer transition-all ${
+                        initial={{ opacity: 0, y: 10 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        className={`p-2 rounded-lg border cursor-pointer transition-all ${
                           selectedExampleId === example.id
-                            ? "bg-primary/10 border-primary/50"
-                            : example.status === "deleted"
-                            ? "bg-red-500/5 border-red-500/20 opacity-60"
-                            : "bg-black/20 border-white/5 hover:border-white/20"
-                        }`}
+                            ? "bg-primary/20 border-primary/50"
+                            : "bg-black/20 border-white/5 hover:bg-white/5"
+                        } ${example.status === "deleted" ? "opacity-50" : ""}`}
                         onClick={() => setSelectedExampleId(example.id)}
                       >
-                        <div className="flex items-start gap-2">
+                        <div className="flex items-center gap-2">
                           <Checkbox
                             checked={selectedExamples.has(example.id)}
-                            onCheckedChange={() => toggleExampleSelection(example.id)}
-                            onClick={(e) => e.stopPropagation()}
-                            className="mt-1"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              toggleExampleSelection(example.id);
+                            }}
                           />
                           <div className="flex-1 min-w-0">
                             <div className="flex items-center gap-2">
-                              <span className="text-xs font-mono text-muted-foreground truncate">
+                              <span className="text-xs font-mono text-muted-foreground">
                                 {example.id}
                               </span>
-                              <Badge className={`text-[10px] px-1.5 py-0 ${getStatusColor(example.status)}`}>
+                              <Badge className={`text-xs ${getStatusColor(example.status)}`}>
                                 {example.status || "original"}
                               </Badge>
+                              <Tooltip>
+                                <TooltipTrigger>
+                                  {getValidationIcon(example.validationResult)}
+                                </TooltipTrigger>
+                                <TooltipContent side="top" className="max-w-xs">
+                                  <p className="font-semibold mb-1">
+                                    {getValidationStatusLabel(example.validationResult!)}
+                                  </p>
+                                  {example.validationResult && (example.validationResult.errors.length > 0 || example.validationResult.warnings.length > 0) && (
+                                    <pre className="text-xs whitespace-pre-wrap">
+                                      {formatValidationErrors(example.validationResult)}
+                                    </pre>
+                                  )}
+                                </TooltipContent>
+                              </Tooltip>
                             </div>
-                            <p className="text-xs text-foreground mt-1 line-clamp-2">
+                            <p className="text-sm truncate mt-1">
                               {example.messages[0].content}
                             </p>
-                            <div className="flex items-center gap-1 mt-1">
-                              <Badge variant="outline" className="text-[10px] px-1 py-0">
-                                {example.playbook}
-                              </Badge>
-                            </div>
+                            <span className="text-xs text-muted-foreground">
+                              {example.playbook}
+                            </span>
                           </div>
-                          <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                          <div className="flex gap-1">
                             {example.status !== "deleted" ? (
                               <>
                                 <Button
                                   variant="ghost"
-                                  size="sm"
-                                  className="h-6 w-6 p-0"
+                                  size="icon"
+                                  className="h-6 w-6"
                                   onClick={(e) => {
                                     e.stopPropagation();
                                     startEditing(example);
@@ -752,8 +884,8 @@ export default function TrainingDataGenerator() {
                                 </Button>
                                 <Button
                                   variant="ghost"
-                                  size="sm"
-                                  className="h-6 w-6 p-0 text-red-400 hover:text-red-300"
+                                  size="icon"
+                                  className="h-6 w-6 text-red-400"
                                   onClick={(e) => {
                                     e.stopPropagation();
                                     deleteExample(example.id);
@@ -765,8 +897,8 @@ export default function TrainingDataGenerator() {
                             ) : (
                               <Button
                                 variant="ghost"
-                                size="sm"
-                                className="h-6 w-6 p-0 text-green-400 hover:text-green-300"
+                                size="icon"
+                                className="h-6 w-6 text-green-400"
                                 onClick={(e) => {
                                   e.stopPropagation();
                                   restoreExample(example.id);
@@ -777,24 +909,39 @@ export default function TrainingDataGenerator() {
                             )}
                           </div>
                         </div>
-                      </div>
+                      </motion.div>
                     ))}
                   </div>
                 </ScrollArea>
-              </>
-            )}
 
-            {!generatedData && (
+                {/* Bulk Actions */}
+                {selectedExamples.size > 0 && (
+                  <div className="flex items-center justify-between p-2 rounded-lg bg-primary/10 border border-primary/20">
+                    <span className="text-sm">
+                      {selectedExamples.size} selected
+                    </span>
+                    <Button
+                      variant="destructive"
+                      size="sm"
+                      onClick={() => setShowDeleteConfirm(true)}
+                    >
+                      <Trash2 className="w-3 h-3 mr-1" />
+                      Delete Selected
+                    </Button>
+                  </div>
+                )}
+              </div>
+            ) : (
               <div className="flex flex-col items-center justify-center h-[400px] text-muted-foreground">
-                <Sparkles className="w-12 h-12 mb-4 opacity-50" />
-                <p className="text-sm">Generate examples to browse and edit</p>
+                <Database className="w-12 h-12 mb-4 opacity-50" />
+                <p className="text-sm">Generate training data to browse examples</p>
               </div>
             )}
           </CardContent>
         </Card>
 
-        {/* Example Detail/Editor Panel */}
-        <Card className="xl:col-span-5 bg-card/50 border-border">
+        {/* Example Detail Panel */}
+        <Card className="xl:col-span-4 bg-card/50 border-border">
           <CardHeader className="pb-3">
             <div className="flex items-center justify-between">
               <div>
@@ -868,6 +1015,34 @@ export default function TrainingDataGenerator() {
                       )}
                     </div>
                   </div>
+
+                  {/* Validation Status */}
+                  {selectedExample.validationResult && (
+                    <div className={`p-3 rounded-lg border ${getValidationStatusColor(selectedExample.validationResult)}`}>
+                      <div className="flex items-center gap-2 mb-2">
+                        {getValidationIcon(selectedExample.validationResult)}
+                        <span className="text-sm font-medium">
+                          Schema Validation: {getValidationStatusLabel(selectedExample.validationResult)}
+                        </span>
+                      </div>
+                      {(selectedExample.validationResult.errors.length > 0 || selectedExample.validationResult.warnings.length > 0) && (
+                        <div className="text-xs space-y-1">
+                          {selectedExample.validationResult.errors.map((err, i) => (
+                            <div key={i} className="flex items-start gap-1">
+                              <X className="w-3 h-3 mt-0.5 text-red-400 shrink-0" />
+                              <span><strong>{err.field}:</strong> {err.message}</span>
+                            </div>
+                          ))}
+                          {selectedExample.validationResult.warnings.map((warn, i) => (
+                            <div key={i} className="flex items-start gap-1">
+                              <AlertTriangle className="w-3 h-3 mt-0.5 text-yellow-400 shrink-0" />
+                              <span><strong>{warn.field}:</strong> {warn.message}</span>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  )}
 
                   {/* User Message */}
                   <div className="p-3 rounded-lg bg-blue-500/10 border border-blue-500/20">
@@ -970,9 +1145,9 @@ export default function TrainingDataGenerator() {
         />
       )}
 
-      {/* Edit Dialog */}
+      {/* Edit Dialog with Real-time Validation */}
       <Dialog open={!!editingExample} onOpenChange={(open) => !open && cancelEdit()}>
-        <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
+        <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <Pencil className="w-5 h-5" />
@@ -983,49 +1158,164 @@ export default function TrainingDataGenerator() {
             </DialogDescription>
           </DialogHeader>
 
-          <div className="space-y-4 py-4">
-            {/* User Query */}
-            <div className="space-y-2">
-              <Label className="flex items-center gap-2">
-                <Badge variant="outline" className="text-blue-400">User Query</Badge>
-              </Label>
-              <Textarea
-                value={editedUserContent}
-                onChange={(e) => setEditedUserContent(e.target.value)}
-                className="min-h-[80px] font-mono text-sm"
-                placeholder="Enter user query..."
-              />
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 py-4">
+            {/* Left Column - Editor */}
+            <div className="space-y-4">
+              {/* User Query */}
+              <div className="space-y-2">
+                <Label className="flex items-center gap-2">
+                  <Badge variant="outline" className="text-blue-400">User Query</Badge>
+                </Label>
+                <Textarea
+                  value={editedUserContent}
+                  onChange={(e) => setEditedUserContent(e.target.value)}
+                  className="min-h-[80px] font-mono text-sm"
+                  placeholder="Enter user query..."
+                />
+              </div>
+
+              {/* Reasoning */}
+              <div className="space-y-2">
+                <Label className="flex items-center gap-2">
+                  <Badge variant="outline" className="text-purple-400">Reasoning (Optional)</Badge>
+                </Label>
+                <Textarea
+                  value={editedReasoningContent}
+                  onChange={(e) => setEditedReasoningContent(e.target.value)}
+                  className="min-h-[100px] font-mono text-sm"
+                  placeholder="Enter chain-of-thought reasoning..."
+                />
+              </div>
+
+              {/* Response */}
+              <div className="space-y-2">
+                <Label className="flex items-center gap-2">
+                  <Badge variant="outline" className="text-green-400">Assistant Response</Badge>
+                  {editValidation && (
+                    <Badge className={getValidationStatusColor(editValidation)}>
+                      {getValidationStatusLabel(editValidation)}
+                    </Badge>
+                  )}
+                </Label>
+                <Textarea
+                  value={editedAssistantContent}
+                  onChange={(e) => handleAssistantContentChange(e.target.value)}
+                  className={`min-h-[150px] font-mono text-sm ${
+                    editValidation && !editValidation.isValid ? "border-red-500/50" : ""
+                  }`}
+                  placeholder="Enter assistant response (JSON or text)..."
+                />
+              </div>
             </div>
 
-            {/* Reasoning */}
-            <div className="space-y-2">
-              <Label className="flex items-center gap-2">
-                <Badge variant="outline" className="text-purple-400">Reasoning (Optional)</Badge>
-              </Label>
-              <Textarea
-                value={editedReasoningContent}
-                onChange={(e) => setEditedReasoningContent(e.target.value)}
-                className="min-h-[100px] font-mono text-sm"
-                placeholder="Enter chain-of-thought reasoning..."
-              />
-            </div>
+            {/* Right Column - Validation Details */}
+            <div className="space-y-4">
+              {/* Validation Status Card */}
+              <Card className={`border ${editValidation ? getValidationStatusColor(editValidation) : "border-border"}`}>
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-sm flex items-center gap-2">
+                    <Shield className="w-4 h-4" />
+                    Schema Validation
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  {editValidation ? (
+                    <div className="space-y-3">
+                      <div className="flex items-center gap-2">
+                        {getValidationIcon(editValidation)}
+                        <span className="font-medium">
+                          {editValidation.isValid ? "Valid ExtraHop API Request" : "Invalid Response"}
+                        </span>
+                      </div>
 
-            {/* Response */}
-            <div className="space-y-2">
-              <Label className="flex items-center gap-2">
-                <Badge variant="outline" className="text-green-400">Assistant Response</Badge>
-              </Label>
-              <Textarea
-                value={editedAssistantContent}
-                onChange={(e) => setEditedAssistantContent(e.target.value)}
-                className="min-h-[150px] font-mono text-sm"
-                placeholder="Enter assistant response (JSON or text)..."
-              />
-              {editedAssistantContent.startsWith("{") && (
-                <div className="text-xs text-muted-foreground">
-                  Detected JSON format - will be validated on save
-                </div>
-              )}
+                      {/* Errors */}
+                      {editValidation.errors.length > 0 && (
+                        <div className="space-y-2">
+                          <Label className="text-xs text-red-400">Errors ({editValidation.errors.length})</Label>
+                          <div className="space-y-1">
+                            {editValidation.errors.map((err, i) => (
+                              <div key={i} className="p-2 rounded bg-red-500/10 border border-red-500/20 text-xs">
+                                <span className="font-mono text-red-400">{err.field}</span>
+                                <p className="text-muted-foreground mt-1">{err.message}</p>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Warnings */}
+                      {editValidation.warnings.length > 0 && (
+                        <div className="space-y-2">
+                          <Label className="text-xs text-yellow-400">Warnings ({editValidation.warnings.length})</Label>
+                          <div className="space-y-1">
+                            {editValidation.warnings.map((warn, i) => (
+                              <div key={i} className="p-2 rounded bg-yellow-500/10 border border-yellow-500/20 text-xs">
+                                <span className="font-mono text-yellow-400">{warn.field}</span>
+                                <p className="text-muted-foreground mt-1">{warn.message}</p>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Parsed Response Preview */}
+                      {editValidation.parsedResponse && (
+                        <div className="space-y-2">
+                          <Label className="text-xs text-green-400">Parsed Response</Label>
+                          <div className="p-2 rounded bg-green-500/10 border border-green-500/20">
+                            <div className="grid grid-cols-2 gap-2 text-xs">
+                              <div>
+                                <span className="text-muted-foreground">Category:</span>
+                                <span className="ml-2 font-mono">{editValidation.parsedResponse.metric_category}</span>
+                              </div>
+                              <div>
+                                <span className="text-muted-foreground">Object Type:</span>
+                                <span className="ml-2 font-mono">{editValidation.parsedResponse.object_type}</span>
+                              </div>
+                              <div className="col-span-2">
+                                <span className="text-muted-foreground">Metrics:</span>
+                                <span className="ml-2 font-mono">
+                                  {editValidation.parsedResponse.metric_specs.map(m => m.name).join(", ")}
+                                </span>
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  ) : (
+                    <div className="text-sm text-muted-foreground">
+                      Enter a JSON response to see validation results
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+
+              {/* Schema Reference */}
+              <Card className="border-border">
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-sm flex items-center gap-2">
+                    <Info className="w-4 h-4" />
+                    Schema Reference
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="text-xs space-y-2">
+                  <div>
+                    <Label className="text-muted-foreground">Required Fields:</Label>
+                    <p className="font-mono">metric_category, object_type, metric_specs[]</p>
+                  </div>
+                  <div>
+                    <Label className="text-muted-foreground">Valid Categories:</Label>
+                    <p className="font-mono text-xs">
+                      {VALID_METRIC_CATEGORIES.slice(0, 6).join(", ")}...
+                    </p>
+                  </div>
+                  <div>
+                    <Label className="text-muted-foreground">Valid Object Types:</Label>
+                    <p className="font-mono">{VALID_OBJECT_TYPES.join(", ")}</p>
+                  </div>
+                </CardContent>
+              </Card>
             </div>
           </div>
 
@@ -1034,9 +1324,12 @@ export default function TrainingDataGenerator() {
               <X className="w-4 h-4 mr-2" />
               Cancel
             </Button>
-            <Button onClick={saveEdit}>
+            <Button 
+              onClick={saveEdit}
+              variant={editValidation?.isValid ? "default" : "secondary"}
+            >
               <Save className="w-4 h-4 mr-2" />
-              Save Changes
+              {editValidation?.isValid ? "Save Changes" : "Save Anyway"}
             </Button>
           </DialogFooter>
         </DialogContent>

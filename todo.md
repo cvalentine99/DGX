@@ -56,3 +56,13 @@
 - [x] Add search/filter for examples
 - [x] Update export to exclude deleted examples
 - [x] Test editing workflow and export
+
+# JSON Schema Validation for Training Examples
+
+- [x] Define ExtraHop API JSON schema with required fields
+- [x] Create validation function for assistant responses
+- [x] Add real-time validation in edit dialog
+- [x] Show validation errors with field-level details
+- [x] Add validation status badge to example list
+- [x] Add Valid/Invalid filter tabs to example browser
+- [x] Test validation with various response formats
