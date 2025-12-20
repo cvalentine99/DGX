@@ -1,0 +1,202 @@
+/**
+ * ExtraHop Design Tokens
+ * Extracted from ExtraHop v25.3.2.1964
+ * For use in Devolution Detect
+ */
+
+:root {
+  /* ============================================
+   * BASE COLORS
+   * ============================================ */
+  --color-white: #fff;
+  --color-black: #000;
+
+  /* ============================================
+   * STATUS COLORS
+   * ============================================ */
+  --color-status-red: #EB2943;           /* COLOR-RED-500 - Critical/Error */
+  --color-status-red-light: #FF6B6B;     /* COLOR-RED-400 */
+  --color-status-red-dark: #C41E3A;      /* COLOR-RED-600 */
+
+  --color-status-orange: #FF8229;        /* COLOR-ORANGE-400 - Warning/High */
+  --color-status-orange-light: #FFA500;  /* COLOR-ORANGE-300 */
+  --color-status-orange-dark: #E06600;   /* COLOR-ORANGE-500 */
+
+  --color-status-yellow: #F2D402;        /* COLOR-YELLOW-300 - Caution/Medium */
+  --color-status-yellow-light: #FFE135;  /* COLOR-YELLOW-200 */
+  --color-status-yellow-dark: #B89B00;   /* COLOR-YELLOW-500 */
+
+  --color-status-green: #2B8C2D;         /* COLOR-GREEN-500 - Success/Low */
+  --color-status-green-light: #3FB950;   /* COLOR-GREEN-400 */
+  --color-status-green-dark: #1F6B1F;    /* COLOR-GREEN-600 */
+
+  --color-status-blue: #006EBD;          /* COLOR-BLUE-500 - Info */
+  --color-status-blue-light: #3D8FD1;    /* COLOR-BLUE-400 */
+  --color-status-blue-dark: #00538F;     /* COLOR-BLUE-600 */
+
+  --color-status-gray: #666666;          /* COLOR-GRAY-500 - Inactive */
+
+  /* ============================================
+   * BACKGROUND COLORS
+   * ============================================ */
+  --color-bg-0: #F7F7F7;                 /* COLOR-GRAY-50 - Page background */
+  --color-bg-1: #FFFFFF;                 /* COLOR-WHITE - Card background */
+  --color-bg-2: #EDEDED;                 /* COLOR-GRAY-100 - Secondary background */
+  --color-bg-3: #DBDBDB;                 /* COLOR-GRAY-200 - Tertiary background */
+  --color-bg-hover: rgba(158, 158, 158, 0.25);  /* Hover state */
+  --color-bg-accent: #7CDFDE;            /* COLOR-TEAL-300 - Accent background */
+
+  /* ============================================
+   * FOREGROUND/TEXT COLORS
+   * ============================================ */
+  --color-fg-1: #171717;                 /* COLOR-GRAY-950 - Primary text */
+  --color-fg-2: #383838;                 /* COLOR-GRAY-700 - Secondary text */
+  --color-fg-3: #424242;                 /* COLOR-GRAY-600 - Body text */
+  --color-fg-4: #666666;                 /* COLOR-GRAY-500 - Muted text */
+  --color-fg-5: #9E9E9E;                 /* COLOR-GRAY-400 - Disabled/placeholder */
+  --color-fg-accent: #175E5C;            /* COLOR-TEAL-600 - Accent text */
+  --color-fg-accent-hover: #124A49;      /* COLOR-TEAL-700 */
+
+  /* ============================================
+   * BORDER COLORS
+   * ============================================ */
+  --color-border-1: #666666;             /* COLOR-GRAY-500 - Strong border */
+  --color-border-2: rgba(102, 102, 102, 0.25);  /* Subtle border */
+
+  /* ============================================
+   * LINK COLORS
+   * ============================================ */
+  --color-link: #006EBD;                 /* COLOR-BLUE-500 */
+  --color-link-hover: #00538F;           /* COLOR-BLUE-600 */
+
+  /* ============================================
+   * ACCENT/BRAND COLORS (TEAL)
+   * ============================================ */
+  --color-accent: #23908E;               /* COLOR-TEAL-500 - Primary accent */
+  --color-accent-light: #7CDFDE;         /* COLOR-TEAL-300 */
+  --color-accent-dark: #175E5C;          /* COLOR-TEAL-600 */
+  --color-accent-darker: #124A49;        /* COLOR-TEAL-700 */
+  --color-accent-translucent: rgba(35, 144, 142, 0.5);  /* 50% opacity */
+  --color-accent-translucent-light: rgba(35, 144, 142, 0.15);  /* 15% opacity */
+
+  /* ============================================
+   * DATA VISUALIZATION COLORS
+   * ============================================ */
+  --color-data-metric-1: #00538F;        /* COLOR-BLUE-600 */
+  --color-data-metric-2: #003C66;        /* COLOR-BLUE-700 */
+  --color-data-asset-1: #506C77;         /* COLOR-NIGHT-BLUE-500 */
+  --color-data-asset-2: #88A4AF;         /* COLOR-NIGHT-BLUE-400 */
+
+  /* ============================================
+   * NAVIGATION COLORS
+   * ============================================ */
+  --color-nav: #424242;                  /* COLOR-GRAY-600 - Primary nav */
+  --color-nav-hover: rgba(255, 255, 255, 0.1);
+  --color-subnav: #383838;               /* COLOR-GRAY-700 - Secondary nav */
+  --color-nav-active: var(--color-accent);
+
+  /* ============================================
+   * SCROLLBAR COLORS
+   * ============================================ */
+  --color-scrollbar-thumb: #9E9E9E;      /* COLOR-GRAY-400 */
+  --color-scrollbar-track: rgba(158, 158, 158, 0.25);
+
+  /* ============================================
+   * CHART COLORS (for data viz)
+   * ============================================ */
+  --chart-color-1: #23908E;              /* Teal */
+  --chart-color-2: #006EBD;              /* Blue */
+  --chart-color-3: #FF8229;              /* Orange */
+  --chart-color-4: #2B8C2D;              /* Green */
+  --chart-color-5: #EB2943;              /* Red */
+  --chart-color-6: #506C77;              /* Night Blue */
+  --chart-color-7: #88A4AF;              /* Light Night Blue */
+  --chart-color-8: #F2D402;              /* Yellow */
+
+  /* ============================================
+   * SPACING
+   * ============================================ */
+  --space-xs: 4px;
+  --space-sm: 8px;
+  --space-md: 16px;
+  --space-lg: 24px;
+  --space-xl: 32px;
+  --space-2xl: 48px;
+
+  /* ============================================
+   * TYPOGRAPHY
+   * ============================================ */
+  --font-family: 'Lato', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  --font-size-xs: 10px;
+  --font-size-sm: 11px;
+  --font-size-base: 13px;
+  --font-size-md: 14px;
+  --font-size-lg: 16px;
+  --font-size-xl: 20px;
+  --font-size-2xl: 28px;
+  --font-size-3xl: 32px;
+
+  --font-weight-light: 300;
+  --font-weight-normal: 400;
+  --font-weight-bold: 700;
+
+  --line-height: 1.5;
+
+  /* ============================================
+   * BORDER RADIUS
+   * ============================================ */
+  --radius-sm: 4px;
+  --radius-md: 6px;
+  --radius-lg: 8px;
+  --radius-xl: 12px;
+  --radius-full: 9999px;
+
+  /* ============================================
+   * SHADOWS
+   * ============================================ */
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.1);
+  --shadow-md: 0 2px 4px rgba(0, 0, 0, 0.1);
+  --shadow-lg: 0 4px 12px rgba(0, 0, 0, 0.15);
+  --shadow-xl: 0 8px 24px rgba(0, 0, 0, 0.2);
+
+  /* ============================================
+   * LAYOUT
+   * ============================================ */
+  --header-height: 56px;
+  --subheader-height: 40px;
+  --sidebar-width: 240px;
+  --sidebar-collapsed: 60px;
+
+  /* ============================================
+   * TRANSITIONS
+   * ============================================ */
+  --transition-fast: 0.15s ease;
+  --transition-normal: 0.2s ease;
+  --transition-slow: 0.3s ease;
+
+  /* ============================================
+   * Z-INDEX LAYERS
+   * ============================================ */
+  --z-dropdown: 100;
+  --z-sticky: 200;
+  --z-fixed: 300;
+  --z-modal-backdrop: 400;
+  --z-modal: 500;
+  --z-popover: 600;
+  --z-tooltip: 700;
+}
+
+/* Dark mode overrides (for dark dashboards) */
+[data-theme="dark"] {
+  --color-bg-0: #1a1a2e;
+  --color-bg-1: #16213e;
+  --color-bg-2: #0f3460;
+  --color-bg-3: #1a1a2e;
+  --color-fg-1: #e6edf3;
+  --color-fg-2: #c9d1d9;
+  --color-fg-3: #8b949e;
+  --color-fg-4: #6e7681;
+  --color-fg-5: #484f58;
+  --color-border-1: #30363d;
+  --color-border-2: rgba(48, 54, 61, 0.5);
+}
