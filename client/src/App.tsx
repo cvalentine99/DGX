@@ -10,9 +10,10 @@ import DataCuration from "./pages/DataCuration";
 import Training from "./pages/Training";
 import Interaction from "./pages/Interaction";
 import Statistics from "./pages/Statistics";
+import KnowledgeBase from "./pages/KnowledgeBase";
 import DashboardLayout from "./components/DashboardLayout";
-
 function Router() {
+  // make sure to consider if you need authentication for certain routes
   return (
     <DashboardLayout>
       <Switch>
@@ -22,6 +23,7 @@ function Router() {
         <Route path="/training" component={Training} />
         <Route path="/interaction" component={Interaction} />
         <Route path="/statistics" component={Statistics} />
+        <Route path="/knowledge" component={KnowledgeBase} />
         <Route path="/404" component={NotFound} />
         <Route component={NotFound} />
       </Switch>

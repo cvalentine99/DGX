@@ -1,12 +1,14 @@
 /*
- * Interaction - Reasoning Interface
+ * Interaction - Reasoning Interface with RAG & vLLM Integration
  * 
  * Design: Glass Box reasoning UI with collapsible thinking blocks,
- * system prompt library, inference configuration, and chat interface.
+ * system prompt library, inference configuration, RAG context, and chat interface.
+ * Connected to vLLM backend for live inference.
  */
 
 import { useState, useRef, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
+import { trpc } from "@/lib/trpc";
 import {
   MessageSquare,
   Brain,
@@ -23,6 +25,12 @@ import {
   BookOpen,
   Code,
   Lightbulb,
+  Database,
+  Server,
+  CheckCircle,
+  XCircle,
+  Loader2,
+  Zap,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -30,8 +38,9 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Slider } from "@/components/ui/slider";
 import { Label } from "@/components/ui/label";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Switch } from "@/components/ui/switch";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
 
 // System Prompt Presets
@@ -55,10 +64,10 @@ const SYSTEM_PROMPTS = [
     prompt: "You are a reasoning expert. Think through problems step by step, showing your work in <think> tags before providing your final answer."
   },
   { 
-    id: "creative", 
-    name: "Creative Writer", 
-    icon: Lightbulb,
-    prompt: "You are a creative writing assistant. Generate imaginative, engaging, and original content while maintaining coherence and quality."
+    id: "extrahop", 
+    name: "ExtraHop Expert", 
+    icon: Database,
+    prompt: "You are an expert in ExtraHop network analytics and the Metrics API. Help users construct API queries, analyze network data, and troubleshoot issues. Always provide the exact JSON structure for API calls."
   },
 ];
 
@@ -66,53 +75,11 @@ const SYSTEM_PROMPTS = [
 const DEFAULT_CONFIG = {
   temperature: 0.7,
   topP: 0.9,
-  topK: 50,
   maxTokens: 2048,
-  thinkingBudget: 1024,
-  repetitionPenalty: 1.1,
+  enableThinking: true,
+  reasoningBudget: 512,
+  useRag: true,
 };
-
-// Sample Conversation with Reasoning
-const SAMPLE_MESSAGES: Message[] = [
-  {
-    role: "user" as const,
-    content: "What is the sum of all prime numbers less than 20?"
-  },
-  {
-    role: "assistant" as const,
-    content: "The sum of all prime numbers less than 20 is **77**.",
-    thinking: `Let me identify all prime numbers less than 20:
-
-1. 2 - prime (only even prime)
-2. 3 - prime
-3. 5 - prime
-4. 7 - prime
-5. 11 - prime
-6. 13 - prime
-7. 17 - prime
-8. 19 - prime
-
-Numbers I'm excluding:
-- 1 is not prime (by definition)
-- 4, 6, 8, 9, 10, 12, 14, 15, 16, 18 are composite
-
-Now calculating the sum:
-2 + 3 = 5
-5 + 5 = 10
-10 + 7 = 17
-17 + 11 = 28
-28 + 13 = 41
-41 + 17 = 58
-58 + 19 = 77
-
-The sum is 77.`,
-    metrics: {
-      thinkingTokens: 156,
-      responseTokens: 12,
-      latency: 842,
-    }
-  }
-];
 
 interface Message {
   role: "user" | "assistant";
@@ -123,6 +90,8 @@ interface Message {
     responseTokens: number;
     latency: number;
   };
+  ragContext?: string;
+  simulated?: boolean;
 }
 
 const containerVariants = {
@@ -139,10 +108,10 @@ function ThinkingBlock({ content, metrics }: { content: string; metrics?: Messag
   const [expanded, setExpanded] = useState(false);
   
   return (
-    <div className="mt-2 rounded-lg border border-nvidia-teal/30 bg-nvidia-teal/5 overflow-hidden">
+    <div className="mt-2 rounded-lg border border-[#00b4d8]/30 bg-[#00b4d8]/5 overflow-hidden">
       <button
         onClick={() => setExpanded(!expanded)}
-        className="w-full flex items-center justify-between px-3 py-2 text-xs text-nvidia-teal hover:bg-nvidia-teal/10 transition-colors"
+        className="w-full flex items-center justify-between px-3 py-2 text-xs text-[#00b4d8] hover:bg-[#00b4d8]/10 transition-colors"
       >
         <div className="flex items-center gap-2">
           <Brain className="w-3 h-3" />
@@ -164,7 +133,7 @@ function ThinkingBlock({ content, metrics }: { content: string; metrics?: Messag
             exit={{ height: 0, opacity: 0 }}
             transition={{ duration: 0.2 }}
           >
-            <div className="px-3 pb-3 border-t border-nvidia-teal/20">
+            <div className="px-3 pb-3 border-t border-[#00b4d8]/20">
               <pre className="text-xs text-muted-foreground whitespace-pre-wrap font-mono mt-2 leading-relaxed">
                 {content}
               </pre>
@@ -182,8 +151,8 @@ function ChatMessage({ message }: { message: Message }) {
   return (
     <div className={cn("flex gap-3", isUser ? "justify-end" : "justify-start")}>
       {!isUser && (
-        <div className="w-8 h-8 rounded-lg bg-nvidia-green/20 flex items-center justify-center shrink-0">
-          <Sparkles className="w-4 h-4 text-nvidia-green" />
+        <div className="w-8 h-8 rounded-lg bg-[#76b900]/20 flex items-center justify-center shrink-0">
+          <Sparkles className="w-4 h-4 text-[#76b900]" />
         </div>
       )}
       
@@ -193,10 +162,24 @@ function ChatMessage({ message }: { message: Message }) {
           ? "bg-primary text-primary-foreground" 
           : "bg-muted/50 border border-border/50"
       )}>
+        {message.simulated && (
+          <Badge variant="outline" className="mb-2 text-[10px] text-orange-400 border-orange-400/30">
+            Simulated Response
+          </Badge>
+        )}
         <p className="text-sm whitespace-pre-wrap">{message.content}</p>
         
         {message.thinking && (
           <ThinkingBlock content={message.thinking} metrics={message.metrics} />
+        )}
+        
+        {message.ragContext && (
+          <div className="mt-2 pt-2 border-t border-border/30">
+            <div className="flex items-center gap-1 text-[10px] text-[#76b900]">
+              <Database className="w-3 h-3" />
+              <span>RAG Context Used</span>
+            </div>
+          </div>
         )}
         
         {!isUser && message.metrics && (
@@ -216,52 +199,124 @@ function ChatMessage({ message }: { message: Message }) {
   );
 }
 
-function ChatInterface() {
-  const [messages, setMessages] = useState<Message[]>(SAMPLE_MESSAGES);
+function ChatInterface({ 
+  config, 
+  systemPrompt 
+}: { 
+  config: typeof DEFAULT_CONFIG;
+  systemPrompt: string;
+}) {
+  const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
-  const [isGenerating, setIsGenerating] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
   
-  const handleSend = () => {
+  // vLLM health check
+  const { data: vllmHealth } = trpc.vllm.healthCheck.useQuery(undefined, {
+    refetchInterval: 30000,
+  });
+  
+  // RAG context query
+  const ragContextQuery = trpc.rag.getContext.useQuery(
+    { query: input, maxTokens: 2000 },
+    { enabled: config.useRag && input.length > 10 }
+  );
+  
+  // Chat completion mutation
+  const chatMutation = trpc.vllm.ragChatCompletion.useMutation({
+    onSuccess: (data) => {
+      const choice = data.choices?.[0];
+      const assistantMessage: Message = {
+        role: "assistant",
+        content: choice?.message?.content || "No response",
+        thinking: choice?.message?.reasoning_content,
+        metrics: {
+          thinkingTokens: data.usage?.reasoning_tokens || 0,
+          responseTokens: data.usage?.completion_tokens || 0,
+          latency: Date.now() - ((chatMutation.variables as { startTime?: number })?.startTime ?? Date.now()),
+        },
+        ragContext: data.ragEnabled ? "Used" : undefined,
+        simulated: data.simulated,
+      };
+      setMessages(prev => [...prev, assistantMessage]);
+    },
+    onError: (error) => {
+      toast.error(`Inference failed: ${error.message}`);
+    },
+  });
+  
+  const handleSend = async () => {
     if (!input.trim()) return;
     
     const userMessage: Message = { role: "user", content: input };
     setMessages(prev => [...prev, userMessage]);
+    const currentInput = input;
     setInput("");
-    setIsGenerating(true);
     
-    // Simulate response
-    setTimeout(() => {
-      const assistantMessage: Message = {
-        role: "assistant",
-        content: "This is a simulated response. In production, this would connect to the vLLM inference server running on your DGX Spark hosts.",
-        thinking: "Processing the user's query...\nAnalyzing context and intent...\nFormulating response based on available knowledge...",
-        metrics: {
-          thinkingTokens: 45,
-          responseTokens: 28,
-          latency: 234,
-        }
-      };
-      setMessages(prev => [...prev, assistantMessage]);
-      setIsGenerating(false);
-    }, 1500);
+    // Get RAG context if enabled
+    let ragContext: string | undefined;
+    if (config.useRag) {
+      try {
+        const contextResult = await ragContextQuery.refetch();
+        ragContext = contextResult.data?.context;
+      } catch {
+        // Continue without RAG context
+      }
+    }
+    
+    // Build messages for API
+    const apiMessages = [
+      { role: "system" as const, content: systemPrompt },
+      ...messages.map(m => ({ role: m.role, content: m.content })),
+      { role: "user" as const, content: currentInput },
+    ];
+    
+    // Call vLLM
+    chatMutation.mutate({
+      messages: apiMessages,
+      ragContext,
+      temperature: config.temperature,
+      maxTokens: config.maxTokens,
+      enableThinking: config.enableThinking,
+      startTime: Date.now(),
+    } as Parameters<typeof chatMutation.mutate>[0] & { startTime: number });
   };
   
+  const isConnected = vllmHealth?.status === "connected";
+  
   return (
-    <Card className="cyber-panel h-[600px] flex flex-col">
+    <Card className="bg-card border-border h-[600px] flex flex-col">
       <CardHeader className="pb-3 border-b border-border/50">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <div className="w-8 h-8 rounded-lg bg-nvidia-green/20 flex items-center justify-center">
-              <MessageSquare className="w-4 h-4 text-nvidia-green" />
+            <div className="w-8 h-8 rounded-lg bg-[#76b900]/20 flex items-center justify-center">
+              <MessageSquare className="w-4 h-4 text-[#76b900]" />
             </div>
             <div>
-              <CardTitle className="text-sm font-display tracking-wide">Chat Interface</CardTitle>
+              <CardTitle className="text-sm font-display tracking-wide text-foreground">Chat Interface</CardTitle>
               <p className="text-[10px] text-muted-foreground">Glass Box Reasoning UI</p>
             </div>
           </div>
           <div className="flex items-center gap-2">
-            <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => toast.info("Feature coming soon")}>
+            <div className={cn(
+              "flex items-center gap-1.5 px-2 py-1 rounded text-[10px]",
+              isConnected ? "bg-green-500/10 text-green-400" : "bg-orange-500/10 text-orange-400"
+            )}>
+              {isConnected ? (
+                <>
+                  <CheckCircle className="w-3 h-3" />
+                  <span>vLLM Connected</span>
+                </>
+              ) : (
+                <>
+                  <XCircle className="w-3 h-3" />
+                  <span>Simulated Mode</span>
+                </>
+              )}
+            </div>
+            <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => {
+              navigator.clipboard.writeText(messages.map(m => `${m.role}: ${m.content}`).join("\n\n"));
+              toast.success("Conversation copied");
+            }}>
               <Copy className="w-4 h-4" />
             </Button>
             <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => setMessages([])}>
@@ -273,20 +328,33 @@ function ChatInterface() {
       
       <ScrollArea className="flex-1 p-4" ref={scrollRef}>
         <div className="space-y-4">
+          {messages.length === 0 && (
+            <div className="text-center py-12 text-muted-foreground">
+              <Sparkles className="w-12 h-12 mx-auto mb-3 opacity-30" />
+              <p className="text-sm">Start a conversation with Nemotron-3-Nano</p>
+              <p className="text-xs mt-1">
+                {isConnected 
+                  ? "Connected to vLLM server" 
+                  : "Running in simulated mode - configure VLLM_API_URL to connect"}
+              </p>
+            </div>
+          )}
+          
           {messages.map((message, index) => (
             <ChatMessage key={index} message={message} />
           ))}
           
-          {isGenerating && (
+          {chatMutation.isPending && (
             <div className="flex gap-3">
-              <div className="w-8 h-8 rounded-lg bg-nvidia-green/20 flex items-center justify-center">
-                <Sparkles className="w-4 h-4 text-nvidia-green animate-pulse" />
+              <div className="w-8 h-8 rounded-lg bg-[#76b900]/20 flex items-center justify-center">
+                <Sparkles className="w-4 h-4 text-[#76b900] animate-pulse" />
               </div>
               <div className="bg-muted/50 border border-border/50 rounded-lg p-3">
                 <div className="flex items-center gap-2">
-                  <div className="w-2 h-2 rounded-full bg-nvidia-green animate-bounce" />
-                  <div className="w-2 h-2 rounded-full bg-nvidia-green animate-bounce" style={{ animationDelay: "0.1s" }} />
-                  <div className="w-2 h-2 rounded-full bg-nvidia-green animate-bounce" style={{ animationDelay: "0.2s" }} />
+                  <Loader2 className="w-4 h-4 animate-spin text-[#76b900]" />
+                  <span className="text-xs text-muted-foreground">
+                    {config.enableThinking ? "Thinking..." : "Generating..."}
+                  </span>
                 </div>
               </div>
             </div>
@@ -310,30 +378,43 @@ function ChatInterface() {
           />
           <Button 
             onClick={handleSend}
-            disabled={!input.trim() || isGenerating}
-            className="bg-nvidia-green hover:bg-nvidia-green/90 h-auto"
+            disabled={!input.trim() || chatMutation.isPending}
+            className="bg-[#76b900] hover:bg-[#76b900]/90 h-auto"
           >
             <Send className="w-4 h-4" />
           </Button>
         </div>
+        {config.useRag && input.length > 10 && (
+          <div className="flex items-center gap-1 mt-2 text-[10px] text-[#76b900]">
+            <Database className="w-3 h-3" />
+            <span>RAG context will be included</span>
+          </div>
+        )}
       </div>
     </Card>
   );
 }
 
-function SystemPromptCard() {
-  const [selected, setSelected] = useState("default");
-  const [customPrompt, setCustomPrompt] = useState(SYSTEM_PROMPTS[0].prompt);
-  
+function SystemPromptCard({ 
+  selected, 
+  onSelect, 
+  customPrompt, 
+  onCustomPromptChange 
+}: {
+  selected: string;
+  onSelect: (id: string) => void;
+  customPrompt: string;
+  onCustomPromptChange: (prompt: string) => void;
+}) {
   return (
-    <Card className="cyber-panel">
+    <Card className="bg-card border-border">
       <CardHeader>
         <div className="flex items-center gap-3">
-          <div className="w-8 h-8 rounded-lg bg-nvidia-teal/20 flex items-center justify-center">
-            <BookOpen className="w-4 h-4 text-nvidia-teal" />
+          <div className="w-8 h-8 rounded-lg bg-[#00b4d8]/20 flex items-center justify-center">
+            <BookOpen className="w-4 h-4 text-[#00b4d8]" />
           </div>
           <div>
-            <CardTitle className="text-sm font-display tracking-wide">System Prompt</CardTitle>
+            <CardTitle className="text-sm font-display tracking-wide text-foreground">System Prompt</CardTitle>
             <p className="text-[10px] text-muted-foreground">Preset Modes</p>
           </div>
         </div>
@@ -348,19 +429,19 @@ function SystemPromptCard() {
               <button
                 key={preset.id}
                 onClick={() => {
-                  setSelected(preset.id);
-                  setCustomPrompt(preset.prompt);
+                  onSelect(preset.id);
+                  onCustomPromptChange(preset.prompt);
                 }}
                 className={cn(
                   "p-2 rounded-lg border text-left transition-all",
                   isSelected 
-                    ? "bg-nvidia-teal/10 border-nvidia-teal/50" 
+                    ? "bg-[#00b4d8]/10 border-[#00b4d8]/50" 
                     : "bg-muted/30 border-border/50 hover:border-border"
                 )}
               >
                 <div className="flex items-center gap-2">
-                  <Icon className={cn("w-4 h-4", isSelected ? "text-nvidia-teal" : "text-muted-foreground")} />
-                  <span className="text-xs font-medium">{preset.name}</span>
+                  <Icon className={cn("w-4 h-4", isSelected ? "text-[#00b4d8]" : "text-muted-foreground")} />
+                  <span className="text-xs font-medium text-foreground">{preset.name}</span>
                 </div>
               </button>
             );
@@ -369,7 +450,7 @@ function SystemPromptCard() {
         
         <Textarea
           value={customPrompt}
-          onChange={(e) => setCustomPrompt(e.target.value)}
+          onChange={(e) => onCustomPromptChange(e.target.value)}
           className="min-h-[100px] text-xs bg-muted/30 resize-none"
         />
       </CardContent>
@@ -377,78 +458,116 @@ function SystemPromptCard() {
   );
 }
 
-function InferenceConfigCard() {
-  const [config, setConfig] = useState(DEFAULT_CONFIG);
+function InferenceConfigCard({ 
+  config, 
+  onConfigChange 
+}: { 
+  config: typeof DEFAULT_CONFIG;
+  onConfigChange: (config: typeof DEFAULT_CONFIG) => void;
+}) {
+  // vLLM health check
+  const { data: vllmHealth } = trpc.vllm.healthCheck.useQuery();
+  const { data: ragStats } = trpc.rag.getStats.useQuery();
   
   return (
-    <Card className="cyber-panel">
+    <Card className="bg-card border-border">
       <CardHeader>
         <div className="flex items-center gap-3">
           <div className="w-8 h-8 rounded-lg bg-muted flex items-center justify-center">
             <Settings className="w-4 h-4 text-foreground" />
           </div>
           <div>
-            <CardTitle className="text-sm font-display tracking-wide">Inference Config</CardTitle>
+            <CardTitle className="text-sm font-display tracking-wide text-foreground">Inference Config</CardTitle>
             <p className="text-[10px] text-muted-foreground">Generation Parameters</p>
           </div>
         </div>
       </CardHeader>
       
       <CardContent className="space-y-4">
+        {/* Connection Status */}
+        <div className="p-3 rounded-lg bg-muted/30 border border-border/50 space-y-2">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <Server className="w-4 h-4 text-muted-foreground" />
+              <span className="text-xs text-foreground">vLLM Server</span>
+            </div>
+            {vllmHealth?.status === "connected" ? (
+              <Badge className="bg-green-500/20 text-green-400 border-green-500/30">Connected</Badge>
+            ) : (
+              <Badge className="bg-orange-500/20 text-orange-400 border-orange-500/30">Simulated</Badge>
+            )}
+          </div>
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <Database className="w-4 h-4 text-muted-foreground" />
+              <span className="text-xs text-foreground">RAG Documents</span>
+            </div>
+            <span className="text-xs font-mono text-[#76b900]">{ragStats?.totalDocuments || 0}</span>
+          </div>
+        </div>
+        
+        {/* RAG Toggle */}
+        <div className="flex items-center justify-between p-3 rounded-lg bg-muted/30 border border-border/50">
+          <div className="flex items-center gap-2">
+            <Zap className="w-4 h-4 text-[#76b900]" />
+            <span className="text-xs text-foreground">Use RAG Context</span>
+          </div>
+          <Switch
+            checked={config.useRag}
+            onCheckedChange={(checked) => onConfigChange({ ...config, useRag: checked })}
+          />
+        </div>
+        
+        {/* Thinking Toggle */}
+        <div className="flex items-center justify-between p-3 rounded-lg bg-muted/30 border border-border/50">
+          <div className="flex items-center gap-2">
+            <Brain className="w-4 h-4 text-[#00b4d8]" />
+            <span className="text-xs text-foreground">Enable Reasoning</span>
+          </div>
+          <Switch
+            checked={config.enableThinking}
+            onCheckedChange={(checked) => onConfigChange({ ...config, enableThinking: checked })}
+          />
+        </div>
+        
         <div className="space-y-3">
           <div className="space-y-2">
             <div className="flex items-center justify-between">
-              <Label className="text-xs flex items-center gap-1">
+              <Label className="text-xs flex items-center gap-1 text-foreground">
                 <Thermometer className="w-3 h-3" />
                 Temperature
               </Label>
-              <span className="text-xs font-mono text-nvidia-green">{config.temperature}</span>
+              <span className="text-xs font-mono text-[#76b900]">{config.temperature}</span>
             </div>
             <Slider 
               value={[config.temperature * 100]}
-              onValueChange={([v]) => setConfig(prev => ({ ...prev, temperature: v / 100 }))}
+              onValueChange={([v]) => onConfigChange({ ...config, temperature: v / 100 })}
               max={200}
               step={1}
-              className="[&_[role=slider]]:bg-nvidia-green"
+              className="[&_[role=slider]]:bg-[#76b900]"
             />
           </div>
           
           <div className="space-y-2">
             <div className="flex items-center justify-between">
-              <Label className="text-xs flex items-center gap-1">
+              <Label className="text-xs flex items-center gap-1 text-foreground">
                 <Gauge className="w-3 h-3" />
                 Top-P
               </Label>
-              <span className="text-xs font-mono text-nvidia-teal">{config.topP}</span>
+              <span className="text-xs font-mono text-[#00b4d8]">{config.topP}</span>
             </div>
             <Slider 
               value={[config.topP * 100]}
-              onValueChange={([v]) => setConfig(prev => ({ ...prev, topP: v / 100 }))}
+              onValueChange={([v]) => onConfigChange({ ...config, topP: v / 100 })}
               max={100}
               step={1}
-              className="[&_[role=slider]]:bg-nvidia-teal"
+              className="[&_[role=slider]]:bg-[#00b4d8]"
             />
           </div>
           
           <div className="space-y-2">
             <div className="flex items-center justify-between">
-              <Label className="text-xs flex items-center gap-1">
-                <Brain className="w-3 h-3" />
-                Thinking Budget
-              </Label>
-              <span className="text-xs font-mono">{config.thinkingBudget}</span>
-            </div>
-            <Slider 
-              value={[config.thinkingBudget]}
-              onValueChange={([v]) => setConfig(prev => ({ ...prev, thinkingBudget: v }))}
-              max={4096}
-              step={64}
-            />
-          </div>
-          
-          <div className="space-y-2">
-            <div className="flex items-center justify-between">
-              <Label className="text-xs flex items-center gap-1">
+              <Label className="text-xs flex items-center gap-1 text-foreground">
                 <Clock className="w-3 h-3" />
                 Max Tokens
               </Label>
@@ -456,21 +575,10 @@ function InferenceConfigCard() {
             </div>
             <Slider 
               value={[config.maxTokens]}
-              onValueChange={([v]) => setConfig(prev => ({ ...prev, maxTokens: v }))}
+              onValueChange={([v]) => onConfigChange({ ...config, maxTokens: v })}
               max={8192}
               step={128}
             />
-          </div>
-        </div>
-        
-        <div className="pt-2 border-t border-border/50 grid grid-cols-2 gap-2 text-xs">
-          <div className="flex items-center justify-between p-2 rounded bg-muted/30">
-            <span className="text-muted-foreground">Top-K</span>
-            <span className="font-mono">{config.topK}</span>
-          </div>
-          <div className="flex items-center justify-between p-2 rounded bg-muted/30">
-            <span className="text-muted-foreground">Rep. Penalty</span>
-            <span className="font-mono">{config.repetitionPenalty}</span>
           </div>
         </div>
       </CardContent>
@@ -479,6 +587,10 @@ function InferenceConfigCard() {
 }
 
 export default function Interaction() {
+  const [selectedPrompt, setSelectedPrompt] = useState("default");
+  const [customPrompt, setCustomPrompt] = useState(SYSTEM_PROMPTS[0].prompt);
+  const [config, setConfig] = useState(DEFAULT_CONFIG);
+  
   return (
     <motion.div
       variants={containerVariants}
@@ -492,19 +604,24 @@ export default function Interaction() {
           INTERACTION INTERFACE
         </h1>
         <p className="text-sm text-muted-foreground mt-1">
-          Glass Box reasoning UI with configurable inference parameters
+          Glass Box reasoning UI with RAG-augmented inference
         </p>
       </motion.div>
       
       {/* Main Layout */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         <motion.div variants={itemVariants} className="lg:col-span-2">
-          <ChatInterface />
+          <ChatInterface config={config} systemPrompt={customPrompt} />
         </motion.div>
         
         <motion.div variants={itemVariants} className="space-y-6">
-          <SystemPromptCard />
-          <InferenceConfigCard />
+          <SystemPromptCard 
+            selected={selectedPrompt}
+            onSelect={setSelectedPrompt}
+            customPrompt={customPrompt}
+            onCustomPromptChange={setCustomPrompt}
+          />
+          <InferenceConfigCard config={config} onConfigChange={setConfig} />
         </motion.div>
       </div>
     </motion.div>

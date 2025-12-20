@@ -24,6 +24,7 @@ import {
   Wifi,
   WifiOff,
   Database,
+  BookOpen,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
@@ -46,6 +47,7 @@ const NAV_ITEMS = [
   { path: "/training", icon: Brain, label: "Training", description: "Fine-Tuning Studio" },
   { path: "/interaction", icon: MessageSquare, label: "Interaction", description: "Reasoning Interface" },
   { path: "/statistics", icon: BarChart3, label: "Statistics", description: "Observability Deck" },
+  { path: "/knowledge", icon: BookOpen, label: "Knowledge", description: "RAG & Documents" },
 ];
 
 // Simulated host metrics (in production, these would come from API)
