@@ -246,3 +246,10 @@
 - [x] Update system RAM to 128GB unified memory
 - [x] Update storage info to 1TB NVMe SSD
 - [x] Add ConnectX networking info
+
+# System RAM & GPU Memory Fixes
+
+- [x] Fix System RAM display to show 128GB unified memory (not 120GB)
+- [x] Fix GPU memory reporting (added unified memory tooltip explanation)
+- [x] Add AI Performance metric panel (1 petaFLOP FP4 capability)
+- [x] Display current inference throughput

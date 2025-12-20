@@ -27,6 +27,8 @@ import {
   RefreshCw,
   Wifi,
   WifiOff,
+  Rocket,
+  Gauge,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -145,10 +147,15 @@ function HostCard({
   const isOnline = metrics.connected && !metrics.error;
   
   // Convert memory from MB to GB for display
-  const gpuMemUsedGB = gpu ? (gpu.memoryUsed / 1024).toFixed(1) : "0";
-  const gpuMemTotalGB = gpu ? Math.round(gpu.memoryTotal / 1024) : 96;
+  // DGX Spark has 128GB unified memory (shared CPU+GPU via NVLink-C2C)
+  // nvidia-smi reports 0 for GPU memory because it's unified with system RAM
   const ramUsedGB = (metrics.systemMetrics.memoryUsed / 1024).toFixed(1);
-  const ramTotalGB = Math.round(metrics.systemMetrics.memoryTotal / 1024);
+  // Use 128GB as the spec total (OS reports ~120GB due to reserved coherent memory)
+  const ramTotalGB = 128;
+  // GPU memory is part of unified memory pool - show portion allocated to GPU workloads
+  const gpuMemUsedGB = gpu ? (gpu.memoryUsed > 0 ? (gpu.memoryUsed / 1024).toFixed(1) : "0") : "0";
+  // For unified memory, GPU can access up to 128GB but typically uses a portion
+  const gpuMemTotalGB = 128;
   
   return (
     <motion.div variants={itemVariants}>
@@ -215,15 +222,24 @@ function HostCard({
               icon={Cpu}
               isLoading={isLoading}
             />
-            <MetricGauge 
-              value={parseFloat(gpuMemUsedGB)} 
-              max={gpuMemTotalGB} 
-              label="GPU Mem" 
-              unit="GB" 
-              icon={HardDrive}
-              color="nvidia-teal"
-              isLoading={isLoading}
-            />
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <div>
+                  <MetricGauge 
+                    value={parseFloat(gpuMemUsedGB)} 
+                    max={gpuMemTotalGB} 
+                    label="GPU Mem" 
+                    unit="GB" 
+                    icon={HardDrive}
+                    color="nvidia-teal"
+                    isLoading={isLoading}
+                  />
+                </div>
+              </TooltipTrigger>
+              <TooltipContent>
+                <p className="text-xs">Unified memory (shared CPU+GPU via NVLink-C2C)</p>
+              </TooltipContent>
+            </Tooltip>
             <MetricGauge 
               value={gpu?.temperature || 0} 
               max={90} 
@@ -252,7 +268,7 @@ function HostCard({
               </span>
             </div>
             <div className="flex items-center justify-between text-xs">
-              <span className="text-muted-foreground">System RAM</span>
+              <span className="text-muted-foreground">Unified Memory</span>
               <span className={cn("font-mono", isLoading ? "text-muted-foreground" : "text-foreground")}>
                 {isLoading ? "..." : `${ramUsedGB}/${ramTotalGB}GB`}
               </span>
@@ -412,6 +428,96 @@ function SystemAlertsCard() {
   );
 }
 
+function AIPerformanceCard() {
+  const { data: inferenceStats } = trpc.stats.getInferenceStats.useQuery(
+    undefined,
+    { refetchInterval: 10000 }
+  );
+  
+  // Calculate throughput (tokens per second)
+  const tokensPerSecond = inferenceStats?.avgLatency && inferenceStats.avgLatency > 0
+    ? Math.round((inferenceStats.totalTokens / inferenceStats.totalRequests) / (inferenceStats.avgLatency / 1000))
+    : 0;
+  
+  // DGX Spark AI Performance specs
+  const peakFP4 = 1000; // 1 petaFLOP = 1000 TFLOPS
+  const peakFP8 = 500;  // ~500 TFLOPS FP8
+  const peakFP16 = 250; // ~250 TFLOPS FP16
+  
+  return (
+    <motion.div variants={itemVariants}>
+      <Card className="cyber-panel">
+        <CardHeader>
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-lg bg-nvidia-green/20 flex items-center justify-center">
+              <Rocket className="w-5 h-5 text-nvidia-green" />
+            </div>
+            <div>
+              <CardTitle className="text-base font-display tracking-wide">AI Performance</CardTitle>
+              <p className="text-xs text-muted-foreground">DGX Spark Compute Capability</p>
+            </div>
+          </div>
+        </CardHeader>
+        <CardContent>
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+            {/* Peak FP4 Performance */}
+            <div className="flex flex-col gap-2 p-3 rounded-lg bg-gradient-to-br from-nvidia-green/10 to-nvidia-green/5 border border-nvidia-green/20">
+              <div className="flex items-center gap-2">
+                <Gauge className="w-4 h-4 text-nvidia-green" />
+                <span className="text-xs text-muted-foreground">Peak FP4</span>
+              </div>
+              <div className="flex items-baseline gap-1">
+                <span className="text-2xl font-mono font-bold text-nvidia-green">1</span>
+                <span className="text-sm font-mono text-nvidia-green">petaFLOP</span>
+              </div>
+              <span className="text-[10px] text-muted-foreground">Blackwell Tensor Cores</span>
+            </div>
+            
+            {/* Peak FP8 Performance */}
+            <div className="flex flex-col gap-2 p-3 rounded-lg bg-muted/30">
+              <div className="flex items-center gap-2">
+                <Gauge className="w-4 h-4 text-nvidia-teal" />
+                <span className="text-xs text-muted-foreground">Peak FP8</span>
+              </div>
+              <div className="flex items-baseline gap-1">
+                <span className="text-2xl font-mono font-bold">500</span>
+                <span className="text-sm font-mono text-muted-foreground">TFLOPS</span>
+              </div>
+              <span className="text-[10px] text-muted-foreground">Transformer Engine</span>
+            </div>
+            
+            {/* Current Throughput */}
+            <div className="flex flex-col gap-2 p-3 rounded-lg bg-muted/30">
+              <div className="flex items-center gap-2">
+                <TrendingUp className="w-4 h-4 text-nvidia-teal" />
+                <span className="text-xs text-muted-foreground">Throughput</span>
+              </div>
+              <div className="flex items-baseline gap-1">
+                <span className="text-2xl font-mono font-bold">{tokensPerSecond || "--"}</span>
+                <span className="text-sm font-mono text-muted-foreground">tok/s</span>
+              </div>
+              <span className="text-[10px] text-muted-foreground">Current inference rate</span>
+            </div>
+            
+            {/* NVLink-C2C */}
+            <div className="flex flex-col gap-2 p-3 rounded-lg bg-muted/30">
+              <div className="flex items-center gap-2">
+                <Zap className="w-4 h-4 text-nvidia-teal" />
+                <span className="text-xs text-muted-foreground">NVLink-C2C</span>
+              </div>
+              <div className="flex items-baseline gap-1">
+                <span className="text-2xl font-mono font-bold">900</span>
+                <span className="text-sm font-mono text-muted-foreground">GB/s</span>
+              </div>
+              <span className="text-[10px] text-muted-foreground">CPU-GPU bandwidth</span>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+    </motion.div>
+  );
+}
+
 function QuickStatsCard() {
   const { data: inferenceStats, isLoading } = trpc.stats.getInferenceStats.useQuery(
     undefined,
@@ -513,7 +619,7 @@ export default function Dashboard() {
       connected: true,
       gpus: [{
         index: 0,
-        name: "NVIDIA GH200 Grace Hopper",
+        name: "NVIDIA GB10 Grace Blackwell",
         uuid: "GPU-alpha-0",
         utilization: 78,
         memoryUsed: 46285,
@@ -543,7 +649,7 @@ export default function Dashboard() {
       connected: true,
       gpus: [{
         index: 0,
-        name: "NVIDIA GH200 Grace Hopper",
+        name: "NVIDIA GB10 Grace Blackwell",
         uuid: "GPU-beta-0",
         utilization: 65,
         memoryUsed: 39629,
@@ -659,6 +765,9 @@ export default function Dashboard() {
       
       {/* ComfyUI Panel */}
       <ComfyUIPanel />
+      
+      {/* AI Performance */}
+      <AIPerformanceCard />
       
       {/* Quick Stats */}
       <QuickStatsCard />
