@@ -120,3 +120,17 @@
 - [x] Implement HuggingFace download progress tracking
 - [x] Add cancel download functionality
 - [x] Test progress tracking with real downloads (UI verified, pending SSH key fix)
+
+# vLLM Endpoint Configuration
+
+- [x] Configure VLLM_API_URL to http://localhost:8001/v1
+- [x] Update model name to /models/NVIDIA-Nemotron-3-Nano-30B-A3B-FP8
+- [ ] Test live inference in Interaction module
+- [ ] Verify reasoning_content streaming works
+
+# vLLM 25.11 Container Update
+
+- [x] Update NGC catalog to feature vLLM 25.11 as recommended
+- [x] Update vLLM router default configuration
+- [x] Add DGX Spark compatibility notes to UI
+- [x] Test updated configuration

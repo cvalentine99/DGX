@@ -15,7 +15,7 @@ interface VLLMConfig {
 const getConfig = (): VLLMConfig => ({
   apiUrl: process.env.VLLM_API_URL || "http://192.168.50.139:8000/v1",
   apiKey: process.env.VLLM_API_KEY || "",
-  model: process.env.VLLM_MODEL || "nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B-BF16",
+  model: process.env.VLLM_MODEL || "/models/NVIDIA-Nemotron-3-Nano-30B-A3B-FP8",
   defaultTemperature: 1.0,
   defaultMaxTokens: 2048,
   enableReasoning: true,
@@ -179,15 +179,26 @@ I understand you're asking about "${query.slice(0, 50)}...".
 
 **Note:** This is a simulated response. The vLLM server is not currently connected. To enable live inference:
 
-1. Start vLLM server on one of your DGX Sparks:
+1. Pull the recommended NVIDIA vLLM container with DGX Spark support:
    \`\`\`bash
-   vllm serve nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B-BF16 \\
-     --host 0.0.0.0 --port 8000 \\
-     --trust-remote-code --async-scheduling
+   docker pull nvcr.io/nvidia/vllm:25.11
    \`\`\`
 
-2. Configure the endpoint in Settings → Secrets:
-   - VLLM_API_URL: http://192.168.50.139:8000/v1
+2. Start vLLM server on your DGX Spark:
+   \`\`\`bash
+   docker run --gpus all -p 8001:8000 \\
+     -v /path/to/models:/models \\
+     nvcr.io/nvidia/vllm:25.11 \\
+     --model /models/NVIDIA-Nemotron-3-Nano-30B-A3B-FP8 \\
+     --host 0.0.0.0
+   \`\`\`
+
+3. Expose via ngrok and configure VLLM_API_URL in Settings → Secrets
+
+**Recommended Container:** nvcr.io/nvidia/vllm:25.11
+- Native DGX Spark/Blackwell GB10 support
+- CUDA 13.0 compatibility
+- NVFP4 4-bit and FP8 precision
 
 Once connected, I'll provide real responses from your Nemotron-3-Nano model!`;
   } else {
@@ -229,7 +240,7 @@ export const vllmRouter = router({
       defaultTemperature: config.defaultTemperature,
       defaultMaxTokens: config.defaultMaxTokens,
       enableReasoning: config.enableReasoning,
-      isConfigured: !!config.apiUrl && config.apiUrl !== "http://192.168.50.139:8000/v1",
+      isConfigured: !!config.apiUrl && config.apiUrl.includes("localhost:8001"),
     };
   }),
 

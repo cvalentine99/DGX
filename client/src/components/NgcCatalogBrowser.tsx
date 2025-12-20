@@ -63,6 +63,24 @@ interface NgcContainer {
 }
 
 const NGC_CONTAINERS: NgcContainer[] = [
+  // vLLM - Recommended for DGX Spark
+  {
+    id: "vllm",
+    name: "vllm",
+    displayName: "vLLM (Recommended)",
+    publisher: "NVIDIA",
+    description: "NVIDIA optimized vLLM for high-throughput LLM inference. Release 25.11 includes native DGX Spark/Blackwell GB10 support with CUDA 13.0, NVFP4 4-bit format, and FP8 precision.",
+    category: "inference",
+    tags: ["LLM", "Inference", "DGX Spark", "Blackwell", "Recommended"],
+    latestTag: "25.11",
+    availableTags: ["25.11", "25.10", "25.09"],
+    pullCommand: "docker pull nvcr.io/nvidia/vllm:25.11",
+    updatedAt: "2024-12-09",
+    downloads: "2.5M+",
+    size: "18.2 GB",
+    features: ["DGX Spark Support", "CUDA 13.0", "NVFP4 4-bit", "FP8 Precision", "Blackwell Native"],
+    icon: Sparkles,
+  },
   // NeMo Framework
   {
     id: "nemo-framework",
@@ -217,6 +235,23 @@ const NGC_CONTAINERS: NgcContainer[] = [
     downloads: "890K+",
     size: "14.5 GB",
     features: ["In-flight Batching", "Paged KV Cache", "Quantization", "Multi-GPU"],
+    icon: Sparkles,
+  },
+  {
+    id: "nim-llm",
+    name: "nim-llm",
+    displayName: "NVIDIA NIM for LLMs",
+    publisher: "NVIDIA",
+    description: "NVIDIA NIM microservices for deploying optimized LLMs. Pre-optimized for NVIDIA GPUs including Blackwell architecture with enterprise support.",
+    category: "inference",
+    tags: ["LLM", "NIM", "Enterprise", "Blackwell"],
+    latestTag: "1.0.0",
+    availableTags: ["1.0.0", "0.9.0"],
+    pullCommand: "docker pull nvcr.io/nim/nvidia/nim-llm:1.0.0",
+    updatedAt: "2024-11-20",
+    downloads: "450K+",
+    size: "22.5 GB",
+    features: ["Pre-optimized", "Enterprise Support", "Auto-scaling", "Blackwell Ready"],
     icon: Sparkles,
   },
   // Infrastructure
