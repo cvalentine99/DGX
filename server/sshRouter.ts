@@ -857,4 +857,150 @@ export const sshRouter = router({
       
       return { pullId, host: DGX_HOSTS[input.hostId as HostId] };
     }),
+
+  // List running containers on a host
+  listRunningContainers: publicProcedure
+    .input(z.object({
+      hostId: z.enum(["alpha", "beta"]),
+    }))
+    .query(async ({ input }: { input: { hostId: HostId } }) => {
+      try {
+        const conn = await createSSHConnection(input.hostId);
+        
+        // Get running containers with details
+        const result = await executeSSHCommand(
+          conn,
+          `docker ps --format '{{.ID}}\t{{.Image}}\t{{.Names}}\t{{.Status}}\t{{.Ports}}\t{{.CreatedAt}}'`
+        );
+        conn.end();
+        
+        if (result.code !== 0) {
+          return { success: false, error: result.stderr || "Failed to list containers", containers: [] };
+        }
+        
+        const containers = result.stdout
+          .trim()
+          .split("\n")
+          .filter(line => line.trim())
+          .map(line => {
+            const [id, image, name, status, ports, createdAt] = line.split("\t");
+            return {
+              id: id || "",
+              image: image || "",
+              name: name || "",
+              status: status || "",
+              ports: ports || "",
+              createdAt: createdAt || "",
+            };
+          });
+        
+        return {
+          success: true,
+          containers,
+          host: DGX_HOSTS[input.hostId],
+        };
+      } catch (error: any) {
+        return {
+          success: false,
+          error: error.message,
+          containers: [],
+          host: DGX_HOSTS[input.hostId],
+        };
+      }
+    }),
+
+  // Get logs for a specific container
+  getContainerLogs: publicProcedure
+    .input(z.object({
+      hostId: z.enum(["alpha", "beta"]),
+      containerId: z.string(), // Container ID or name
+      tail: z.number().optional().default(100), // Number of lines to fetch
+      since: z.string().optional(), // Time filter (e.g., "1h", "30m")
+      timestamps: z.boolean().optional().default(true),
+    }))
+    .query(async ({ input }) => {
+      try {
+        const conn = await createSSHConnection(input.hostId);
+        
+        // Build docker logs command
+        let cmd = `docker logs`;
+        if (input.timestamps) cmd += " --timestamps";
+        if (input.tail) cmd += ` --tail ${input.tail}`;
+        if (input.since) cmd += ` --since ${input.since}`;
+        cmd += ` ${input.containerId} 2>&1`;
+        
+        const result = await executeSSHCommand(conn, cmd);
+        conn.end();
+        
+        if (result.code !== 0 && !result.stdout) {
+          return {
+            success: false,
+            error: result.stderr || "Failed to fetch logs",
+            logs: "",
+            host: DGX_HOSTS[input.hostId],
+          };
+        }
+        
+        return {
+          success: true,
+          logs: result.stdout || result.stderr || "No logs available",
+          host: DGX_HOSTS[input.hostId],
+          containerId: input.containerId,
+        };
+      } catch (error: any) {
+        return {
+          success: false,
+          error: error.message,
+          logs: "",
+          host: DGX_HOSTS[input.hostId],
+        };
+      }
+    }),
+
+  // Get container inspect details
+  inspectContainer: publicProcedure
+    .input(z.object({
+      hostId: z.enum(["alpha", "beta"]),
+      containerId: z.string(),
+    }))
+    .query(async ({ input }) => {
+      try {
+        const conn = await createSSHConnection(input.hostId);
+        
+        const result = await executeSSHCommand(
+          conn,
+          `docker inspect ${input.containerId} 2>&1`
+        );
+        conn.end();
+        
+        if (result.code !== 0) {
+          return {
+            success: false,
+            error: result.stderr || "Failed to inspect container",
+            details: null,
+          };
+        }
+        
+        try {
+          const details = JSON.parse(result.stdout);
+          return {
+            success: true,
+            details: details[0] || null,
+            host: DGX_HOSTS[input.hostId],
+          };
+        } catch {
+          return {
+            success: false,
+            error: "Failed to parse container details",
+            details: null,
+          };
+        }
+      } catch (error: any) {
+        return {
+          success: false,
+          error: error.message,
+          details: null,
+        };
+      }
+    }),
 });

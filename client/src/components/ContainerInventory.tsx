@@ -28,7 +28,9 @@ import {
   CheckCircle2,
   XCircle,
   ArrowUpCircle,
+  Terminal,
 } from "lucide-react";
+import { ContainerLogsModal } from "./ContainerLogsModal";
 
 interface ContainerImage {
   repository: string;
@@ -100,6 +102,7 @@ function HostContainers({ hostId, hostName, hostIp, onActionComplete }: HostCont
   const [useSimulated, setUseSimulated] = useState(false);
   const [confirmDialog, setConfirmDialog] = useState<{ type: "remove" | "update"; container: ContainerImage } | null>(null);
   const [actionInProgress, setActionInProgress] = useState<string | null>(null);
+  const [logsModal, setLogsModal] = useState<{ container: ContainerImage } | null>(null);
   
   const utils = trpc.useUtils();
   
@@ -255,9 +258,19 @@ function HostContainers({ hostId, hostName, hostIp, onActionComplete }: HostCont
             <Button
               variant="ghost"
               size="sm"
+              className="h-7 px-2 text-[#76b900] hover:text-[#8ed900] hover:bg-[#76b900]/10"
+              onClick={() => setLogsModal({ container })}
+              title="View Logs"
+            >
+              <Terminal className="w-4 h-4" />
+            </Button>
+            <Button
+              variant="ghost"
+              size="sm"
               className="h-7 px-2 text-blue-400 hover:text-blue-300 hover:bg-blue-500/10"
               onClick={() => setConfirmDialog({ type: "update", container })}
               disabled={isProcessing}
+              title="Update Image"
             >
               {isProcessing ? (
                 <Loader2 className="w-4 h-4 animate-spin" />
@@ -271,6 +284,7 @@ function HostContainers({ hostId, hostName, hostIp, onActionComplete }: HostCont
               className="h-7 px-2 text-red-400 hover:text-red-300 hover:bg-red-500/10"
               onClick={() => setConfirmDialog({ type: "remove", container })}
               disabled={isProcessing}
+              title="Remove Image"
             >
               <Trash2 className="w-4 h-4" />
             </Button>
@@ -367,6 +381,18 @@ function HostContainers({ hostId, hostName, hostIp, onActionComplete }: HostCont
           <Container className="w-8 h-8 mb-2" />
           <span className="text-sm">No containers found</span>
         </div>
+      )}
+
+      {/* Logs Modal */}
+      {logsModal && (
+        <ContainerLogsModal
+          isOpen={!!logsModal}
+          onClose={() => setLogsModal(null)}
+          hostId={hostId}
+          containerId={logsModal.container.fullTag.split(":")[0].split("/").pop() || logsModal.container.fullTag}
+          containerName={logsModal.container.repository.replace("nvcr.io/nvidia/", "")}
+          containerImage={logsModal.container.fullTag}
+        />
       )}
 
       {/* Confirmation Dialog */}

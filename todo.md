@@ -185,3 +185,12 @@
 - [x] Create getPullHistory endpoint
 - [x] Add Pull History tab to ContainerInventory
 - [x] Display recent pull activity with timestamps and user info
+
+# Container Logs Feature
+
+- [x] Create getContainerLogs SSH endpoint
+- [x] Support log tail with configurable line count
+- [x] Build ContainerLogs modal component with syntax highlighting
+- [x] Add Logs button to container rows
+- [x] Add auto-refresh option for live log streaming
+- [x] Test container logs display
