@@ -43,3 +43,16 @@
 - [x] Display training examples with filtering
 - [x] Add playbook browser to Data module
 - [x] Test training data integration
+
+# Training Example Editor Feature
+
+- [x] Add example browser with list view and detail panel
+- [x] Implement inline editing for user queries
+- [x] Implement inline editing for assistant responses/reasoning
+- [x] Add delete functionality for unwanted examples
+- [x] Add validation status indicators (original/edited/deleted)
+- [x] Add bulk selection and bulk delete
+- [x] Add revert to original functionality
+- [x] Add search/filter for examples
+- [x] Update export to exclude deleted examples
+- [x] Test editing workflow and export
