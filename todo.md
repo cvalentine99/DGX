@@ -367,3 +367,30 @@
 - [x] Implement TURN credential rotation for security
 - [x] Add fallback TURN servers for reliability
 - [x] Test NAT traversal scenarios (89 tests passing)
+
+## GStreamer Deployment & AI Overlay - December 2024
+
+### Deploy GStreamer Sender to DGX Spark
+- [x] Create SSH endpoint to deploy Python script to /opt/nemo/
+- [x] Add script deployment with proper permissions (chmod +x)
+- [x] Install Python dependencies on DGX Spark (gi, websockets)
+- [ ] Create systemd service for auto-start on boot
+- [x] Add deployment status check endpoint
+- [ ] Test actual camera streaming from DGX Spark
+
+### TURN Server Configuration
+- [x] Request TURN_SERVER_URL secret from user
+- [x] Request TURN_SERVER_USERNAME secret from user
+- [x] Request TURN_SERVER_CREDENTIAL secret from user
+- [x] Update WebRTC signaling to use TURN credentials
+- [x] Add TURN server status indicator in UI
+- [ ] Test NAT traversal with TURN relay
+
+### Pipeline Output Overlay
+- [x] Create inference overlay canvas component
+- [x] Receive bounding box data from Holoscan pipeline (simulated)
+- [x] Draw detection boxes with labels on video stream
+- [x] Support multiple detection classes with color coding
+- [x] Add confidence threshold slider
+- [x] Display FPS and inference latency overlay
+- [ ] Sync overlay with video frame timestamps (pending real stream)

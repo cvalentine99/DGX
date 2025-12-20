@@ -1398,4 +1398,276 @@ export const sshRouter = router({
         };
       }
     }),
+
+  // Deploy GStreamer WebRTC sender script to DGX Spark
+  deployGStreamerSender: publicProcedure
+    .input(z.object({
+      hostId: z.enum(["alpha", "beta"]),
+    }))
+    .mutation(async ({ input }) => {
+      try {
+        const conn = await createSSHConnection(input.hostId);
+        
+        // Create /opt/nemo directory if it doesn't exist
+        await executeSSHCommand(conn, `sudo mkdir -p /opt/nemo`);
+        await executeSSHCommand(conn, `sudo chown $USER:$USER /opt/nemo`);
+        
+        // Check if Python dependencies are installed
+        const depCheck = await executeSSHCommand(
+          conn,
+          `python3 -c "import gi; import websockets" 2>&1`
+        );
+        
+        let depsInstalled = depCheck.code === 0;
+        
+        if (!depsInstalled) {
+          // Install Python dependencies
+          const installResult = await executeSSHCommand(
+            conn,
+            `pip3 install websockets PyGObject 2>&1`
+          );
+          depsInstalled = installResult.code === 0;
+        }
+        
+        // Check if GStreamer is available
+        const gstCheck = await executeSSHCommand(
+          conn,
+          `gst-launch-1.0 --version 2>&1`
+        );
+        
+        const gstInstalled = gstCheck.code === 0;
+        
+        conn.end();
+        
+        return {
+          success: true,
+          status: {
+            directoryCreated: true,
+            pythonDepsInstalled: depsInstalled,
+            gstreamerInstalled: gstInstalled,
+            gstreamerVersion: gstInstalled ? gstCheck.stdout.split('\n')[0] : null,
+          },
+          host: DGX_HOSTS[input.hostId],
+          message: "Environment prepared for GStreamer deployment",
+        };
+      } catch (error: any) {
+        return {
+          success: false,
+          error: error.message,
+          host: DGX_HOSTS[input.hostId],
+        };
+      }
+    }),
+
+  // Upload GStreamer sender script content to DGX Spark
+  uploadGStreamerScript: publicProcedure
+    .input(z.object({
+      hostId: z.enum(["alpha", "beta"]),
+      scriptContent: z.string(),
+    }))
+    .mutation(async ({ input }) => {
+      try {
+        const conn = await createSSHConnection(input.hostId);
+        
+        // Write script to file using heredoc
+        const escapedContent = input.scriptContent.replace(/'/g, "'\"'\"'");
+        const writeResult = await executeSSHCommand(
+          conn,
+          `cat > /opt/nemo/gstreamer-webrtc-sender.py << 'SCRIPT_EOF'
+${input.scriptContent}
+SCRIPT_EOF`
+        );
+        
+        if (writeResult.code !== 0) {
+          conn.end();
+          return {
+            success: false,
+            error: writeResult.stderr || "Failed to write script",
+            host: DGX_HOSTS[input.hostId],
+          };
+        }
+        
+        // Make script executable
+        await executeSSHCommand(conn, `chmod +x /opt/nemo/gstreamer-webrtc-sender.py`);
+        
+        // Verify script was written
+        const verifyResult = await executeSSHCommand(
+          conn,
+          `ls -la /opt/nemo/gstreamer-webrtc-sender.py && head -5 /opt/nemo/gstreamer-webrtc-sender.py`
+        );
+        
+        conn.end();
+        
+        return {
+          success: true,
+          path: "/opt/nemo/gstreamer-webrtc-sender.py",
+          verification: verifyResult.stdout,
+          host: DGX_HOSTS[input.hostId],
+        };
+      } catch (error: any) {
+        return {
+          success: false,
+          error: error.message,
+          host: DGX_HOSTS[input.hostId],
+        };
+      }
+    }),
+
+  // Start GStreamer WebRTC sender on DGX Spark
+  startGStreamerSender: publicProcedure
+    .input(z.object({
+      hostId: z.enum(["alpha", "beta"]),
+      config: z.object({
+        device: z.string().default("/dev/video0"),
+        resolution: z.string().default("1920x1080"),
+        fps: z.number().default(30),
+        bitrate: z.number().default(4000000),
+        signalingUrl: z.string(),
+        stunServer: z.string().default("stun://stun.l.google.com:19302"),
+        turnServer: z.string().optional(),
+        turnUser: z.string().optional(),
+        turnPass: z.string().optional(),
+      }),
+    }))
+    .mutation(async ({ input }) => {
+      try {
+        const conn = await createSSHConnection(input.hostId);
+        const [width, height] = input.config.resolution.split('x').map(Number);
+        
+        // Build command with all parameters
+        let cmd = `python3 /opt/nemo/gstreamer-webrtc-sender.py`;
+        cmd += ` --device ${input.config.device}`;
+        cmd += ` --width ${width}`;
+        cmd += ` --height ${height}`;
+        cmd += ` --fps ${input.config.fps}`;
+        cmd += ` --bitrate ${input.config.bitrate}`;
+        cmd += ` --signaling-url "${input.config.signalingUrl}"`;
+        cmd += ` --stun-server "${input.config.stunServer}"`;
+        
+        if (input.config.turnServer) {
+          cmd += ` --turn-server "${input.config.turnServer}"`;
+        }
+        if (input.config.turnUser) {
+          cmd += ` --turn-user "${input.config.turnUser}"`;
+        }
+        if (input.config.turnPass) {
+          cmd += ` --turn-pass "${input.config.turnPass}"`;
+        }
+        
+        // Start in background and capture PID
+        const startResult = await executeSSHCommand(
+          conn,
+          `nohup ${cmd} > /tmp/gstreamer-webrtc.log 2>&1 & echo $!`
+        );
+        
+        conn.end();
+        
+        const pid = parseInt(startResult.stdout.trim());
+        
+        return {
+          success: startResult.code === 0 && pid > 0,
+          pid: pid || null,
+          command: cmd,
+          logFile: "/tmp/gstreamer-webrtc.log",
+          host: DGX_HOSTS[input.hostId],
+        };
+      } catch (error: any) {
+        return {
+          success: false,
+          error: error.message,
+          host: DGX_HOSTS[input.hostId],
+        };
+      }
+    }),
+
+  // Stop GStreamer WebRTC sender on DGX Spark
+  stopGStreamerSender: publicProcedure
+    .input(z.object({
+      hostId: z.enum(["alpha", "beta"]),
+      pid: z.number().optional(),
+    }))
+    .mutation(async ({ input }) => {
+      try {
+        const conn = await createSSHConnection(input.hostId);
+        
+        let result;
+        if (input.pid) {
+          // Kill specific process
+          result = await executeSSHCommand(conn, `kill ${input.pid} 2>&1 || true`);
+        } else {
+          // Kill all gstreamer-webrtc-sender processes
+          result = await executeSSHCommand(
+            conn,
+            `pkill -f 'gstreamer-webrtc-sender' 2>&1 || true`
+          );
+        }
+        
+        conn.end();
+        
+        return {
+          success: true,
+          message: input.pid ? `Stopped process ${input.pid}` : "Stopped all GStreamer senders",
+          host: DGX_HOSTS[input.hostId],
+        };
+      } catch (error: any) {
+        return {
+          success: false,
+          error: error.message,
+          host: DGX_HOSTS[input.hostId],
+        };
+      }
+    }),
+
+  // Get GStreamer sender status and logs
+  getGStreamerSenderStatus: publicProcedure
+    .input(z.object({
+      hostId: z.enum(["alpha", "beta"]),
+    }))
+    .query(async ({ input }) => {
+      try {
+        const conn = await createSSHConnection(input.hostId);
+        
+        // Check if process is running
+        const psResult = await executeSSHCommand(
+          conn,
+          `pgrep -f 'gstreamer-webrtc-sender' 2>/dev/null || echo ''`
+        );
+        
+        const pids = psResult.stdout.trim().split('\n').filter(p => p.trim());
+        const isRunning = pids.length > 0;
+        
+        // Get recent logs
+        const logsResult = await executeSSHCommand(
+          conn,
+          `tail -50 /tmp/gstreamer-webrtc.log 2>/dev/null || echo 'No logs available'`
+        );
+        
+        // Check script exists
+        const scriptCheck = await executeSSHCommand(
+          conn,
+          `ls -la /opt/nemo/gstreamer-webrtc-sender.py 2>/dev/null || echo 'Script not found'`
+        );
+        
+        conn.end();
+        
+        return {
+          success: true,
+          isRunning,
+          pids: pids.map(p => parseInt(p)).filter(p => !isNaN(p)),
+          logs: logsResult.stdout,
+          scriptInstalled: !scriptCheck.stdout.includes('not found'),
+          host: DGX_HOSTS[input.hostId],
+        };
+      } catch (error: any) {
+        return {
+          success: false,
+          error: error.message,
+          isRunning: false,
+          pids: [],
+          logs: "",
+          scriptInstalled: false,
+          host: DGX_HOSTS[input.hostId],
+        };
+      }
+    }),
 });

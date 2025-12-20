@@ -73,6 +73,7 @@ import {
 import { toast } from "sonner";
 import { trpc } from "@/lib/trpc";
 import { WebRTCPreviewV2 } from "@/components/WebRTCPreviewV2";
+import { InferenceOverlay, useSimulatedDetections } from "@/components/InferenceOverlay";
 
 // BRIO Camera Configuration
 const brioCameraConfig = {
@@ -232,6 +233,10 @@ export default function Holoscan() {
   const [showDeployDialog, setShowDeployDialog] = useState(false);
   const [logs, setLogs] = useState(generateLogs("BRIO Object Detection"));
   
+  // Inference overlay state
+  const [showInferenceOverlay, setShowInferenceOverlay] = useState(true);
+  const { detections, stats: inferenceStats } = useSimulatedDetections(showInferenceOverlay && selectedApp?.status === "running");
+
   // Camera configuration state
   const [cameraConfig, setCameraConfig] = useState({
     device: "/dev/video0",
@@ -970,17 +975,102 @@ export default function Holoscan() {
           </Card>
         </div>
 
-        {/* Sensor Preview - WebRTC Live Stream */}
+        {/* Sensor Preview - WebRTC Live Stream with AI Overlay */}
         <div className="col-span-4">
-          <WebRTCPreviewV2
-            hostId="alpha"
-            camera={cameraConfig.device}
-            resolution={cameraConfig.resolution}
-            fps={cameraConfig.fps}
-            format={cameraConfig.format}
-            onStreamStart={() => toast.success("Camera stream started")}
-            onStreamStop={() => toast.info("Camera stream stopped")}
-          />
+          <Card className="cyber-panel">
+            <CardHeader className="pb-3">
+              <div className="flex items-center justify-between">
+                <CardTitle className="text-lg font-display flex items-center gap-2">
+                  <Eye className="h-5 w-5 text-nvidia-green" />
+                  AI Pipeline Output
+                </CardTitle>
+                <div className="flex items-center gap-3">
+                  <div className="flex items-center gap-2">
+                    <Switch
+                      checked={showInferenceOverlay}
+                      onCheckedChange={setShowInferenceOverlay}
+                      id="inference-overlay"
+                    />
+                    <Label htmlFor="inference-overlay" className="text-xs">AI Overlay</Label>
+                  </div>
+                  {selectedApp?.status === "running" && showInferenceOverlay && (
+                    <Badge variant="outline" className="text-nvidia-green animate-pulse">
+                      <Activity className="h-3 w-3 mr-1" />
+                      Inferencing
+                    </Badge>
+                  )}
+                </div>
+              </div>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              {/* Video with Inference Overlay */}
+              <div className="relative aspect-video bg-background/50 rounded-lg overflow-hidden border border-border">
+                {/* Simulated video background */}
+                <div className="absolute inset-0 bg-gradient-to-br from-background via-background/95 to-nvidia-green/5">
+                  <div className="absolute inset-0 flex items-center justify-center">
+                    {selectedApp?.status === "running" ? (
+                      <div className="text-center">
+                        <Video className="h-16 w-16 text-nvidia-green/30 mx-auto mb-2 animate-pulse" />
+                        <p className="text-sm text-muted-foreground">Pipeline Output Stream</p>
+                        <p className="text-xs text-nvidia-green mt-1">{selectedApp.name}</p>
+                      </div>
+                    ) : (
+                      <div className="text-center">
+                        <Camera className="h-16 w-16 text-muted-foreground mx-auto mb-2" />
+                        <p className="text-sm text-muted-foreground">Start a pipeline to view output</p>
+                      </div>
+                    )}
+                  </div>
+                </div>
+                
+                {/* Inference Overlay Canvas */}
+                {showInferenceOverlay && selectedApp?.status === "running" && (
+                  <InferenceOverlay
+                    videoRef={{ current: null }}
+                    width={640}
+                    height={360}
+                    detections={detections}
+                    stats={inferenceStats}
+                  />
+                )}
+              </div>
+
+              {/* Inference Stats Bar */}
+              {selectedApp?.status === "running" && showInferenceOverlay && inferenceStats && (
+                <div className="grid grid-cols-4 gap-3 pt-2 border-t border-border">
+                  <div className="text-center">
+                    <div className="text-xs text-muted-foreground">FPS</div>
+                    <div className="text-sm font-mono text-nvidia-green">{inferenceStats.fps.toFixed(1)}</div>
+                  </div>
+                  <div className="text-center">
+                    <div className="text-xs text-muted-foreground">Latency</div>
+                    <div className="text-sm font-mono text-nvidia-teal">{inferenceStats.latency.toFixed(1)}ms</div>
+                  </div>
+                  <div className="text-center">
+                    <div className="text-xs text-muted-foreground">Detections</div>
+                    <div className="text-sm font-mono">{inferenceStats.totalDetections}</div>
+                  </div>
+                  <div className="text-center">
+                    <div className="text-xs text-muted-foreground">Classes</div>
+                    <div className="text-sm font-mono">{Object.keys(inferenceStats.classBreakdown).length}</div>
+                  </div>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
+          {/* WebRTC Live Camera Preview */}
+          <div className="mt-4">
+            <WebRTCPreviewV2
+              hostId="alpha"
+              camera={cameraConfig.device}
+              resolution={cameraConfig.resolution}
+              fps={cameraConfig.fps}
+              format={cameraConfig.format}
+              onStreamStart={() => toast.success("Camera stream started")}
+              onStreamStop={() => toast.info("Camera stream stopped")}
+            />
+          </div>
         </div>
       </div>
     </div>
