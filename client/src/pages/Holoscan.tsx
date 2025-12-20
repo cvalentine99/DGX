@@ -72,6 +72,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { trpc } from "@/lib/trpc";
+import { WebRTCPreview } from "@/components/WebRTCPreview";
 
 // BRIO Camera Configuration
 const brioCameraConfig = {
@@ -233,6 +234,7 @@ export default function Holoscan() {
   
   // Camera configuration state
   const [cameraConfig, setCameraConfig] = useState({
+    device: "/dev/video0",
     resolution: "1920x1080",
     fps: 60,
     format: "MJPEG",
@@ -968,60 +970,17 @@ export default function Holoscan() {
           </Card>
         </div>
 
-        {/* Sensor Preview */}
+        {/* Sensor Preview - WebRTC Live Stream */}
         <div className="col-span-4">
-          <Card className="cyber-panel">
-            <CardHeader className="pb-3">
-              <div className="flex items-center justify-between">
-                <CardTitle className="text-lg font-display flex items-center gap-2">
-                  <MonitorPlay className="h-5 w-5 text-nvidia-green" />
-                  Camera Preview
-                </CardTitle>
-                <Badge variant="outline" className="text-nvidia-green">
-                  {cameraConfig.resolution} @ {cameraConfig.fps}fps
-                </Badge>
-              </div>
-            </CardHeader>
-            <CardContent>
-              <div className="aspect-video bg-background/50 rounded-lg flex items-center justify-center border border-border relative overflow-hidden">
-                {selectedApp?.status === "running" && cameraConnected ? (
-                  <div className="absolute inset-0 flex items-center justify-center">
-                    <div className="text-center">
-                      <Video className="h-12 w-12 text-nvidia-green mx-auto mb-2 animate-pulse" />
-                      <p className="text-sm text-muted-foreground">Live Feed Active</p>
-                      <p className="text-xs text-nvidia-green font-mono">{cameraConfig.resolution} @ {cameraConfig.fps}fps</p>
-                      <p className="text-xs text-muted-foreground mt-1">{cameraConfig.format} • FOV {cameraConfig.fov}°</p>
-                    </div>
-                    {/* Simulated detection overlay */}
-                    <div className="absolute top-4 left-4 border-2 border-nvidia-green rounded w-24 h-24 opacity-50">
-                      <span className="absolute -top-5 left-0 text-[10px] text-nvidia-green bg-background/80 px-1">
-                        person 0.95
-                      </span>
-                    </div>
-                  </div>
-                ) : (
-                  <div className="text-center">
-                    <Camera className="h-12 w-12 text-muted-foreground mx-auto mb-2" />
-                    <p className="text-sm text-muted-foreground">
-                      {!cameraConnected ? "Camera Disconnected" : "No Active Pipeline"}
-                    </p>
-                    <p className="text-xs text-muted-foreground">
-                      {!cameraConnected ? "Check USB connection" : "Start a pipeline to preview"}
-                    </p>
-                  </div>
-                )}
-              </div>
-              <div className="flex items-center justify-between mt-3 text-xs">
-                <div className="flex items-center gap-2">
-                  <Usb className="h-3 w-3 text-muted-foreground" />
-                  <span className="text-muted-foreground">{brioCameraConfig.name}</span>
-                </div>
-                <Badge variant="outline" className={cameraConnected ? "text-nvidia-green" : "text-nvidia-critical"}>
-                  {cameraConnected ? "Connected" : "Disconnected"}
-                </Badge>
-              </div>
-            </CardContent>
-          </Card>
+          <WebRTCPreview
+            hostId="alpha"
+            camera={cameraConfig.device}
+            resolution={cameraConfig.resolution}
+            fps={cameraConfig.fps}
+            format={cameraConfig.format}
+            onStreamStart={() => toast.success("Camera stream started")}
+            onStreamStop={() => toast.info("Camera stream stopped")}
+          />
         </div>
       </div>
     </div>

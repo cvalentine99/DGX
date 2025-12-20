@@ -336,3 +336,12 @@
 - [x] Add field of view controls (65°, 78°, 90°)
 - [x] Display camera status and connection info
 - [x] Create sample pipelines for BRIO input processing
+
+## WebRTC Live Camera Preview - December 2024
+- [x] Create WebRTC signaling server endpoints for offer/answer/ICE exchange
+- [x] Implement GStreamer WebRTC pipeline on DGX Spark for camera capture (simulated)
+- [x] Create WebRTCPreview component with RTCPeerConnection
+- [x] Add connection status indicators and error handling
+- [x] Integrate live preview into Holoscan camera preview panel
+- [x] Support resolution/format switching during stream
+- [x] Add stream statistics overlay (bitrate, latency, frame drops)
