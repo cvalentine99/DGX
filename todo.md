@@ -216,3 +216,9 @@
 - [x] Verify live container inventory works
 - [x] Update DCGM router to use ngrok SSH tunnel
 - [x] Verify live GPU metrics work (NVIDIA GB10 detected!)
+
+# Nemotron Inference Endpoint
+
+- [x] Update VLLM_API_URL to ngrok endpoint (https://unpopular-thad-unblamed.ngrok-free.dev)
+- [x] Test inference connection from dashboard
+- [x] Verify chat interface works with live model (53 tokens in 2084ms)
