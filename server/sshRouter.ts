@@ -188,6 +188,25 @@ export const sshRouter = router({
           pull.progress.push(`Connecting to ${DGX_HOSTS[input.hostId as HostId].name}...`);
           const conn = await createSSHConnection(input.hostId);
           
+          // Login to NGC registry if pulling from nvcr.io
+          if (input.imageTag.startsWith("nvcr.io")) {
+            const ngcApiKey = process.env.NGC_API_KEY;
+            if (ngcApiKey) {
+              pull.progress.push("Authenticating with NGC registry...");
+              const loginResult = await executeSSHCommand(
+                conn,
+                `echo "${ngcApiKey}" | docker login nvcr.io -u '$oauthtoken' --password-stdin 2>&1`
+              );
+              if (loginResult.code === 0) {
+                pull.progress.push("NGC authentication successful");
+              } else {
+                pull.progress.push(`NGC login warning: ${loginResult.stdout || loginResult.stderr}`);
+              }
+            } else {
+              pull.progress.push("Warning: NGC_API_KEY not configured, attempting anonymous pull");
+            }
+          }
+          
           pull.status = "pulling";
           pull.progress.push(`Starting docker pull ${input.imageTag}...`);
           pull.progress.push("This may take several minutes for large images.");

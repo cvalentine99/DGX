@@ -99,3 +99,13 @@
 - [x] Create pull progress modal in NGC browser UI
 - [x] Add host selection dropdown to NGC browser
 - [ ] Test SSH integration with both DGX Spark hosts (pending network connectivity)
+
+# NGC API Key & HuggingFace Token Integration
+
+- [x] Request NGC_API_KEY secret from user
+- [x] Request HUGGINGFACE_TOKEN secret from user
+- [x] Update SSH router to use NGC API key for docker login
+- [x] Add HuggingFace model browser component
+- [x] Implement authenticated model downloads
+- [x] Test NGC authenticated pulls
+- [x] Test HuggingFace model downloads

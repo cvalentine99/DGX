@@ -33,6 +33,7 @@ import {
 } from "lucide-react";
 import DashboardLayout from "@/components/DashboardLayout";
 import NgcCatalogBrowser from "@/components/NgcCatalogBrowser";
+import { HuggingFaceBrowser } from "@/components/HuggingFaceBrowser";
 import { toast } from "sonner";
 
 // Version compatibility data
@@ -339,6 +340,10 @@ export default function CudaToolkit() {
             <TabsTrigger value="ngc" className="gap-2">
               <Download className="w-4 h-4" />
               NGC Catalog
+            </TabsTrigger>
+            <TabsTrigger value="huggingface" className="gap-2">
+              <Layers className="w-4 h-4" />
+              HuggingFace Models
             </TabsTrigger>
           </TabsList>
 
@@ -657,6 +662,24 @@ export default function CudaToolkit() {
           {/* NGC Catalog Browser Tab */}
           <TabsContent value="ngc" className="min-h-[600px]">
             <NgcCatalogBrowser />
+          </TabsContent>
+
+          {/* HuggingFace Models Tab */}
+          <TabsContent value="huggingface" className="min-h-[600px]">
+            <Card className="bg-card/50 border-border">
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <Layers className="h-5 w-5 text-[#76b900]" />
+                  HuggingFace Model Hub
+                </CardTitle>
+                <CardDescription>
+                  Browse and download popular LLM models from HuggingFace directly to your DGX Spark hosts
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <HuggingFaceBrowser />
+              </CardContent>
+            </Card>
           </TabsContent>
         </Tabs>
       </div>
