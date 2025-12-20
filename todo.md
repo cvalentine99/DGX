@@ -214,3 +214,5 @@
 - [x] Update SSH router to use ngrok TCP tunnel (4.tcp.ngrok.io:19838)
 - [x] Test SSH connection via ngrok
 - [x] Verify live container inventory works
+- [x] Update DCGM router to use ngrok SSH tunnel
+- [x] Verify live GPU metrics work (NVIDIA GB10 detected!)

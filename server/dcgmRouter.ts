@@ -3,9 +3,13 @@ import { publicProcedure, router } from "./_core/trpc";
 import { Client } from "ssh2";
 
 // DGX Spark host configuration
+// Using ngrok TCP tunnel for SSH access from cloud
+const NGROK_SSH_HOST = process.env.DGX_SSH_HOST || "4.tcp.ngrok.io";
+const NGROK_SSH_PORT = parseInt(process.env.DGX_SSH_PORT || "19838");
+
 const DGX_HOSTS = [
-  { id: "alpha", name: "DGX Spark Alpha", ip: "192.168.50.139" },
-  { id: "beta", name: "DGX Spark Beta", ip: "192.168.50.110" },
+  { id: "alpha", name: "DGX Spark Alpha", ip: "192.168.50.139", sshHost: NGROK_SSH_HOST, sshPort: NGROK_SSH_PORT },
+  { id: "beta", name: "DGX Spark Beta", ip: "192.168.50.110", sshHost: NGROK_SSH_HOST, sshPort: NGROK_SSH_PORT },
 ];
 
 // GPU metrics interface
@@ -138,7 +142,7 @@ function getSSHConfig() {
 }
 
 // Execute SSH command on a host
-async function executeSSHCommand(hostIp: string, command: string): Promise<string> {
+async function executeSSHCommand(hostIp: string, command: string, sshHost?: string, sshPort?: number): Promise<string> {
   const config = getSSHConfig();
   
   return new Promise((resolve, reject) => {
@@ -173,10 +177,10 @@ async function executeSSHCommand(hostIp: string, command: string): Promise<strin
     });
     
     const connectionConfig: Record<string, unknown> = {
-      host: hostIp,
-      port: 22,
+      host: sshHost || hostIp,
+      port: sshPort || 22,
       username: config.username,
-      readyTimeout: 10000,
+      readyTimeout: 15000,
     };
     
     if (config.privateKey) {
@@ -246,7 +250,7 @@ function parseSystemMetrics(output: string): { cpuUtilization: number; memoryUse
 }
 
 // Fetch metrics from a single host
-async function fetchHostMetrics(hostId: string, hostName: string, hostIp: string): Promise<HostMetrics> {
+async function fetchHostMetrics(hostId: string, hostName: string, hostIp: string, sshHost?: string, sshPort?: number): Promise<HostMetrics> {
   // Check cache first
   const cached = metricsCache.get(hostId);
   if (cached && Date.now() - cached.timestamp < CACHE_TTL) {
@@ -260,10 +264,10 @@ async function fetchHostMetrics(hostId: string, hostName: string, hostIp: string
     // System metrics command
     const systemCommand = `echo "CPU:$(top -bn1 | grep 'Cpu(s)' | awk '{print $2}' | cut -d'%' -f1 2>/dev/null || echo 0)" && echo "MEM_USED:$(free -m | awk '/Mem:/ {print $3}' 2>/dev/null || echo 0)" && echo "MEM_TOTAL:$(free -m | awk '/Mem:/ {print $2}' 2>/dev/null || echo 0)" && echo "UPTIME:$(uptime -p 2>/dev/null || echo 'unknown')"`;
     
-    // Execute commands
+    // Execute commands via ngrok tunnel
     const [gpuOutput, systemOutput] = await Promise.all([
-      executeSSHCommand(hostIp, nvidiaSmiCommand),
-      executeSSHCommand(hostIp, systemCommand),
+      executeSSHCommand(hostIp, nvidiaSmiCommand, sshHost, sshPort),
+      executeSSHCommand(hostIp, systemCommand, sshHost, sshPort),
     ]);
     
     const gpus = parseNvidiaSmiOutput(gpuOutput);
@@ -405,7 +409,7 @@ export const dcgmRouter = router({
       try {
         const config = getSSHConfig();
         if (config.password || config.privateKey) {
-          return await fetchHostMetrics(host.id, host.name, host.ip);
+          return await fetchHostMetrics(host.id, host.name, host.ip, host.sshHost, host.sshPort);
         }
       } catch {
         // Fall through to simulated
@@ -435,7 +439,7 @@ export const dcgmRouter = router({
         DGX_HOSTS.map(async (host) => {
           try {
             if (hasCredentials) {
-              return await fetchHostMetrics(host.id, host.name, host.ip);
+              return await fetchHostMetrics(host.id, host.name, host.ip, host.sshHost, host.sshPort);
             }
           } catch {
             // Fall through to simulated
@@ -463,7 +467,7 @@ export const dcgmRouter = router({
       }
       
       try {
-        const output = await executeSSHCommand(host.ip, "echo 'Connection successful' && nvidia-smi --query-gpu=name --format=csv,noheader 2>/dev/null | head -1");
+        const output = await executeSSHCommand(host.ip, "echo 'Connection successful' && nvidia-smi --query-gpu=name --format=csv,noheader 2>/dev/null | head -1", host.sshHost, host.sshPort);
         return {
           success: true,
           message: output.trim(),
@@ -532,7 +536,7 @@ export const dcgmRouter = router({
       
       try {
         // Try to get DCGM metrics
-        const output = await executeSSHCommand(host.ip, "dcgmi dmon -e 155,156,203,204,1001,1002,1003,1004 -c 1 2>/dev/null || echo 'DCGM not available'");
+        const output = await executeSSHCommand(host.ip, "dcgmi dmon -e 155,156,203,204,1001,1002,1003,1004 -c 1 2>/dev/null || echo 'DCGM not available'", host.sshHost, host.sshPort);
         
         if (output.includes("DCGM not available")) {
           return {
