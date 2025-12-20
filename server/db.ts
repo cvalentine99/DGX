@@ -1,6 +1,6 @@
-import { eq, desc } from "drizzle-orm";
+import { eq, desc, gte, and, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/mysql2";
-import { InsertUser, users, containerPullHistory, InsertContainerPullHistory } from "../drizzle/schema";
+import { InsertUser, users, containerPullHistory, InsertContainerPullHistory, gpuMetricsHistory, InsertGpuMetricsHistory, inferenceRequestLogs, InsertInferenceRequestLog, systemAlerts, InsertSystemAlert } from "../drizzle/schema";
 import { ENV } from './_core/env';
 
 let _db: ReturnType<typeof drizzle> | null = null;
@@ -169,5 +169,152 @@ export async function getPullHistoryByHost(hostId: string, limit: number = 20) {
   } catch (error) {
     console.error("[Database] Failed to get pull history by host:", error);
     return [];
+  }
+}
+
+// GPU Metrics History
+export async function recordGpuMetrics(entry: InsertGpuMetricsHistory) {
+  const db = await getDb();
+  if (!db) return null;
+
+  try {
+    const result = await db.insert(gpuMetricsHistory).values(entry);
+    return result[0].insertId;
+  } catch (error) {
+    console.error("[Database] Failed to record GPU metrics:", error);
+    return null;
+  }
+}
+
+export async function getGpuMetricsHistory(hostId: string, timeRangeMs: number) {
+  const db = await getDb();
+  if (!db) return [];
+
+  try {
+    const cutoff = new Date(Date.now() - timeRangeMs);
+    const result = await db
+      .select()
+      .from(gpuMetricsHistory)
+      .where(and(
+        eq(gpuMetricsHistory.hostId, hostId),
+        gte(gpuMetricsHistory.timestamp, cutoff)
+      ))
+      .orderBy(gpuMetricsHistory.timestamp);
+    return result;
+  } catch (error) {
+    console.error("[Database] Failed to get GPU metrics history:", error);
+    return [];
+  }
+}
+
+// Cleanup old metrics (keep last 24 hours)
+export async function cleanupOldGpuMetrics() {
+  const db = await getDb();
+  if (!db) return;
+
+  try {
+    const cutoff = new Date(Date.now() - 24 * 60 * 60 * 1000);
+    await db.delete(gpuMetricsHistory).where(
+      sql`${gpuMetricsHistory.timestamp} < ${cutoff}`
+    );
+  } catch (error) {
+    console.error("[Database] Failed to cleanup old GPU metrics:", error);
+  }
+}
+
+// Inference Request Logs
+export async function recordInferenceRequest(entry: InsertInferenceRequestLog) {
+  const db = await getDb();
+  if (!db) return null;
+
+  try {
+    const result = await db.insert(inferenceRequestLogs).values(entry);
+    return result[0].insertId;
+  } catch (error) {
+    console.error("[Database] Failed to record inference request:", error);
+    return null;
+  }
+}
+
+export async function getInferenceStats(timeRangeMs: number = 24 * 60 * 60 * 1000) {
+  const db = await getDb();
+  if (!db) return null;
+
+  try {
+    const cutoff = new Date(Date.now() - timeRangeMs);
+    const result = await db
+      .select({
+        totalRequests: sql<number>`COUNT(*)`,
+        avgLatency: sql<number>`AVG(${inferenceRequestLogs.latencyMs})`,
+        totalTokens: sql<number>`SUM(${inferenceRequestLogs.totalTokens})`,
+        successCount: sql<number>`SUM(${inferenceRequestLogs.success})`,
+      })
+      .from(inferenceRequestLogs)
+      .where(gte(inferenceRequestLogs.timestamp, cutoff));
+    return result[0];
+  } catch (error) {
+    console.error("[Database] Failed to get inference stats:", error);
+    return null;
+  }
+}
+
+export async function getRecentInferenceRequests(limit: number = 100) {
+  const db = await getDb();
+  if (!db) return [];
+
+  try {
+    return await db
+      .select()
+      .from(inferenceRequestLogs)
+      .orderBy(desc(inferenceRequestLogs.timestamp))
+      .limit(limit);
+  } catch (error) {
+    console.error("[Database] Failed to get recent inference requests:", error);
+    return [];
+  }
+}
+
+// System Alerts
+export async function createSystemAlert(entry: InsertSystemAlert) {
+  const db = await getDb();
+  if (!db) return null;
+
+  try {
+    const result = await db.insert(systemAlerts).values(entry);
+    return result[0].insertId;
+  } catch (error) {
+    console.error("[Database] Failed to create system alert:", error);
+    return null;
+  }
+}
+
+export async function getRecentAlerts(limit: number = 10) {
+  const db = await getDb();
+  if (!db) return [];
+
+  try {
+    return await db
+      .select()
+      .from(systemAlerts)
+      .where(eq(systemAlerts.dismissed, 0))
+      .orderBy(desc(systemAlerts.timestamp))
+      .limit(limit);
+  } catch (error) {
+    console.error("[Database] Failed to get recent alerts:", error);
+    return [];
+  }
+}
+
+export async function dismissAlert(id: number) {
+  const db = await getDb();
+  if (!db) return;
+
+  try {
+    await db
+      .update(systemAlerts)
+      .set({ dismissed: 1 })
+      .where(eq(systemAlerts.id, id));
+  } catch (error) {
+    console.error("[Database] Failed to dismiss alert:", error);
   }
 }

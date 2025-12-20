@@ -1,4 +1,4 @@
-/*
+/**
  * Statistics - Observability & Monitoring Deck
  * 
  * Design: MoE expert routing heatmap, vLLM inference telemetry,
@@ -20,6 +20,7 @@ import {
   Layers,
   Grid3X3,
   RefreshCw,
+  Loader2,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -27,48 +28,7 @@ import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { toast } from "sonner";
-
-// vLLM Telemetry Data
-const VLLM_METRICS = {
-  ttft: 124, // Time to First Token (ms)
-  tpot: 18.5, // Time per Output Token (ms)
-  throughput: 1842, // Tokens per second
-  kvCacheUtil: 67.3, // KV Cache utilization %
-  batchSize: 8,
-  queueDepth: 3,
-  activeRequests: 12,
-  completedRequests: 8472,
-};
-
-// System Health per Host
-const HOST_HEALTH = [
-  {
-    id: "spark-1",
-    name: "DGX Spark Alpha",
-    ip: "192.168.50.139",
-    gpuUtil: 78,
-    gpuMem: 45.2,
-    gpuMemTotal: 128,
-    cpuUtil: 34,
-    ramUtil: 17.5,
-    temp: 62,
-    power: 285,
-    p2pBandwidth: 450,
-  },
-  {
-    id: "spark-2",
-    name: "DGX Spark Beta",
-    ip: "192.168.50.110",
-    gpuUtil: 65,
-    gpuMem: 38.7,
-    gpuMemTotal: 128,
-    cpuUtil: 28,
-    ramUtil: 14.9,
-    temp: 58,
-    power: 245,
-    p2pBandwidth: 450,
-  },
-];
+import { trpc } from "@/lib/trpc";
 
 // MoE Expert Routing (simplified 8x8 grid representing 64 of 128 experts)
 const generateExpertHeatmap = () => {
@@ -84,17 +44,6 @@ const generateExpertHeatmap = () => {
   return data;
 };
 
-// Throughput History
-const THROUGHPUT_HISTORY = [
-  { time: "00:00", value: 1650 },
-  { time: "04:00", value: 1420 },
-  { time: "08:00", value: 1890 },
-  { time: "12:00", value: 2100 },
-  { time: "16:00", value: 1950 },
-  { time: "20:00", value: 1780 },
-  { time: "Now", value: 1842 },
-];
-
 const containerVariants = {
   hidden: { opacity: 0 },
   visible: { opacity: 1, transition: { staggerChildren: 0.1 } }
@@ -106,6 +55,16 @@ const itemVariants = {
 };
 
 function VLLMTelemetryCard() {
+  const { data: inferenceStats, isLoading, refetch } = trpc.stats.getInferenceStats.useQuery(
+    undefined,
+    { refetchInterval: 30000 }
+  );
+  
+  const handleRefresh = () => {
+    refetch();
+    toast.info("Refreshing metrics...");
+  };
+  
   return (
     <Card className="cyber-panel">
       <CardHeader>
@@ -115,12 +74,14 @@ function VLLMTelemetryCard() {
               <Activity className="w-5 h-5 text-nvidia-green" />
             </div>
             <div>
-              <CardTitle className="text-base font-display tracking-wide">vLLM Inference Telemetry</CardTitle>
-              <p className="text-xs text-muted-foreground">Real-time performance metrics</p>
+              <CardTitle className="text-base font-display tracking-wide">Inference Telemetry</CardTitle>
+              <p className="text-xs text-muted-foreground">
+                {inferenceStats?.hasData ? "Live metrics from database" : "Waiting for inference requests"}
+              </p>
             </div>
           </div>
-          <Button variant="outline" size="sm" className="gap-2" onClick={() => toast.info("Refreshing metrics...")}>
-            <RefreshCw className="w-4 h-4" />
+          <Button variant="outline" size="sm" className="gap-2" onClick={handleRefresh}>
+            <RefreshCw className={cn("w-4 h-4", isLoading && "animate-spin")} />
             Refresh
           </Button>
         </div>
@@ -131,69 +92,70 @@ function VLLMTelemetryCard() {
           <div className="p-4 rounded-lg bg-muted/30 border border-border/50">
             <div className="flex items-center gap-2 mb-2">
               <Clock className="w-4 h-4 text-nvidia-green" />
-              <span className="text-xs text-muted-foreground">TTFT</span>
+              <span className="text-xs text-muted-foreground">Avg Latency</span>
             </div>
             <div className="text-2xl font-mono font-bold text-nvidia-green">
-              {VLLM_METRICS.ttft}
+              {isLoading ? <Loader2 className="w-5 h-5 animate-spin" /> : inferenceStats?.avgLatency || "--"}
               <span className="text-sm text-muted-foreground ml-1">ms</span>
             </div>
-            <p className="text-[10px] text-muted-foreground mt-1">Time to First Token</p>
+            <p className="text-[10px] text-muted-foreground mt-1">Response Time</p>
           </div>
           
           <div className="p-4 rounded-lg bg-muted/30 border border-border/50">
             <div className="flex items-center gap-2 mb-2">
-              <Clock className="w-4 h-4 text-nvidia-teal" />
-              <span className="text-xs text-muted-foreground">TPOT</span>
+              <TrendingUp className="w-4 h-4 text-nvidia-teal" />
+              <span className="text-xs text-muted-foreground">Success Rate</span>
             </div>
             <div className="text-2xl font-mono font-bold text-nvidia-teal">
-              {VLLM_METRICS.tpot}
-              <span className="text-sm text-muted-foreground ml-1">ms</span>
+              {isLoading ? <Loader2 className="w-5 h-5 animate-spin" /> : `${inferenceStats?.successRate || 0}%`}
             </div>
-            <p className="text-[10px] text-muted-foreground mt-1">Time per Output Token</p>
+            <p className="text-[10px] text-muted-foreground mt-1">Request Success</p>
           </div>
           
           <div className="p-4 rounded-lg bg-muted/30 border border-border/50">
             <div className="flex items-center gap-2 mb-2">
-              <TrendingUp className="w-4 h-4 text-nvidia-green" />
-              <span className="text-xs text-muted-foreground">Throughput</span>
+              <BarChart3 className="w-4 h-4 text-nvidia-green" />
+              <span className="text-xs text-muted-foreground">Total Tokens</span>
             </div>
             <div className="text-2xl font-mono font-bold">
-              {VLLM_METRICS.throughput.toLocaleString()}
-              <span className="text-sm text-muted-foreground ml-1">tok/s</span>
+              {isLoading ? <Loader2 className="w-5 h-5 animate-spin" /> : (inferenceStats?.totalTokens?.toLocaleString() || "0")}
             </div>
-            <p className="text-[10px] text-muted-foreground mt-1">Generation Speed</p>
+            <p className="text-[10px] text-muted-foreground mt-1">Processed (24h)</p>
           </div>
           
           <div className="p-4 rounded-lg bg-muted/30 border border-border/50">
             <div className="flex items-center gap-2 mb-2">
-              <HardDrive className="w-4 h-4 text-nvidia-teal" />
-              <span className="text-xs text-muted-foreground">KV Cache</span>
+              <Activity className="w-4 h-4 text-nvidia-teal" />
+              <span className="text-xs text-muted-foreground">Requests</span>
             </div>
             <div className="text-2xl font-mono font-bold">
-              {VLLM_METRICS.kvCacheUtil}
-              <span className="text-sm text-muted-foreground ml-1">%</span>
+              {isLoading ? <Loader2 className="w-5 h-5 animate-spin" /> : (inferenceStats?.totalRequests?.toLocaleString() || "0")}
             </div>
-            <p className="text-[10px] text-muted-foreground mt-1">Cache Utilization</p>
+            <p className="text-[10px] text-muted-foreground mt-1">Total (24h)</p>
           </div>
         </div>
         
         {/* Additional Metrics */}
         <div className="grid grid-cols-4 gap-4 mt-4 pt-4 border-t border-border/50">
           <div className="text-center">
-            <div className="text-lg font-mono font-bold">{VLLM_METRICS.batchSize}</div>
-            <div className="text-[10px] text-muted-foreground">Batch Size</div>
+            <div className="text-lg font-mono font-bold">{inferenceStats?.totalRequests || 0}</div>
+            <div className="text-[10px] text-muted-foreground">Total Requests</div>
           </div>
           <div className="text-center">
-            <div className="text-lg font-mono font-bold">{VLLM_METRICS.queueDepth}</div>
-            <div className="text-[10px] text-muted-foreground">Queue Depth</div>
+            <div className="text-lg font-mono font-bold">{inferenceStats?.avgLatency || "--"}ms</div>
+            <div className="text-[10px] text-muted-foreground">Avg Latency</div>
           </div>
           <div className="text-center">
-            <div className="text-lg font-mono font-bold text-nvidia-green">{VLLM_METRICS.activeRequests}</div>
-            <div className="text-[10px] text-muted-foreground">Active Requests</div>
+            <div className="text-lg font-mono font-bold text-nvidia-green">
+              {inferenceStats?.successRate || 0}%
+            </div>
+            <div className="text-[10px] text-muted-foreground">Success Rate</div>
           </div>
           <div className="text-center">
-            <div className="text-lg font-mono font-bold">{VLLM_METRICS.completedRequests.toLocaleString()}</div>
-            <div className="text-[10px] text-muted-foreground">Completed</div>
+            <div className="text-lg font-mono font-bold">
+              {inferenceStats?.totalTokens?.toLocaleString() || 0}
+            </div>
+            <div className="text-[10px] text-muted-foreground">Total Tokens</div>
           </div>
         </div>
       </CardContent>
@@ -222,7 +184,7 @@ function ExpertRoutingHeatmap() {
             </div>
             <div>
               <CardTitle className="text-base font-display tracking-wide">MoE Expert Routing</CardTitle>
-              <p className="text-xs text-muted-foreground">128 Experts × 32 Layers (showing subset)</p>
+              <p className="text-xs text-muted-foreground">128 Experts × 32 Layers (visualization)</p>
             </div>
           </div>
           <Select defaultValue="all">
@@ -293,74 +255,131 @@ function ExpertRoutingHeatmap() {
 }
 
 function SystemHealthCard() {
+  const { data: dcgmData, isLoading, refetch } = trpc.dcgm.getAllMetrics.useQuery(
+    undefined,
+    { refetchInterval: 10000 }
+  );
+  
+  const hosts = dcgmData?.hosts || [];
+  
   return (
     <Card className="cyber-panel">
       <CardHeader>
-        <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-lg bg-nvidia-green/20 flex items-center justify-center">
-            <Server className="w-5 h-5 text-nvidia-green" />
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-lg bg-nvidia-green/20 flex items-center justify-center">
+              <Server className="w-5 h-5 text-nvidia-green" />
+            </div>
+            <div>
+              <CardTitle className="text-base font-display tracking-wide">System Health</CardTitle>
+              <p className="text-xs text-muted-foreground">
+                {dcgmData?.isLive ? "Live from DGX Spark" : "Connecting..."}
+              </p>
+            </div>
           </div>
-          <div>
-            <CardTitle className="text-base font-display tracking-wide">System Health</CardTitle>
-            <p className="text-xs text-muted-foreground">DGX Spark Infrastructure</p>
-          </div>
+          <Button variant="outline" size="sm" className="gap-2" onClick={() => refetch()}>
+            <RefreshCw className={cn("w-4 h-4", isLoading && "animate-spin")} />
+            Refresh
+          </Button>
         </div>
       </CardHeader>
       
       <CardContent>
-        <div className="space-y-6">
-          {HOST_HEALTH.map((host) => (
-            <div key={host.id} className="space-y-3">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <div className="hex-status-online scale-75" />
-                  <span className="text-sm font-semibold">{host.name}</span>
-                  <span className="text-xs font-mono text-muted-foreground">{host.ip}</span>
-                </div>
-              </div>
+        {isLoading ? (
+          <div className="flex items-center justify-center py-8">
+            <Loader2 className="w-8 h-8 animate-spin text-nvidia-green" />
+          </div>
+        ) : hosts.length === 0 ? (
+          <div className="text-center py-8 text-muted-foreground">
+            No hosts connected
+          </div>
+        ) : (
+          <div className="space-y-6">
+            {hosts.map((host: any) => {
+              const gpu = host.gpus?.[0];
+              const gpuUtil = gpu?.utilization || 0;
+              const gpuMem = gpu?.memoryUsed || 0;
+              const cpuUtil = host.systemMetrics?.cpuUtilization || 0;
+              const ramUsed = host.systemMetrics?.memoryUsed || 0;
+              const ramTotal = host.systemMetrics?.memoryTotal || 120;
+              const ramUtil = ramTotal > 0 ? Math.round((ramUsed / ramTotal) * 100) : 0;
+              const temp = gpu?.temperature || 0;
+              const power = gpu?.powerDraw || 0;
               
-              <div className="grid grid-cols-3 lg:grid-cols-6 gap-3">
-                <div className="p-2 rounded bg-muted/30 text-center">
-                  <Cpu className="w-4 h-4 mx-auto mb-1 text-nvidia-green" />
-                  <div className="text-sm font-mono font-bold">{host.gpuUtil}%</div>
-                  <div className="text-[10px] text-muted-foreground">GPU</div>
+              return (
+                <div key={host.hostId} className="space-y-3">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <div className={cn(
+                        "w-2 h-2 rounded-full",
+                        host.connected ? "bg-nvidia-green animate-pulse" : "bg-nvidia-warning"
+                      )} />
+                      <span className="text-sm font-semibold">{host.hostName}</span>
+                      <span className="text-xs font-mono text-muted-foreground">{host.hostIp}</span>
+                    </div>
+                    {host.connected && (
+                      <span className="text-[10px] text-nvidia-green">ONLINE</span>
+                    )}
+                  </div>
+                  
+                  <div className="grid grid-cols-3 lg:grid-cols-6 gap-3">
+                    <div className="p-2 rounded bg-muted/30 text-center">
+                      <Cpu className="w-4 h-4 mx-auto mb-1 text-nvidia-green" />
+                      <div className="text-sm font-mono font-bold">{gpuUtil}%</div>
+                      <div className="text-[10px] text-muted-foreground">GPU</div>
+                    </div>
+                    <div className="p-2 rounded bg-muted/30 text-center">
+                      <HardDrive className="w-4 h-4 mx-auto mb-1 text-nvidia-teal" />
+                      <div className="text-sm font-mono font-bold">{gpuMem.toFixed(1)}GB</div>
+                      <div className="text-[10px] text-muted-foreground">VRAM</div>
+                    </div>
+                    <div className="p-2 rounded bg-muted/30 text-center">
+                      <Activity className="w-4 h-4 mx-auto mb-1 text-muted-foreground" />
+                      <div className="text-sm font-mono font-bold">{cpuUtil.toFixed(0)}%</div>
+                      <div className="text-[10px] text-muted-foreground">CPU</div>
+                    </div>
+                    <div className="p-2 rounded bg-muted/30 text-center">
+                      <Layers className="w-4 h-4 mx-auto mb-1 text-muted-foreground" />
+                      <div className="text-sm font-mono font-bold">{ramUtil}%</div>
+                      <div className="text-[10px] text-muted-foreground">RAM</div>
+                    </div>
+                    <div className="p-2 rounded bg-muted/30 text-center">
+                      <Thermometer className={cn("w-4 h-4 mx-auto mb-1", temp > 70 ? "text-nvidia-warning" : "text-muted-foreground")} />
+                      <div className="text-sm font-mono font-bold">{temp}°C</div>
+                      <div className="text-[10px] text-muted-foreground">Temp</div>
+                    </div>
+                    <div className="p-2 rounded bg-muted/30 text-center">
+                      <Zap className="w-4 h-4 mx-auto mb-1 text-muted-foreground" />
+                      <div className="text-sm font-mono font-bold">{power.toFixed(0)}W</div>
+                      <div className="text-[10px] text-muted-foreground">Power</div>
+                    </div>
+                  </div>
                 </div>
-                <div className="p-2 rounded bg-muted/30 text-center">
-                  <HardDrive className="w-4 h-4 mx-auto mb-1 text-nvidia-teal" />
-                  <div className="text-sm font-mono font-bold">{host.gpuMem}GB</div>
-                  <div className="text-[10px] text-muted-foreground">VRAM</div>
-                </div>
-                <div className="p-2 rounded bg-muted/30 text-center">
-                  <Activity className="w-4 h-4 mx-auto mb-1 text-muted-foreground" />
-                  <div className="text-sm font-mono font-bold">{host.cpuUtil}%</div>
-                  <div className="text-[10px] text-muted-foreground">CPU</div>
-                </div>
-                <div className="p-2 rounded bg-muted/30 text-center">
-                  <Layers className="w-4 h-4 mx-auto mb-1 text-muted-foreground" />
-                  <div className="text-sm font-mono font-bold">{host.ramUtil}%</div>
-                  <div className="text-[10px] text-muted-foreground">RAM</div>
-                </div>
-                <div className="p-2 rounded bg-muted/30 text-center">
-                  <Thermometer className={cn("w-4 h-4 mx-auto mb-1", host.temp > 70 ? "text-nvidia-warning" : "text-muted-foreground")} />
-                  <div className="text-sm font-mono font-bold">{host.temp}°C</div>
-                  <div className="text-[10px] text-muted-foreground">Temp</div>
-                </div>
-                <div className="p-2 rounded bg-muted/30 text-center">
-                  <Zap className="w-4 h-4 mx-auto mb-1 text-muted-foreground" />
-                  <div className="text-sm font-mono font-bold">{host.power}W</div>
-                  <div className="text-[10px] text-muted-foreground">Power</div>
-                </div>
-              </div>
-            </div>
-          ))}
-        </div>
+              );
+            })}
+          </div>
+        )}
       </CardContent>
     </Card>
   );
 }
 
-function ThroughputChartCard() {
-  const maxValue = Math.max(...THROUGHPUT_HISTORY.map(d => d.value));
+function ThroughputChart() {
+  const { data: dcgmData, isLoading } = trpc.dcgm.getAllMetrics.useQuery(
+    undefined,
+    { refetchInterval: 10000 }
+  );
+  
+  // Use current metrics for display
+  const hosts = dcgmData?.hosts || [];
+  const currentUtil = (hosts[0] as any)?.gpus?.[0]?.utilization || 0;
+  
+  // Simple chart data based on current value
+  const chartData: Array<{ time: string; value: number }> = [
+    { time: "Now", value: currentUtil }
+  ];
+  
+  const maxValue = 100;
   
   return (
     <Card className="cyber-panel">
@@ -370,42 +389,37 @@ function ThroughputChartCard() {
             <BarChart3 className="w-5 h-5 text-nvidia-teal" />
           </div>
           <div>
-            <CardTitle className="text-base font-display tracking-wide">Throughput History</CardTitle>
-            <p className="text-xs text-muted-foreground">24-hour token generation rate</p>
+            <CardTitle className="text-base font-display tracking-wide">GPU Utilization History</CardTitle>
+            <p className="text-xs text-muted-foreground">
+              {history && history.length > 0 ? `${history.length} data points` : "Collecting data..."}
+            </p>
           </div>
         </div>
       </CardHeader>
       
       <CardContent>
-        <div className="h-40 flex items-end gap-2">
-          {THROUGHPUT_HISTORY.map((point, index) => {
-            const height = (point.value / maxValue) * 100;
-            const isNow = point.time === "Now";
-            return (
-              <div key={index} className="flex-1 flex flex-col items-center gap-1">
+        {isLoading ? (
+          <div className="flex items-center justify-center h-32">
+            <Loader2 className="w-6 h-6 animate-spin text-nvidia-green" />
+          </div>
+        ) : (
+          <div className="h-32 flex items-end gap-2">
+            {chartData.map((point: { time: string; value: number }, idx: number) => (
+              <div key={idx} className="flex-1 flex flex-col items-center gap-1">
                 <div 
-                  className={cn(
-                    "w-full rounded-t transition-all",
-                    isNow ? "bg-nvidia-green glow-green" : "bg-nvidia-teal/50 hover:bg-nvidia-teal"
-                  )}
-                  style={{ height: `${height}%` }}
-                  title={`${point.time}: ${point.value} tok/s`}
+                  className="w-full bg-nvidia-green/60 rounded-t transition-all hover:bg-nvidia-green"
+                  style={{ height: `${(point.value / maxValue) * 100}%`, minHeight: '4px' }}
+                  title={`${point.value}%`}
                 />
                 <span className="text-[10px] text-muted-foreground">{point.time}</span>
               </div>
-            );
-          })}
-        </div>
+            ))}
+          </div>
+        )}
         
-        <div className="flex items-center justify-between mt-4 pt-4 border-t border-border/50 text-xs">
-          <div className="flex items-center gap-2">
-            <span className="text-muted-foreground">Peak:</span>
-            <span className="font-mono font-bold text-nvidia-green">{maxValue.toLocaleString()} tok/s</span>
-          </div>
-          <div className="flex items-center gap-2">
-            <span className="text-muted-foreground">Current:</span>
-            <span className="font-mono font-bold">{THROUGHPUT_HISTORY[THROUGHPUT_HISTORY.length - 1].value.toLocaleString()} tok/s</span>
-          </div>
+        <div className="flex items-center justify-between mt-4 pt-4 border-t border-border/50 text-xs text-muted-foreground">
+          <span>Peak: {Math.max(...chartData.map((d: { value: number }) => d.value))}%</span>
+          <span>Avg: {Math.round(chartData.reduce((a: number, b: { value: number }) => a + b.value, 0) / chartData.length)}%</span>
         </div>
       </CardContent>
     </Card>
@@ -420,35 +434,56 @@ export default function Statistics() {
       animate="visible"
       className="space-y-6"
     >
-      {/* Page Header */}
-      <motion.div variants={itemVariants}>
-        <h1 className="text-2xl font-display font-bold tracking-wider text-foreground">
-          OBSERVABILITY DECK
-        </h1>
-        <p className="text-sm text-muted-foreground mt-1">
-          Real-time monitoring, MoE routing analysis, and system health
-        </p>
+      {/* Header */}
+      <motion.div variants={itemVariants} className="flex items-center justify-between">
+        <div>
+          <h1 className="text-2xl font-display font-bold tracking-wide">
+            Statistics & Monitoring
+          </h1>
+          <p className="text-sm text-muted-foreground mt-1">
+            Live observability metrics from DGX Spark infrastructure
+          </p>
+        </div>
       </motion.div>
       
-      {/* vLLM Telemetry */}
-      <motion.div variants={itemVariants}>
-        <VLLMTelemetryCard />
-      </motion.div>
-      
-      {/* Charts Row */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <motion.div variants={itemVariants}>
-          <ExpertRoutingHeatmap />
-        </motion.div>
-        <motion.div variants={itemVariants}>
-          <ThroughputChartCard />
-        </motion.div>
-      </div>
-      
-      {/* System Health */}
-      <motion.div variants={itemVariants}>
-        <SystemHealthCard />
-      </motion.div>
+      {/* Tabs */}
+      <Tabs defaultValue="telemetry" className="space-y-6">
+        <TabsList className="bg-muted/30">
+          <TabsTrigger value="telemetry" className="gap-2">
+            <Activity className="w-4 h-4" />
+            Inference
+          </TabsTrigger>
+          <TabsTrigger value="system" className="gap-2">
+            <Server className="w-4 h-4" />
+            System
+          </TabsTrigger>
+          <TabsTrigger value="moe" className="gap-2">
+            <Grid3X3 className="w-4 h-4" />
+            MoE Routing
+          </TabsTrigger>
+        </TabsList>
+        
+        <TabsContent value="telemetry" className="space-y-6">
+          <motion.div variants={itemVariants}>
+            <VLLMTelemetryCard />
+          </motion.div>
+          <motion.div variants={itemVariants}>
+            <ThroughputChart />
+          </motion.div>
+        </TabsContent>
+        
+        <TabsContent value="system" className="space-y-6">
+          <motion.div variants={itemVariants}>
+            <SystemHealthCard />
+          </motion.div>
+        </TabsContent>
+        
+        <TabsContent value="moe" className="space-y-6">
+          <motion.div variants={itemVariants}>
+            <ExpertRoutingHeatmap />
+          </motion.div>
+        </TabsContent>
+      </Tabs>
     </motion.div>
   );
 }

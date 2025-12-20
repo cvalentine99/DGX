@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { publicProcedure, router } from "./_core/trpc";
 import { Client } from "ssh2";
+import { recordGpuMetrics, getGpuMetricsHistory, createSystemAlert, cleanupOldGpuMetrics } from "./db";
 
 // DGX Spark host configuration
 // Using ngrok TCP tunnel for SSH access from cloud
@@ -51,7 +52,7 @@ interface HostMetrics {
 const metricsCache: Map<string, { data: HostMetrics; timestamp: number }> = new Map();
 const CACHE_TTL = 5000; // 5 seconds
 
-// History storage for time-series charts
+// History storage for time-series charts (in-memory buffer before DB write)
 interface MetricsHistoryPoint {
   timestamp: number;
   utilization: number;
@@ -61,76 +62,55 @@ interface MetricsHistoryPoint {
   memoryTotal: number;
 }
 
-const metricsHistory: Map<string, MetricsHistoryPoint[]> = new Map();
-const MAX_HISTORY_POINTS = 1440; // 24 hours at 1-minute intervals
-const HISTORY_INTERVAL = 60000; // 1 minute
+const lastDbWrite: Map<string, number> = new Map();
+const DB_WRITE_INTERVAL = 60000; // Write to DB every 1 minute
 
-// Initialize history for hosts
-DGX_HOSTS.forEach(host => {
-  metricsHistory.set(host.id, []);
-});
-
-// Add metrics to history (called on each fetch)
-function addToHistory(hostId: string, metrics: HostMetrics) {
-  const history = metricsHistory.get(hostId) || [];
+// Add metrics to database history
+async function addToDbHistory(hostId: string, metrics: HostMetrics) {
   const gpu = metrics.gpus[0];
-  
   if (!gpu) return;
   
-  // Only add if enough time has passed since last point
-  const lastPoint = history[history.length - 1];
-  if (lastPoint && Date.now() - lastPoint.timestamp < HISTORY_INTERVAL) {
+  // Only write to DB if enough time has passed
+  const lastWrite = lastDbWrite.get(hostId) || 0;
+  if (Date.now() - lastWrite < DB_WRITE_INTERVAL) {
     return;
   }
   
-  history.push({
-    timestamp: Date.now(),
-    utilization: gpu.utilization,
-    temperature: gpu.temperature,
-    powerDraw: gpu.powerDraw,
-    memoryUsed: gpu.memoryUsed,
-    memoryTotal: gpu.memoryTotal,
+  await recordGpuMetrics({
+    hostId,
+    gpuUtilization: Math.round(gpu.utilization),
+    gpuTemperature: Math.round(gpu.temperature),
+    gpuPowerDraw: Math.round(gpu.powerDraw),
+    gpuMemoryUsed: Math.round(gpu.memoryUsed),
+    gpuMemoryTotal: Math.round(gpu.memoryTotal),
+    cpuUtilization: Math.round(metrics.systemMetrics.cpuUtilization),
+    systemMemoryUsed: Math.round(metrics.systemMetrics.memoryUsed),
+    systemMemoryTotal: Math.round(metrics.systemMetrics.memoryTotal),
   });
   
-  // Trim to max points
-  while (history.length > MAX_HISTORY_POINTS) {
-    history.shift();
-  }
+  lastDbWrite.set(hostId, Date.now());
   
-  metricsHistory.set(hostId, history);
-}
-
-// Generate simulated history for demo
-function generateSimulatedHistory(hostId: string, timeRangeMs: number): MetricsHistoryPoint[] {
-  const points: MetricsHistoryPoint[] = [];
-  const now = Date.now();
-  const interval = 60000; // 1 minute
-  const numPoints = Math.min(Math.floor(timeRangeMs / interval), 1440);
-  
-  const baseUtil = hostId === "alpha" ? 78 : 65;
-  const baseTemp = hostId === "alpha" ? 62 : 58;
-  const basePower = hostId === "alpha" ? 285 : 245;
-  const baseMemUsed = hostId === "alpha" ? 46285 : 39629;
-  
-  for (let i = numPoints; i >= 0; i--) {
-    const timestamp = now - (i * interval);
-    // Add sinusoidal variation for realistic patterns
-    const hourOfDay = new Date(timestamp).getHours();
-    const workloadFactor = Math.sin((hourOfDay - 6) * Math.PI / 12) * 0.2 + 0.8; // Peak at noon
-    const noise = () => (Math.random() - 0.5) * 8;
-    
-    points.push({
-      timestamp,
-      utilization: Math.max(0, Math.min(100, Math.round(baseUtil * workloadFactor + noise()))),
-      temperature: Math.max(30, Math.min(85, Math.round(baseTemp + (baseUtil * workloadFactor - baseUtil) * 0.3 + noise() * 0.5))),
-      powerDraw: Math.max(100, Math.min(500, Math.round(basePower * workloadFactor + noise() * 3))),
-      memoryUsed: Math.max(0, Math.round(baseMemUsed * (0.9 + Math.random() * 0.2))),
-      memoryTotal: 98304,
+  // Check for alert conditions
+  if (gpu.utilization > 90) {
+    await createSystemAlert({
+      type: "warning",
+      message: `GPU utilization above 90% on ${metrics.hostName}`,
+      hostId,
     });
   }
-  
-  return points;
+  if (gpu.temperature > 80) {
+    await createSystemAlert({
+      type: "warning",
+      message: `GPU temperature above 80°C on ${metrics.hostName}`,
+      hostId,
+    });
+  }
 }
+
+// Cleanup old metrics periodically
+setInterval(() => {
+  cleanupOldGpuMetrics();
+}, 60 * 60 * 1000); // Every hour
 
 // SSH configuration from environment
 function getSSHConfig() {
@@ -180,7 +160,7 @@ async function executeSSHCommand(hostIp: string, command: string, sshHost?: stri
       host: sshHost || hostIp,
       port: sshPort || 22,
       username: config.username,
-      readyTimeout: 15000,
+      readyTimeout: 10000,
     };
     
     if (config.privateKey) {
@@ -193,16 +173,14 @@ async function executeSSHCommand(hostIp: string, command: string, sshHost?: stri
   });
 }
 
-// Parse nvidia-smi output for GPU metrics
-function parseNvidiaSmiOutput(output: string): GpuMetrics[] {
+// Parse nvidia-smi output
+function parseNvidiaSmi(output: string): GpuMetrics[] {
   const gpus: GpuMetrics[] = [];
-  
-  // nvidia-smi --query-gpu format output
-  const lines = output.trim().split("\n").filter(line => line.trim());
+  const lines = output.trim().split("\n");
   
   for (const line of lines) {
-    const parts = line.split(", ").map(p => p.trim());
-    if (parts.length >= 14) {
+    const parts = line.split(", ");
+    if (parts.length >= 15) {
       gpus.push({
         index: parseInt(parts[0]) || 0,
         name: parts[1] || "Unknown GPU",
@@ -226,13 +204,13 @@ function parseNvidiaSmiOutput(output: string): GpuMetrics[] {
   return gpus;
 }
 
-// Parse system metrics from various commands
+// Parse system metrics
 function parseSystemMetrics(output: string): { cpuUtilization: number; memoryUsed: number; memoryTotal: number; uptime: string } {
   const lines = output.trim().split("\n");
   let cpuUtilization = 0;
   let memoryUsed = 0;
   let memoryTotal = 0;
-  let uptime = "Unknown";
+  let uptime = "";
   
   for (const line of lines) {
     if (line.startsWith("CPU:")) {
@@ -249,79 +227,55 @@ function parseSystemMetrics(output: string): { cpuUtilization: number; memoryUse
   return { cpuUtilization, memoryUsed, memoryTotal, uptime };
 }
 
-// Fetch metrics from a single host
-async function fetchHostMetrics(hostId: string, hostName: string, hostIp: string, sshHost?: string, sshPort?: number): Promise<HostMetrics> {
+// Fetch metrics from a host via SSH
+async function fetchHostMetrics(host: typeof DGX_HOSTS[0]): Promise<HostMetrics> {
   // Check cache first
-  const cached = metricsCache.get(hostId);
+  const cached = metricsCache.get(host.id);
   if (cached && Date.now() - cached.timestamp < CACHE_TTL) {
     return cached.data;
   }
   
   try {
     // nvidia-smi query for GPU metrics
-    const nvidiaSmiCommand = `nvidia-smi --query-gpu=index,name,uuid,utilization.gpu,memory.used,memory.total,utilization.memory,temperature.gpu,power.draw,power.limit,fan.speed,clocks.current.graphics,clocks.current.memory,pcie.link.gen.current,pcie.link.width.current --format=csv,noheader,nounits 2>/dev/null || echo "0, NVIDIA Grace Hopper, GPU-0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0"`;
+    const nvidiaSmiCmd = `nvidia-smi --query-gpu=index,name,uuid,utilization.gpu,memory.used,memory.total,utilization.memory,temperature.gpu,power.draw,power.limit,fan.speed,clocks.current.graphics,clocks.current.memory,pcie.link.gen.current,pcie.link.width.current --format=csv,noheader,nounits`;
     
     // System metrics command
-    const systemCommand = `echo "CPU:$(top -bn1 | grep 'Cpu(s)' | awk '{print $2}' | cut -d'%' -f1 2>/dev/null || echo 0)" && echo "MEM_USED:$(free -m | awk '/Mem:/ {print $3}' 2>/dev/null || echo 0)" && echo "MEM_TOTAL:$(free -m | awk '/Mem:/ {print $2}' 2>/dev/null || echo 0)" && echo "UPTIME:$(uptime -p 2>/dev/null || echo 'unknown')"`;
+    const systemCmd = `echo "CPU:$(top -bn1 | grep "Cpu(s)" | awk '{print $2}')" && echo "MEM_USED:$(free -m | awk '/Mem:/ {print $3}')" && echo "MEM_TOTAL:$(free -m | awk '/Mem:/ {print $2}')" && echo "UPTIME:$(uptime -p)"`;
     
-    // Execute commands via ngrok tunnel
     const [gpuOutput, systemOutput] = await Promise.all([
-      executeSSHCommand(hostIp, nvidiaSmiCommand, sshHost, sshPort),
-      executeSSHCommand(hostIp, systemCommand, sshHost, sshPort),
+      executeSSHCommand(host.ip, nvidiaSmiCmd, host.sshHost, host.sshPort),
+      executeSSHCommand(host.ip, systemCmd, host.sshHost, host.sshPort),
     ]);
     
-    const gpus = parseNvidiaSmiOutput(gpuOutput);
+    const gpus = parseNvidiaSmi(gpuOutput);
     const systemMetrics = parseSystemMetrics(systemOutput);
     
     const metrics: HostMetrics = {
-      hostId,
-      hostName,
-      hostIp,
+      hostId: host.id,
+      hostName: host.name,
+      hostIp: host.ip,
       timestamp: Date.now(),
       connected: true,
-      gpus: gpus.length > 0 ? gpus : [{
-        index: 0,
-        name: "NVIDIA Grace Hopper",
-        uuid: "GPU-" + hostId,
-        utilization: 0,
-        memoryUsed: 0,
-        memoryTotal: 98304, // 96GB
-        memoryUtilization: 0,
-        temperature: 0,
-        powerDraw: 0,
-        powerLimit: 500,
-        fanSpeed: 0,
-        clockGraphics: 0,
-        clockMemory: 0,
-        pcieGen: 5,
-        pcieLinkWidth: 16,
-      }],
+      gpus,
       systemMetrics,
     };
     
     // Update cache
-    metricsCache.set(hostId, { data: metrics, timestamp: Date.now() });
+    metricsCache.set(host.id, { data: metrics, timestamp: Date.now() });
     
-    // Add to history
-    addToHistory(hostId, metrics);
+    // Store in database for history
+    addToDbHistory(host.id, metrics);
     
     return metrics;
   } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : "Connection failed";
+    const errorMessage = error instanceof Error ? error.message : "Unknown error";
+    console.error(`[DCGM] Failed to fetch metrics from ${host.name}:`, errorMessage);
     
-    // Return cached data if available, otherwise return error state
-    if (cached) {
-      return {
-        ...cached.data,
-        connected: false,
-        error: errorMessage,
-      };
-    }
-    
+    // Return error state - no simulated data
     return {
-      hostId,
-      hostName,
-      hostIp,
+      hostId: host.id,
+      hostName: host.name,
+      hostIp: host.ip,
       timestamp: Date.now(),
       connected: false,
       error: errorMessage,
@@ -330,52 +284,16 @@ async function fetchHostMetrics(hostId: string, hostName: string, hostIp: string
         cpuUtilization: 0,
         memoryUsed: 0,
         memoryTotal: 0,
-        uptime: "Unknown",
+        uptime: "unavailable",
       },
     };
   }
 }
 
-// Generate simulated metrics for demo/fallback
-function generateSimulatedMetrics(hostId: string, hostName: string, hostIp: string): HostMetrics {
-  const baseUtil = hostId === "alpha" ? 78 : 65;
-  const baseTemp = hostId === "alpha" ? 62 : 58;
-  const basePower = hostId === "alpha" ? 285 : 245;
-  const baseMemUsed = hostId === "alpha" ? 45.2 : 38.7;
-  
-  // Add some variance for realism
-  const variance = () => (Math.random() - 0.5) * 4;
-  
-  return {
-    hostId,
-    hostName,
-    hostIp,
-    timestamp: Date.now(),
-    connected: true,
-    gpus: [{
-      index: 0,
-      name: "NVIDIA Grace Hopper",
-      uuid: `GPU-${hostId}-0`,
-      utilization: Math.round(baseUtil + variance()),
-      memoryUsed: Math.round((baseMemUsed + variance() * 0.5) * 1024),
-      memoryTotal: 98304, // 96GB
-      memoryUtilization: Math.round((baseMemUsed / 96) * 100),
-      temperature: Math.round(baseTemp + variance()),
-      powerDraw: Math.round(basePower + variance() * 5),
-      powerLimit: 500,
-      fanSpeed: Math.round(35 + variance()),
-      clockGraphics: 1980,
-      clockMemory: 2619,
-      pcieGen: 5,
-      pcieLinkWidth: 16,
-    }],
-    systemMetrics: {
-      cpuUtilization: Math.round((hostId === "alpha" ? 34 : 28) + variance()),
-      memoryUsed: Math.round((hostId === "alpha" ? 89.4 : 76.2) * 1024),
-      memoryTotal: 512 * 1024, // 512GB
-      uptime: "14d 7h 23m",
-    },
-  };
+// Check if SSH credentials are configured
+function hasCredentials(): boolean {
+  const config = getSSHConfig();
+  return !!(config.privateKey || config.password);
 }
 
 export const dcgmRouter = router({
@@ -385,14 +303,14 @@ export const dcgmRouter = router({
       id: host.id,
       name: host.name,
       ip: host.ip,
+      localIp: host.ip,
     }));
   }),
 
   // Get metrics for a single host
-  getHostMetrics: publicProcedure
+  getMetrics: publicProcedure
     .input(z.object({
       hostId: z.string(),
-      forceRefresh: z.boolean().optional().default(false),
     }))
     .query(async ({ input }) => {
       const host = DGX_HOSTS.find(h => h.id === input.hostId);
@@ -400,62 +318,65 @@ export const dcgmRouter = router({
         throw new Error(`Host ${input.hostId} not found`);
       }
       
-      // Clear cache if force refresh
-      if (input.forceRefresh) {
-        metricsCache.delete(input.hostId);
+      if (!hasCredentials()) {
+        return {
+          hostId: host.id,
+          hostName: host.name,
+          hostIp: host.ip,
+          timestamp: Date.now(),
+          connected: false,
+          error: "SSH credentials not configured",
+          gpus: [],
+          systemMetrics: {
+            cpuUtilization: 0,
+            memoryUsed: 0,
+            memoryTotal: 0,
+            uptime: "unavailable",
+          },
+        };
       }
       
-      // Try to get real metrics, fall back to simulated
-      try {
-        const config = getSSHConfig();
-        if (config.password || config.privateKey) {
-          return await fetchHostMetrics(host.id, host.name, host.ip, host.sshHost, host.sshPort);
-        }
-      } catch {
-        // Fall through to simulated
-      }
-      
-      // Return simulated metrics
-      return generateSimulatedMetrics(host.id, host.name, host.ip);
+      return fetchHostMetrics(host);
     }),
 
   // Get metrics for all hosts
-  getAllMetrics: publicProcedure
-    .input(z.object({
-      forceRefresh: z.boolean().optional().default(false),
-    }).optional())
-    .query(async ({ input }) => {
-      const forceRefresh = input?.forceRefresh ?? false;
-      
-      // Clear all caches if force refresh
-      if (forceRefresh) {
-        metricsCache.clear();
-      }
-      
-      const config = getSSHConfig();
-      const hasCredentials = !!(config.password || config.privateKey);
-      
-      const results = await Promise.all(
-        DGX_HOSTS.map(async (host) => {
-          try {
-            if (hasCredentials) {
-              return await fetchHostMetrics(host.id, host.name, host.ip, host.sshHost, host.sshPort);
-            }
-          } catch {
-            // Fall through to simulated
-          }
-          return generateSimulatedMetrics(host.id, host.name, host.ip);
-        })
-      );
-      
+  getAllMetrics: publicProcedure.query(async () => {
+    const credentialsAvailable = hasCredentials();
+    
+    if (!credentialsAvailable) {
       return {
-        hosts: results,
+        hosts: DGX_HOSTS.map(host => ({
+          hostId: host.id,
+          hostName: host.name,
+          hostIp: host.ip,
+          timestamp: Date.now(),
+          connected: false,
+          error: "SSH credentials not configured",
+          gpus: [],
+          systemMetrics: {
+            cpuUtilization: 0,
+            memoryUsed: 0,
+            memoryTotal: 0,
+            uptime: "unavailable",
+          },
+        })),
         timestamp: Date.now(),
-        isSimulated: !hasCredentials,
+        isLive: false,
       };
-    }),
+    }
+    
+    const results = await Promise.all(
+      DGX_HOSTS.map(host => fetchHostMetrics(host))
+    );
+    
+    return {
+      hosts: results,
+      timestamp: Date.now(),
+      isLive: results.some(r => r.connected),
+    };
+  }),
 
-  // Test SSH connection to a host
+  // Test SSH connection
   testConnection: publicProcedure
     .input(z.object({
       hostId: z.string(),
@@ -463,31 +384,34 @@ export const dcgmRouter = router({
     .mutation(async ({ input }) => {
       const host = DGX_HOSTS.find(h => h.id === input.hostId);
       if (!host) {
-        return { success: false, error: `Host ${input.hostId} not found` };
+        throw new Error(`Host ${input.hostId} not found`);
       }
       
       try {
-        const output = await executeSSHCommand(host.ip, "echo 'Connection successful' && nvidia-smi --query-gpu=name --format=csv,noheader 2>/dev/null | head -1", host.sshHost, host.sshPort);
+        const output = await executeSSHCommand(host.ip, "echo 'Connection successful' && hostname", host.sshHost, host.sshPort);
         return {
           success: true,
           message: output.trim(),
-          gpuDetected: output.includes("NVIDIA") || output.includes("Grace"),
+          hostId: host.id,
+          hostName: host.name,
         };
       } catch (error) {
         return {
           success: false,
-          error: error instanceof Error ? error.message : "Connection failed",
+          message: error instanceof Error ? error.message : "Connection failed",
+          hostId: host.id,
+          hostName: host.name,
         };
       }
     }),
 
-  // Get metrics history for time-series charts
+  // Get metrics history for time-series charts (from database)
   getHistory: publicProcedure
     .input(z.object({
       hostId: z.string(),
       timeRange: z.enum(["1h", "6h", "24h"]).default("1h"),
     }))
-    .query(({ input }) => {
+    .query(async ({ input }) => {
       const host = DGX_HOSTS.find(h => h.id === input.hostId);
       if (!host) {
         throw new Error(`Host ${input.hostId} not found`);
@@ -499,27 +423,26 @@ export const dcgmRouter = router({
         "24h": 24 * 60 * 60 * 1000,
       }[input.timeRange];
       
-      const history = metricsHistory.get(input.hostId) || [];
-      const cutoff = Date.now() - timeRangeMs;
-      const filteredHistory = history.filter(p => p.timestamp >= cutoff);
+      // Get history from database
+      const dbHistory = await getGpuMetricsHistory(input.hostId, timeRangeMs);
       
-      // If no real history, generate simulated data
-      if (filteredHistory.length < 10) {
-        return {
-          hostId: input.hostId,
-          hostName: host.name,
-          timeRange: input.timeRange,
-          points: generateSimulatedHistory(input.hostId, timeRangeMs),
-          isSimulated: true,
-        };
-      }
+      // Transform to expected format
+      const points: MetricsHistoryPoint[] = dbHistory.map(h => ({
+        timestamp: h.timestamp.getTime(),
+        utilization: h.gpuUtilization,
+        temperature: h.gpuTemperature,
+        powerDraw: h.gpuPowerDraw,
+        memoryUsed: h.gpuMemoryUsed,
+        memoryTotal: h.gpuMemoryTotal,
+      }));
       
       return {
         hostId: input.hostId,
         hostName: host.name,
         timeRange: input.timeRange,
-        points: filteredHistory,
-        isSimulated: false,
+        points,
+        isLive: points.length > 0,
+        dataPoints: points.length,
       };
     }),
 
@@ -534,25 +457,34 @@ export const dcgmRouter = router({
         throw new Error(`Host ${input.hostId} not found`);
       }
       
+      if (!hasCredentials()) {
+        return {
+          available: false,
+          error: "SSH credentials not configured",
+        };
+      }
+      
       try {
-        // Try to get DCGM metrics
-        const output = await executeSSHCommand(host.ip, "dcgmi dmon -e 155,156,203,204,1001,1002,1003,1004 -c 1 2>/dev/null || echo 'DCGM not available'", host.sshHost, host.sshPort);
+        // Check if dcgmi is available and get detailed metrics
+        const dcgmiCmd = `dcgmi dmon -e 155,156,203,204,1001,1002,1003,1004,1005 -c 1 2>/dev/null || echo "DCGMI_NOT_AVAILABLE"`;
+        const output = await executeSSHCommand(host.ip, dcgmiCmd, host.sshHost, host.sshPort);
         
-        if (output.includes("DCGM not available")) {
+        if (output.includes("DCGMI_NOT_AVAILABLE")) {
           return {
             available: false,
-            message: "DCGM is not installed or not running on this host",
+            error: "DCGM not installed on this host",
           };
         }
         
         return {
           available: true,
           rawOutput: output,
+          timestamp: Date.now(),
         };
       } catch (error) {
         return {
           available: false,
-          error: error instanceof Error ? error.message : "Failed to fetch DCGM metrics",
+          error: error instanceof Error ? error.message : "Failed to get DCGM metrics",
         };
       }
     }),

@@ -228,3 +228,12 @@
 - [x] Create ngrok systemd service configuration for DGX Spark
 - [x] Add DGX_SSH_HOST and DGX_SSH_PORT environment variables
 - [x] Update header stats to use live DCGM data instead of simulated values
+
+# Remove Mock Data from Production
+
+- [x] Remove simulated GPU history data (generateSimulatedHistory)
+- [x] Remove simulated performance metrics (Total Requests, Avg Response Time, etc.)
+- [x] Remove simulated system alerts
+- [x] Update Statistics page to use live DCGM data
+- [x] Remove "SIMULATED" badges when showing real data
+- [x] Store real GPU metrics in database for history

@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { publicProcedure, router } from "./_core/trpc";
+import { recordInferenceRequest } from "./db";
 
 // vLLM Configuration
 interface VLLMConfig {
@@ -282,6 +283,7 @@ export const vllmRouter = router({
     .input(chatCompletionRequestSchema)
     .mutation(async ({ input }) => {
       const config = getConfig();
+      const startTime = Date.now();
       
       // Check if vLLM is configured and available
       try {
@@ -305,6 +307,17 @@ export const vllmRouter = router({
           // Parse reasoning content if present
           const content = response.choices[0]?.message?.content || "";
           const { reasoning, answer } = parseReasoningContent(content);
+          
+          // Log inference request to database
+          const usage = response.usage || { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 };
+          recordInferenceRequest({
+            model: config.model,
+            promptTokens: usage.prompt_tokens,
+            completionTokens: usage.completion_tokens,
+            totalTokens: usage.total_tokens,
+            latencyMs: Date.now() - startTime,
+            success: 1,
+          });
           
           return {
             ...response,

@@ -15,6 +15,13 @@
       "when": 1766236415645,
       "tag": "0001_famous_ikaris",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "5",
+      "when": 1766246406609,
+      "tag": "0002_woozy_shen",
+      "breakpoints": true
     }
   ]
 }

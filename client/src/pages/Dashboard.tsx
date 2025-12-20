@@ -38,26 +38,8 @@ import { GpuHistoryChart, GpuHistoryComparisonChart } from "@/components/GpuHist
 import { ContainerInventory } from "@/components/ContainerInventory";
 import { ComfyUIPanel } from "@/components/ComfyUIPanel";
 
-// Model Status
-const MODEL_STATUS = {
-  name: "Nemotron-3-Nano-30B-A3B-FP8",
-  architecture: "Mixture of Experts (MoE)",
-  experts: 128,
-  layers: 32,
-  activeExperts: 8,
-  precision: "FP8",
-  status: "loaded",
-  inferenceEngine: "vLLM 25.11",
-  tokensProcessed: 1247832,
-  avgLatency: 42.3,
-};
-
-// System Alerts
-const SYSTEM_ALERTS = [
-  { type: "success", message: "All systems operational", time: "2m ago" },
-  { type: "info", message: "Model checkpoint saved successfully", time: "15m ago" },
-  { type: "warning", message: "GPU memory usage above 80% on Spark Alpha", time: "1h ago" },
-];
+// Model status is now fetched from vLLM API
+// Alerts are now fetched from database via stats.getAlerts
 
 const containerVariants = {
   hidden: { opacity: 0 },
@@ -153,11 +135,11 @@ interface HostMetrics {
 function HostCard({ 
   metrics, 
   isLoading,
-  isSimulated,
+  isLive,
 }: { 
   metrics: HostMetrics;
   isLoading: boolean;
-  isSimulated: boolean;
+  isLive: boolean;
 }) {
   const gpu = metrics.gpus[0];
   const isOnline = metrics.connected && !metrics.error;
@@ -186,11 +168,11 @@ function HostCard({
               </div>
             </div>
             <div className="flex items-center gap-2">
-              {isSimulated && (
+              {!isLive && (
                 <Tooltip>
                   <TooltipTrigger>
                     <Badge variant="outline" className="text-[10px] border-nvidia-warning/50 text-nvidia-warning">
-                      SIMULATED
+                      OFFLINE
                     </Badge>
                   </TooltipTrigger>
                   <TooltipContent>
@@ -289,6 +271,18 @@ function HostCard({
 }
 
 function ModelStatusCard() {
+  const { data: vllmHealth, isLoading } = trpc.vllm.healthCheck.useQuery(
+    undefined,
+    { refetchInterval: 30000 }
+  );
+  const { data: inferenceStats } = trpc.stats.getInferenceStats.useQuery(
+    undefined,
+    { refetchInterval: 30000 }
+  );
+  
+  const isConnected = vllmHealth?.status === "connected";
+  const modelName = vllmHealth?.models?.[0]?.split('/').pop() || "Nemotron-3-Nano-30B";
+  
   return (
     <motion.div variants={itemVariants}>
       <Card className="cyber-panel h-full">
@@ -308,46 +302,49 @@ function ModelStatusCard() {
           <div className="space-y-2">
             <div className="flex items-center justify-between">
               <span className="text-sm font-semibold text-nvidia-green font-display tracking-wide">
-                {MODEL_STATUS.name}
+                {isLoading ? "Loading..." : modelName}
               </span>
-              <span className="px-2 py-0.5 rounded text-[10px] font-medium bg-nvidia-green/20 text-nvidia-green">
-                {MODEL_STATUS.status.toUpperCase()}
+              <span className={cn(
+                "px-2 py-0.5 rounded text-[10px] font-medium",
+                isConnected ? "bg-nvidia-green/20 text-nvidia-green" : "bg-nvidia-warning/20 text-nvidia-warning"
+              )}>
+                {isConnected ? "RUNNING" : "OFFLINE"}
               </span>
             </div>
-            <p className="text-xs text-muted-foreground">{MODEL_STATUS.architecture}</p>
+            <p className="text-xs text-muted-foreground">MoE Architecture • FP8 Quantized</p>
           </div>
           
           <div className="grid grid-cols-2 gap-3 text-xs">
             <div className="flex flex-col gap-1 p-2 rounded bg-muted/30">
-              <span className="text-muted-foreground">Experts</span>
-              <span className="font-mono font-semibold">{MODEL_STATUS.experts}</span>
+              <span className="text-muted-foreground">Parameters</span>
+              <span className="font-mono font-semibold">30B</span>
             </div>
             <div className="flex flex-col gap-1 p-2 rounded bg-muted/30">
-              <span className="text-muted-foreground">Active</span>
-              <span className="font-mono font-semibold text-nvidia-green">{MODEL_STATUS.activeExperts}</span>
+              <span className="text-muted-foreground">Active Params</span>
+              <span className="font-mono font-semibold text-nvidia-green">3B</span>
             </div>
             <div className="flex flex-col gap-1 p-2 rounded bg-muted/30">
-              <span className="text-muted-foreground">Layers</span>
-              <span className="font-mono font-semibold">{MODEL_STATUS.layers}</span>
+              <span className="text-muted-foreground">Context</span>
+              <span className="font-mono font-semibold">8192</span>
             </div>
             <div className="flex flex-col gap-1 p-2 rounded bg-muted/30">
               <span className="text-muted-foreground">Precision</span>
-              <span className="font-mono font-semibold">{MODEL_STATUS.precision}</span>
+              <span className="font-mono font-semibold">FP8</span>
             </div>
           </div>
           
           <div className="pt-2 border-t border-border/50 space-y-2">
             <div className="flex items-center justify-between text-xs">
               <span className="text-muted-foreground">Inference Engine</span>
-              <span className="font-mono text-nvidia-teal">{MODEL_STATUS.inferenceEngine}</span>
+              <span className="font-mono text-nvidia-teal">llama.cpp + CUDA</span>
             </div>
             <div className="flex items-center justify-between text-xs">
               <span className="text-muted-foreground">Tokens Processed</span>
-              <span className="font-mono">{MODEL_STATUS.tokensProcessed.toLocaleString()}</span>
+              <span className="font-mono">{inferenceStats?.totalTokens?.toLocaleString() || "0"}</span>
             </div>
             <div className="flex items-center justify-between text-xs">
               <span className="text-muted-foreground">Avg Latency</span>
-              <span className="font-mono">{MODEL_STATUS.avgLatency}ms</span>
+              <span className="font-mono">{inferenceStats?.avgLatency || "--"}ms</span>
             </div>
           </div>
         </CardContent>
@@ -357,6 +354,11 @@ function ModelStatusCard() {
 }
 
 function SystemAlertsCard() {
+  const { data: alerts, isLoading } = trpc.stats.getAlerts.useQuery(
+    undefined,
+    { refetchInterval: 30000 }
+  );
+  
   const getAlertIcon = (type: string) => {
     switch (type) {
       case "success": return <CheckCircle2 className="w-4 h-4 text-nvidia-green" />;
@@ -365,6 +367,10 @@ function SystemAlertsCard() {
       default: return <Activity className="w-4 h-4 text-nvidia-teal" />;
     }
   };
+  
+  const displayAlerts = alerts && alerts.length > 0 ? alerts : [
+    { id: 0, type: "success", message: "All systems operational", timeAgo: "now" }
+  ];
   
   return (
     <motion.div variants={itemVariants}>
@@ -383,18 +389,22 @@ function SystemAlertsCard() {
         
         <CardContent>
           <div className="space-y-3">
-            {SYSTEM_ALERTS.map((alert, index) => (
-              <div 
-                key={index}
-                className="flex items-start gap-3 p-2 rounded bg-muted/30"
-              >
-                {getAlertIcon(alert.type)}
-                <div className="flex-1 min-w-0">
-                  <p className="text-xs text-foreground">{alert.message}</p>
-                  <p className="text-[10px] text-muted-foreground mt-0.5">{alert.time}</p>
+            {isLoading ? (
+              <div className="text-xs text-muted-foreground">Loading alerts...</div>
+            ) : (
+              displayAlerts.map((alert) => (
+                <div 
+                  key={alert.id}
+                  className="flex items-start gap-3 p-2 rounded bg-muted/30"
+                >
+                  {getAlertIcon(alert.type)}
+                  <div className="flex-1 min-w-0">
+                    <p className="text-xs text-foreground">{alert.message}</p>
+                    <p className="text-[10px] text-muted-foreground mt-0.5">{alert.timeAgo}</p>
+                  </div>
                 </div>
-              </div>
-            ))}
+              ))
+            )}
           </div>
         </CardContent>
       </Card>
@@ -403,11 +413,36 @@ function SystemAlertsCard() {
 }
 
 function QuickStatsCard() {
+  const { data: inferenceStats, isLoading } = trpc.stats.getInferenceStats.useQuery(
+    undefined,
+    { refetchInterval: 30000 }
+  );
+  
   const stats = [
-    { label: "Total Requests", value: "12,847", change: "+12%", icon: TrendingUp },
-    { label: "Avg Response Time", value: "42ms", change: "-8%", icon: Clock },
-    { label: "Cache Hit Rate", value: "94.2%", change: "+2%", icon: Database },
-    { label: "Active Sessions", value: "23", change: "+5", icon: Activity },
+    { 
+      label: "Total Requests", 
+      value: inferenceStats?.hasData ? inferenceStats.totalRequests.toLocaleString() : "0", 
+      change: inferenceStats?.hasData ? "24h" : "--", 
+      icon: TrendingUp 
+    },
+    { 
+      label: "Avg Response Time", 
+      value: inferenceStats?.hasData ? `${inferenceStats.avgLatency}ms` : "--", 
+      change: inferenceStats?.hasData ? "live" : "--", 
+      icon: Clock 
+    },
+    { 
+      label: "Success Rate", 
+      value: inferenceStats?.hasData ? `${inferenceStats.successRate}%` : "--", 
+      change: inferenceStats?.hasData ? "24h" : "--", 
+      icon: Database 
+    },
+    { 
+      label: "Tokens Processed", 
+      value: inferenceStats?.hasData ? inferenceStats.totalTokens.toLocaleString() : "0", 
+      change: inferenceStats?.hasData ? "24h" : "--", 
+      icon: Activity 
+    },
   ];
   
   return (
@@ -449,7 +484,7 @@ export default function Dashboard() {
   
   // Fetch metrics from DCGM backend
   const { data: metricsData, isLoading, refetch, isFetching, dataUpdatedAt } = trpc.dcgm.getAllMetrics.useQuery(
-    { forceRefresh: false },
+    undefined,
     {
       refetchInterval: refreshInterval,
       refetchIntervalInBackground: false,
@@ -533,7 +568,7 @@ export default function Dashboard() {
   ];
   
   const hosts = metricsData?.hosts || defaultMetrics;
-  const isSimulated = metricsData?.isSimulated ?? true;
+  const isLive = metricsData?.isLive ?? false;
   
   return (
     <motion.div
@@ -579,15 +614,15 @@ export default function Dashboard() {
             </TooltipContent>
           </Tooltip>
           
-          {isSimulated ? (
-            <Badge variant="outline" className="border-nvidia-warning/50 text-nvidia-warning gap-1">
-              <WifiOff className="w-3 h-3" />
-              Simulated
-            </Badge>
-          ) : (
+          {isLive ? (
             <Badge variant="outline" className="border-nvidia-green/50 text-nvidia-green gap-1">
               <Wifi className="w-3 h-3" />
               Live
+            </Badge>
+          ) : (
+            <Badge variant="outline" className="border-nvidia-warning/50 text-nvidia-warning gap-1">
+              <WifiOff className="w-3 h-3" />
+              Offline
             </Badge>
           )}
         </div>
@@ -600,7 +635,7 @@ export default function Dashboard() {
             key={host.hostId} 
             metrics={host} 
             isLoading={isLoading}
-            isSimulated={isSimulated}
+            isLive={isLive}
           />
         ))}
       </div>

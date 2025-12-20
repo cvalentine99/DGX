@@ -293,9 +293,9 @@ export function GpuHistoryChart({ hostId, hostName, className }: GpuHistoryChart
               </TabsList>
             </Tabs>
 
-            {historyData?.isSimulated && (
+            {historyData && !historyData.isLive && (
               <Badge variant="outline" className="text-[10px] border-nvidia-warning/50 text-nvidia-warning">
-                SIMULATED
+                NO DATA
               </Badge>
             )}
           </div>
