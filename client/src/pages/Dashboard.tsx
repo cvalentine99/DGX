@@ -35,6 +35,7 @@ import { Badge } from "@/components/ui/badge";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { trpc } from "@/lib/trpc";
 import { GpuHistoryChart, GpuHistoryComparisonChart } from "@/components/GpuHistoryChart";
+import { ContainerInventory } from "@/components/ContainerInventory";
 
 // Model Status
 const MODEL_STATUS = {
@@ -616,6 +617,9 @@ export default function Dashboard() {
       
       {/* GPU Comparison Chart */}
       <GpuHistoryComparisonChart />
+      
+      {/* Container Inventory */}
+      <ContainerInventory />
       
       {/* Quick Stats */}
       <QuickStatsCard />

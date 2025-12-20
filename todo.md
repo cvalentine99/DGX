@@ -155,3 +155,13 @@
 - [x] Display GPU utilization, temperature, and power trends
 - [x] Integrate charts into Dashboard below host cards
 - [x] Test time-series charts with simulated data
+
+# Container Inventory Panel
+
+- [x] Create SSH endpoint to list Docker images on each host
+- [x] Parse docker images output for NGC containers
+- [x] Build ContainerInventory component with host tabs
+- [x] Display container name, tag, size, and created date
+- [x] Add refresh functionality
+- [x] Integrate into Dashboard layout
+- [x] Test container inventory display
