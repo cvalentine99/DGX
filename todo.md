@@ -208,3 +208,9 @@
 - [x] Add COMFYUI_URL environment variable
 - [x] Integrate panel into Dashboard layout
 - [x] Test ComfyUI panel functionality
+
+# Ngrok SSH Tunnel Configuration
+
+- [x] Update SSH router to use ngrok TCP tunnel (4.tcp.ngrok.io:19838)
+- [x] Test SSH connection via ngrok
+- [x] Verify live container inventory works

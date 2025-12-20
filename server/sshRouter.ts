@@ -3,16 +3,19 @@ import { publicProcedure, router } from "./_core/trpc";
 import { Client } from "ssh2";
 
 // DGX Spark host configurations
+// Using ngrok TCP tunnel for SSH access from cloud
 const DGX_HOSTS = {
   alpha: {
     name: "DGX Spark Alpha",
-    host: "192.168.50.139",
-    port: 22,
+    host: process.env.DGX_SSH_HOST || "4.tcp.ngrok.io",
+    port: parseInt(process.env.DGX_SSH_PORT || "19838"),
+    localIp: "192.168.50.139", // Original local IP for reference
   },
   beta: {
     name: "DGX Spark Beta",
-    host: "192.168.50.110",
-    port: 22,
+    host: process.env.DGX_SSH_HOST || "4.tcp.ngrok.io",
+    port: parseInt(process.env.DGX_SSH_PORT || "19838"),
+    localIp: "192.168.50.110", // Original local IP for reference
   },
 } as const;
 
@@ -559,7 +562,11 @@ export const sshRouter = router({
   getHosts: publicProcedure.query(() => {
     return Object.entries(DGX_HOSTS).map(([id, host]) => ({
       id,
-      ...host,
+      name: host.name,
+      host: host.localIp, // Show local IP in UI for user reference
+      port: 22, // Show standard SSH port in UI
+      sshHost: host.host, // Actual SSH host (ngrok)
+      sshPort: host.port, // Actual SSH port (ngrok)
     }));
   }),
   
