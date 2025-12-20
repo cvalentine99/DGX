@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { publicProcedure, router } from "./_core/trpc";
 import { Client } from "ssh2";
+import { getSSHPool, initializeSSHPool, PoolStats } from "./sshConnectionPool";
 
 // DGX Spark host configurations
 // Using ngrok TCP tunnel for SSH access from cloud
@@ -2145,5 +2146,182 @@ WantedBy=multi-user.target
         message: `Connection state reset for ${DGX_HOSTS[input.hostId].name}`,
         state: connectionStates[input.hostId],
       };
+    }),
+
+  // ============================================
+  // CONNECTION POOL ENDPOINTS
+  // ============================================
+
+  // Initialize the connection pool
+  initializePool: publicProcedure
+    .mutation(async () => {
+      try {
+        const credentials = getSSHCredentials();
+        
+        const hosts = [
+          {
+            id: 'alpha',
+            name: DGX_HOSTS.alpha.name,
+            host: DGX_HOSTS.alpha.host,
+            port: DGX_HOSTS.alpha.port,
+            username: credentials.username,
+            password: credentials.password,
+            privateKey: credentials.privateKey,
+          },
+          {
+            id: 'beta',
+            name: DGX_HOSTS.beta.name,
+            host: DGX_HOSTS.beta.host,
+            port: DGX_HOSTS.beta.port,
+            username: credentials.username,
+            password: credentials.password,
+            privateKey: credentials.privateKey,
+          },
+        ];
+
+        await initializeSSHPool(hosts);
+        
+        return {
+          success: true,
+          message: 'Connection pool initialized',
+          poolStatus: getSSHPool().getPoolStatus(),
+        };
+      } catch (error: any) {
+        return {
+          success: false,
+          error: error.message,
+        };
+      }
+    }),
+
+  // Get connection pool status
+  getPoolStatus: publicProcedure
+    .query(() => {
+      const pool = getSSHPool();
+      return pool.getPoolStatus();
+    }),
+
+  // Get pool statistics for a specific host
+  getPoolStats: publicProcedure
+    .input(z.object({
+      hostId: z.enum(["alpha", "beta"]),
+    }))
+    .query(({ input }) => {
+      const pool = getSSHPool();
+      const stats = pool.getStats(input.hostId);
+      return {
+        hostId: input.hostId,
+        hostName: DGX_HOSTS[input.hostId].name,
+        stats: stats || null,
+      };
+    }),
+
+  // Get all pool statistics
+  getAllPoolStats: publicProcedure
+    .query(() => {
+      const pool = getSSHPool();
+      return {
+        stats: pool.getAllStats(),
+        hosts: {
+          alpha: DGX_HOSTS.alpha,
+          beta: DGX_HOSTS.beta,
+        },
+      };
+    }),
+
+  // Execute command using connection pool
+  executePooled: publicProcedure
+    .input(z.object({
+      hostId: z.enum(["alpha", "beta"]),
+      command: z.string(),
+    }))
+    .mutation(async ({ input }) => {
+      try {
+        const pool = getSSHPool();
+        const startTime = Date.now();
+        
+        const output = await pool.execute(input.hostId, input.command);
+        const duration = Date.now() - startTime;
+        
+        return {
+          success: true,
+          output,
+          duration,
+          usedPool: true,
+        };
+      } catch (error: any) {
+        return {
+          success: false,
+          error: error.message,
+          usedPool: true,
+        };
+      }
+    }),
+
+  // Test pool connection with a simple command
+  testPoolConnection: publicProcedure
+    .input(z.object({
+      hostId: z.enum(["alpha", "beta"]),
+    }))
+    .mutation(async ({ input }) => {
+      try {
+        const pool = getSSHPool();
+        const startTime = Date.now();
+        
+        // Acquire and release to test the pool
+        const { connection, release } = await pool.acquire(input.hostId);
+        
+        const result = await new Promise<string>((resolve, reject) => {
+          connection.exec('echo "Pool connection test: $(date)"', (err, stream) => {
+            if (err) {
+              reject(err);
+              return;
+            }
+            
+            let output = '';
+            stream.on('data', (data: Buffer) => {
+              output += data.toString();
+            });
+            stream.on('close', () => resolve(output.trim()));
+            stream.on('error', reject);
+          });
+        });
+        
+        release();
+        const duration = Date.now() - startTime;
+        
+        return {
+          success: true,
+          message: `Pool connection to ${DGX_HOSTS[input.hostId].name} successful`,
+          output: result,
+          duration,
+          stats: pool.getStats(input.hostId),
+        };
+      } catch (error: any) {
+        return {
+          success: false,
+          message: `Pool connection to ${DGX_HOSTS[input.hostId].name} failed`,
+          error: error.message,
+        };
+      }
+    }),
+
+  // Shutdown the connection pool
+  shutdownPool: publicProcedure
+    .mutation(async () => {
+      try {
+        const pool = getSSHPool();
+        await pool.shutdown();
+        
+        return {
+          success: true,
+          message: 'Connection pool shutdown complete',
+        };
+      } catch (error: any) {
+        return {
+          success: false,
+          error: error.message,
+        };
+      }
     }),
 });

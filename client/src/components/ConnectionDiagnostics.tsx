@@ -18,6 +18,11 @@ import {
   Server,
   Timer,
   History,
+  Database,
+  Zap,
+  TrendingUp,
+  Play,
+  Power,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -459,8 +464,196 @@ export function ConnectionDiagnostics() {
             isResetting={isResettingBeta}
           />
         </div>
+        
+        {/* Connection Pool Status */}
+        <ConnectionPoolStatus />
       </CardContent>
     </Card>
+  );
+}
+
+// Connection Pool Status Component
+function ConnectionPoolStatus() {
+  const [isInitializing, setIsInitializing] = useState(false);
+  const [isShuttingDown, setIsShuttingDown] = useState(false);
+  
+  // Fetch pool status
+  const { data: poolStatus, refetch: refetchPool } = trpc.ssh.getPoolStatus.useQuery(
+    undefined,
+    { refetchInterval: 5000 }
+  );
+  
+  // Initialize pool mutation
+  const initPoolMutation = trpc.ssh.initializePool.useMutation({
+    onSuccess: () => refetchPool(),
+  });
+  
+  // Shutdown pool mutation
+  const shutdownPoolMutation = trpc.ssh.shutdownPool.useMutation({
+    onSuccess: () => refetchPool(),
+  });
+  
+  const handleInitialize = useCallback(async () => {
+    setIsInitializing(true);
+    try {
+      await initPoolMutation.mutateAsync();
+    } finally {
+      setIsInitializing(false);
+    }
+  }, [initPoolMutation]);
+  
+  const handleShutdown = useCallback(async () => {
+    setIsShuttingDown(true);
+    try {
+      await shutdownPoolMutation.mutateAsync();
+    } finally {
+      setIsShuttingDown(false);
+    }
+  }, [shutdownPoolMutation]);
+
+  return (
+    <div className="bg-black/30 rounded-lg p-4 border border-gray-800">
+      <div className="flex items-center justify-between mb-4">
+        <div className="flex items-center gap-2">
+          <Database className="w-4 h-4 text-[#76b900]" />
+          <span className="text-white font-medium">Connection Pool</span>
+          <Badge 
+            variant="outline" 
+            className={cn(
+              "text-xs",
+              poolStatus?.initialized 
+                ? "border-green-500 text-green-500" 
+                : "border-gray-500 text-gray-500"
+            )}
+          >
+            {poolStatus?.initialized ? 'Active' : 'Inactive'}
+          </Badge>
+        </div>
+        <div className="flex gap-2">
+          {!poolStatus?.initialized ? (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleInitialize}
+              disabled={isInitializing}
+              className="border-[#76b900]/50 hover:bg-[#76b900]/20 text-xs"
+            >
+              {isInitializing ? (
+                <Loader2 className="w-3 h-3 mr-1 animate-spin" />
+              ) : (
+                <Play className="w-3 h-3 mr-1" />
+              )}
+              Initialize
+            </Button>
+          ) : (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleShutdown}
+              disabled={isShuttingDown}
+              className="border-red-500/50 hover:bg-red-500/20 text-xs text-red-400"
+            >
+              {isShuttingDown ? (
+                <Loader2 className="w-3 h-3 mr-1 animate-spin" />
+              ) : (
+                <Power className="w-3 h-3 mr-1" />
+              )}
+              Shutdown
+            </Button>
+          )}
+        </div>
+      </div>
+      
+      {poolStatus?.initialized && poolStatus.hosts && poolStatus.hosts.length > 0 ? (
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          {poolStatus.hosts.map((host) => (
+            <div 
+              key={host.id} 
+              className="bg-black/40 rounded p-3 border border-gray-700"
+            >
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-white text-sm font-medium">{host.name}</span>
+                <Badge 
+                  variant="outline" 
+                  className={cn(
+                    "text-xs",
+                    host.healthy 
+                      ? "border-green-500 text-green-500" 
+                      : "border-red-500 text-red-500"
+                  )}
+                >
+                  {host.healthy ? 'Healthy' : 'Unhealthy'}
+                </Badge>
+              </div>
+              
+              <div className="grid grid-cols-3 gap-2 text-xs">
+                <div className="bg-black/30 rounded p-2">
+                  <div className="flex items-center gap-1 text-gray-400 mb-1">
+                    <Server className="w-3 h-3" />
+                    <span>Total</span>
+                  </div>
+                  <span className="text-white font-mono">
+                    {host.stats?.totalConnections || 0}
+                  </span>
+                </div>
+                
+                <div className="bg-black/30 rounded p-2">
+                  <div className="flex items-center gap-1 text-gray-400 mb-1">
+                    <Activity className="w-3 h-3" />
+                    <span>Active</span>
+                  </div>
+                  <span className="text-[#76b900] font-mono">
+                    {host.stats?.activeConnections || 0}
+                  </span>
+                </div>
+                
+                <div className="bg-black/30 rounded p-2">
+                  <div className="flex items-center gap-1 text-gray-400 mb-1">
+                    <Clock className="w-3 h-3" />
+                    <span>Idle</span>
+                  </div>
+                  <span className="text-blue-400 font-mono">
+                    {host.stats?.idleConnections || 0}
+                  </span>
+                </div>
+              </div>
+              
+              <div className="grid grid-cols-2 gap-2 mt-2 text-xs">
+                <div className="bg-black/30 rounded p-2">
+                  <div className="flex items-center gap-1 text-gray-400 mb-1">
+                    <Zap className="w-3 h-3" />
+                    <span>Saved Reconnects</span>
+                  </div>
+                  <span className="text-yellow-400 font-mono">
+                    {host.stats?.savedReconnections || 0}
+                  </span>
+                </div>
+                
+                <div className="bg-black/30 rounded p-2">
+                  <div className="flex items-center gap-1 text-gray-400 mb-1">
+                    <TrendingUp className="w-3 h-3" />
+                    <span>Total Borrows</span>
+                  </div>
+                  <span className="text-white font-mono">
+                    {host.stats?.totalBorrows || 0}
+                  </span>
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <div className="text-center py-4 text-gray-500 text-sm">
+          {poolStatus?.initialized 
+            ? 'No hosts registered in pool'
+            : 'Pool not initialized. Click "Initialize" to enable connection pooling for improved performance.'}
+        </div>
+      )}
+      
+      <p className="text-xs text-gray-500 mt-3">
+        Connection pooling maintains persistent SSH connections, reducing latency and improving throughput for frequent operations.
+      </p>
+    </div>
   );
 }
 
