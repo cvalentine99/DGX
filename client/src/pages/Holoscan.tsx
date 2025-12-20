@@ -72,7 +72,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { trpc } from "@/lib/trpc";
-import { WebRTCPreview } from "@/components/WebRTCPreview";
+import { WebRTCPreviewV2 } from "@/components/WebRTCPreviewV2";
 
 // BRIO Camera Configuration
 const brioCameraConfig = {
@@ -972,7 +972,7 @@ export default function Holoscan() {
 
         {/* Sensor Preview - WebRTC Live Stream */}
         <div className="col-span-4">
-          <WebRTCPreview
+          <WebRTCPreviewV2
             hostId="alpha"
             camera={cameraConfig.device}
             resolution={cameraConfig.resolution}

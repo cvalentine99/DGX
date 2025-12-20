@@ -345,3 +345,25 @@
 - [x] Integrate live preview into Holoscan camera preview panel
 - [x] Support resolution/format switching during stream
 - [x] Add stream statistics overlay (bitrate, latency, frame drops)
+
+## WebRTC Production Enhancements - December 2024
+### GStreamer WebRTC Deployment on DGX Spark
+- [x] Create GStreamer WebRTC sender Python script for DGX Spark
+- [x] Add SSH endpoint to deploy and manage GStreamer pipeline
+- [x] Implement pipeline status monitoring via SSH
+- [x] Support dynamic resolution/FPS changes
+- [x] Add hardware-accelerated encoding with nvv4l2h264enc
+
+### WebSocket Signaling Server
+- [x] Add Socket.IO integration for real-time signaling
+- [x] Implement WebSocket-based SDP offer/answer exchange
+- [x] Add real-time ICE candidate trickling
+- [x] Handle connection state changes via WebSocket events
+- [x] Support multiple concurrent streaming sessions
+
+### TURN Server Configuration
+- [x] Add TURN server credentials to environment variables
+- [x] Configure ICE servers with STUN and TURN
+- [x] Implement TURN credential rotation for security
+- [x] Add fallback TURN servers for reliability
+- [x] Test NAT traversal scenarios (89 tests passing)
