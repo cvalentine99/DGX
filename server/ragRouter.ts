@@ -107,6 +107,116 @@ async function loadInitialDocuments() {
       documentStore.set(docId, doc);
     }
   }
+  
+  // Load training data from data/training folder
+  const trainingPath = path.join(process.cwd(), "data", "training");
+  
+  if (fs.existsSync(trainingPath)) {
+    // Load playbooks JSON
+    const playbooksFile = path.join(trainingPath, "nemotron-playbooks.json");
+    if (fs.existsSync(playbooksFile)) {
+      try {
+        const playbooksContent = fs.readFileSync(playbooksFile, "utf-8");
+        const playbooks = JSON.parse(playbooksContent);
+        
+        // Index each playbook as a separate document
+        if (playbooks.playbooks && Array.isArray(playbooks.playbooks)) {
+          for (const playbook of playbooks.playbooks) {
+            const playbookContent = JSON.stringify(playbook, null, 2);
+            const docId = `playbook_${playbook.id}_${Date.now()}`;
+            const chunks = chunkText(playbookContent, 800, 100);
+            
+            const documentChunks: DocumentChunk[] = chunks.map((chunk, index) => {
+              const chunkId = `chunk_${docId}_${index}`;
+              const docChunk: DocumentChunk = {
+                id: chunkId,
+                documentId: docId,
+                content: chunk,
+                metadata: {
+                  startIndex: index * 700,
+                  endIndex: (index + 1) * 800,
+                  chunkIndex: index,
+                },
+              };
+              chunkStore.set(chunkId, docChunk);
+              return docChunk;
+            });
+            
+            const doc: Document = {
+              id: docId,
+              title: playbook.name || playbook.id,
+              content: playbookContent,
+              source: "nemotron-playbooks.json",
+              category: "playbook",
+              chunks: documentChunks,
+              createdAt: new Date(),
+              updatedAt: new Date(),
+            };
+            
+            documentStore.set(docId, doc);
+          }
+        }
+      } catch (e) {
+        console.error("Failed to load playbooks:", e);
+      }
+    }
+    
+    // Load training JSONL (sample first 100 examples for RAG)
+    const jsonlFile = path.join(trainingPath, "nemotron-training.jsonl");
+    if (fs.existsSync(jsonlFile)) {
+      try {
+        const lines = fs.readFileSync(jsonlFile, "utf-8").split("\n").filter(l => l.trim());
+        const sampleSize = Math.min(100, lines.length);
+        
+        // Create a single document with training examples summary
+        const examples = lines.slice(0, sampleSize).map(line => {
+          try {
+            return JSON.parse(line);
+          } catch {
+            return null;
+          }
+        }).filter(Boolean);
+        
+        const summaryContent = examples.map((ex: any) => 
+          `Example ${ex.id}:\nPlaybook: ${ex.playbook_name}\nCategory: ${ex.category}\nUser: ${ex.messages?.[1]?.content || "N/A"}\n`
+        ).join("\n---\n");
+        
+        const docId = `training_examples_${Date.now()}`;
+        const chunks = chunkText(summaryContent, 600, 50);
+        
+        const documentChunks: DocumentChunk[] = chunks.map((chunk, index) => {
+          const chunkId = `chunk_${docId}_${index}`;
+          const docChunk: DocumentChunk = {
+            id: chunkId,
+            documentId: docId,
+            content: chunk,
+            metadata: {
+              startIndex: index * 550,
+              endIndex: (index + 1) * 600,
+              chunkIndex: index,
+            },
+          };
+          chunkStore.set(chunkId, docChunk);
+          return docChunk;
+        });
+        
+        const doc: Document = {
+          id: docId,
+          title: "Nemotron Training Examples",
+          content: summaryContent,
+          source: "nemotron-training.jsonl",
+          category: "training_data",
+          chunks: documentChunks,
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        };
+        
+        documentStore.set(docId, doc);
+      } catch (e) {
+        console.error("Failed to load training JSONL:", e);
+      }
+    }
+  }
 }
 
 // Initialize on module load

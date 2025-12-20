@@ -1,0 +1,980 @@
+{
+  "version": "1.0.0",
+  "description": "Comprehensive Playbooks for Nemotron 3 Model Training - Network Forensics Pipeline",
+  "format": "augmented_chatml",
+  "playbooks": [
+    {
+      "id": "extrahop_slow_database",
+      "name": "ExtraHop: Slow Database Investigation",
+      "tool": "extrahop_api",
+      "category": "performance",
+      "objective": "Diagnose database latency issues using ExtraHop metrics",
+      "api_category": "db_server",
+      "object_type": "device",
+      "metrics": ["tprocess", "rtt", "error", "req", "rsp"],
+      "query_templates": [
+        "The {database_type} database is running slow. Is it the network or the server?",
+        "We're seeing high latency on the {database_type} server. What's causing it?",
+        "Database queries are timing out on {server_name}. Can you check the metrics?",
+        "The {database_type} is dragging. Need to identify the bottleneck.",
+        "Users are complaining about slow {database_type} performance in the last {time_range}.",
+        "Check if the database latency is due to network issues or server processing.",
+        "Our {database_type} response times have degraded. What do the metrics show?",
+        "Compare network RTT vs server processing time for {server_name}.",
+        "Is the {database_type} slowdown caused by the application or network?",
+        "Pull database performance metrics for the past {time_range}."
+      ],
+      "reasoning_templates": [
+        "The user is asking about database latency. To diagnose whether the issue is network-related or server-related, I need to compare Round Trip Time (rtt) which measures network latency, with Server Processing Time (tprocess) which measures how long the server takes to process queries. I should also check for errors. The target is a database server, so I'll use metric_category 'db_server' with object_type 'device'.",
+        "This is a database performance investigation. The key metrics are: tprocess (server-side processing time) to identify if the DB is slow, rtt (round trip time) to check network latency, and error to see if queries are failing. Using db_server category for database server metrics.",
+        "Database latency can stem from network issues (high rtt) or server overload (high tprocess). I'll query both metrics along with error counts to provide a complete picture. Category is db_server with device object type."
+      ],
+      "variables": {
+        "database_type": ["PostgreSQL", "MySQL", "Oracle", "SQL Server", "MongoDB", "Redis", "Cassandra", "MariaDB"],
+        "server_name": ["db-prod-01", "db-replica-02", "db-analytics", "db-master", "db-cluster-node1"],
+        "time_range": ["5 minutes", "15 minutes", "1 hour", "6 hours", "24 hours"]
+      }
+    },
+    {
+      "id": "extrahop_http_errors",
+      "name": "ExtraHop: Web Application Error Hunt",
+      "tool": "extrahop_api",
+      "category": "troubleshooting",
+      "objective": "Identify source of HTTP errors using ExtraHop metrics",
+      "api_category": "http_server",
+      "detail_category": "http_server_detail",
+      "object_type": "device",
+      "metrics": ["rsp", "rsp_error", "error", "req", "tprocess"],
+      "query_templates": [
+        "We're seeing a spike in {error_code} errors on the {service_name}. Which URIs are failing?",
+        "HTTP errors increased on the {service_name} in the last {time_range}. What's happening?",
+        "Users are getting {error_code} errors when accessing {service_name}.",
+        "The {service_name} is returning errors. Need to identify the problematic endpoints.",
+        "Check the error rate on our web servers for the past {time_range}.",
+        "Which API endpoints are failing on {service_name}?",
+        "We need to investigate HTTP errors on the {service_name} application.",
+        "Show me the top failing URIs on {service_name}.",
+        "What's causing the {error_code} responses on our web tier?",
+        "Break down HTTP errors by URI for {service_name}."
+      ],
+      "reasoning_templates": [
+        "The user wants to identify which URIs are causing HTTP errors. Since they want a breakdown, I need to use the detail category 'http_server_detail' which provides URI-level granularity. The relevant metrics are 'rsp' for total responses and 'rsp_error' for error responses. Object type is 'device' since we're looking at a specific server.",
+        "HTTP error investigation requires looking at response metrics. I'll use http_server_detail for URI-level breakdown. Key metrics: rsp (total responses), rsp_error (error responses). This helps identify which endpoints are problematic.",
+        "To find the source of HTTP errors, I need response metrics with URI breakdown. Using http_server_detail category with rsp and rsp_error metrics will show which endpoints are failing and at what rate."
+      ],
+      "variables": {
+        "error_code": ["500", "502", "503", "504", "400", "401", "403", "404"],
+        "service_name": ["api-gateway", "web-frontend", "auth-service", "payment-api", "user-service", "order-service"],
+        "time_range": ["5 minutes", "15 minutes", "1 hour", "6 hours", "24 hours"]
+      }
+    },
+    {
+      "id": "extrahop_ssl_audit",
+      "name": "ExtraHop: TLS Security Audit",
+      "tool": "extrahop_api",
+      "category": "security",
+      "objective": "Detect weak encryption or expired certificates",
+      "api_category": "ssl_server",
+      "object_type": "device",
+      "metrics": ["expired_cert", "weak_cipher", "self_signed", "session", "version"],
+      "query_templates": [
+        "Audit our internal servers for expired SSL certificates.",
+        "Find servers using weak ciphers in our environment.",
+        "Check for self-signed certificates across the network.",
+        "Run a TLS security audit on our {server_type} servers.",
+        "Which servers have certificate issues in the last {time_range}?",
+        "Identify any SSL/TLS vulnerabilities on our infrastructure.",
+        "Check the encryption health of our web servers.",
+        "Find any servers still using TLS 1.0 or 1.1.",
+        "Show me servers with weak cipher suites.",
+        "Audit certificate expiration across the {environment} environment."
+      ],
+      "reasoning_templates": [
+        "The user wants to find servers with SSL/TLS security issues. Note that while the user says 'SSL', the ExtraHop API uses 'ssl' as the category name (not 'tls'). For server-side TLS metrics, I use 'ssl_server'. The metrics for security audit are: expired_cert (expired certificates), self_signed (self-signed certs), and weak_cipher (weak encryption).",
+        "This is a TLS security audit. Important: ExtraHop uses 'ssl' in the API even for TLS. I'll use ssl_server category with metrics: expired_cert, weak_cipher, self_signed. These identify the main certificate and encryption issues.",
+        "Security hygiene check for TLS requires ssl_server category (API uses 'ssl' not 'tls'). Key metrics: expired_cert for certificate expiration, weak_cipher for outdated encryption, self_signed for untrusted certificates."
+      ],
+      "variables": {
+        "server_type": ["web", "API", "database", "mail", "internal", "DMZ"],
+        "environment": ["production", "staging", "development", "DMZ"],
+        "time_range": ["1 hour", "6 hours", "24 hours", "7 days"]
+      }
+    },
+    {
+      "id": "extrahop_tcp_congestion",
+      "name": "ExtraHop: Network Congestion Analysis",
+      "tool": "extrahop_api",
+      "category": "performance",
+      "objective": "Identify packet loss or capacity issues",
+      "api_category": "tcp",
+      "object_type": "device",
+      "metrics": ["retx_out", "retx_in", "zwnd_out", "zwnd_in", "rto", "stall_out"],
+      "query_templates": [
+        "Check for network congestion indicators across the data center.",
+        "Show me TCP retransmissions in the last {time_range}.",
+        "Identify zero window conditions on our network.",
+        "Are we experiencing packet loss between {location_a} and {location_b}?",
+        "Network seems slow. Check for congestion indicators.",
+        "Investigate TCP performance issues on the {network_segment} segment.",
+        "What's causing the network slowdown? Check retransmits and zero windows.",
+        "Find devices with high retransmission rates.",
+        "Check for TCP flow stalls across the network.",
+        "Identify congestion hotspots in the {location} data center."
+      ],
+      "reasoning_templates": [
+        "Network congestion is typically indicated by TCP-level metrics. Key indicators include: retransmissions (retx_out, retx_in) which show packet loss, and zero windows (zwnd_out, zwnd_in) which indicate buffer exhaustion. I'll use the 'tcp' category with 'device' object type to see device-level TCP health.",
+        "TCP congestion analysis requires looking at retransmission and window metrics. retx_out/retx_in show packet loss requiring retransmits. zwnd_out/zwnd_in indicate buffer full conditions. Using tcp category with device object type.",
+        "To diagnose network congestion, I need TCP efficiency metrics: retransmissions (retx_out, retx_in) indicate packet loss, zero windows (zwnd_out, zwnd_in) show buffer exhaustion. Category is tcp with device object type."
+      ],
+      "variables": {
+        "location_a": ["NYC", "LAX", "ORD", "DFW", "SEA", "DC1", "DC2"],
+        "location_b": ["NYC", "LAX", "ORD", "DFW", "SEA", "DC1", "DC2"],
+        "network_segment": ["core", "edge", "DMZ", "management", "storage", "backup"],
+        "location": ["primary", "DR", "cloud", "colo"],
+        "time_range": ["5 minutes", "15 minutes", "1 hour", "6 hours"]
+      }
+    },
+    {
+      "id": "extrahop_dns_analysis",
+      "name": "ExtraHop: DNS Traffic Analysis",
+      "tool": "extrahop_api",
+      "category": "security",
+      "objective": "Analyze DNS query patterns and anomalies",
+      "api_category": "dns",
+      "object_type": "application",
+      "metrics": ["record_type", "rsp_code", "req", "rsp", "req_threat"],
+      "query_templates": [
+        "What DNS record types are being queried most frequently?",
+        "Show me DNS query patterns for the last {time_range}.",
+        "Check for DNS anomalies or suspicious queries.",
+        "Which DNS response codes are we seeing?",
+        "Analyze DNS traffic to identify potential tunneling.",
+        "Show DNS requests to suspicious domains.",
+        "What's the DNS query distribution across our network?",
+        "Find unusual DNS query patterns that might indicate exfiltration.",
+        "Check for NXDOMAIN spikes in the last {time_range}.",
+        "Identify clients making excessive DNS queries."
+      ],
+      "reasoning_templates": [
+        "The user wants to see DNS query distribution. For DNS metrics at the application level, I use 'dns' category with 'application' object type. The metric 'record_type' provides the breakdown of queries by DNS record type (A, AAAA, MX, etc.).",
+        "DNS analysis requires the dns category with application object type. Key metrics: record_type for query type distribution, rsp_code for response analysis, req_threat for suspicious domain queries.",
+        "To analyze DNS patterns, I use dns category at the application level. Metrics like record_type show query distribution, rsp_code reveals errors, and req_threat identifies suspicious queries."
+      ],
+      "variables": {
+        "time_range": ["5 minutes", "15 minutes", "1 hour", "6 hours", "24 hours"]
+      }
+    },
+    {
+      "id": "extrahop_voip_quality",
+      "name": "ExtraHop: VoIP Quality Assessment",
+      "tool": "extrahop_api",
+      "category": "performance",
+      "objective": "Monitor voice call quality and SIP health",
+      "api_category": "sip",
+      "object_type": "application",
+      "metrics": ["req", "rsp", "rsp_error", "tprocess", "session"],
+      "query_templates": [
+        "Check the quality of our VoIP calls.",
+        "Are we seeing any SIP errors or call failures?",
+        "Monitor call setup times for the past {time_range}.",
+        "Show me VoIP metrics for our phone system.",
+        "Identify any voice quality issues on the network.",
+        "Check SIP transaction health across our VoIP infrastructure.",
+        "What's the call failure rate in the last {time_range}?",
+        "Find SIP endpoints with high error rates.",
+        "Check for call setup delays on the {pbx_name} system.",
+        "Monitor RTP stream quality for active calls."
+      ],
+      "reasoning_templates": [
+        "VoIP quality is measured through SIP signaling metrics. For SIP, I'll use 'sip' category with 'application' object type. Key metrics include 'req' for requests, 'rsp_error' for failed calls, and 'tprocess' for setup latency.",
+        "SIP/VoIP analysis uses the sip category at application level. Metrics: req/rsp for call volume, rsp_error for failures, tprocess for call setup time. This covers signaling health.",
+        "To assess VoIP quality, I need SIP metrics: req (call attempts), rsp_error (failures), tprocess (setup latency). Using sip category with application object type."
+      ],
+      "variables": {
+        "pbx_name": ["Cisco UCM", "Avaya", "Asterisk", "FreePBX", "Teams", "Zoom Phone"],
+        "time_range": ["5 minutes", "15 minutes", "1 hour", "6 hours"]
+      }
+    },
+    {
+      "id": "extrahop_ldap_auth",
+      "name": "ExtraHop: LDAP Authentication Analysis",
+      "tool": "extrahop_api",
+      "category": "security",
+      "objective": "Monitor directory service authentication",
+      "api_category": "ldap_server",
+      "object_type": "device",
+      "metrics": ["req", "rsp", "rsp_error", "error", "tprocess"],
+      "query_templates": [
+        "Are we seeing any LDAP authentication failures?",
+        "Check LDAP server health for the past {time_range}.",
+        "Monitor Active Directory authentication metrics.",
+        "Show me LDAP error rates across our domain controllers.",
+        "Identify LDAP performance issues.",
+        "Check for authentication bottlenecks on our LDAP servers.",
+        "What's the LDAP response time trend?",
+        "Find domain controllers with high auth failure rates.",
+        "Check for brute force attempts against {dc_name}.",
+        "Monitor bind operation latency on our directory servers."
+      ],
+      "reasoning_templates": [
+        "The user wants to check for LDAP authentication issues. For LDAP server metrics, I use 'ldap_server' category with 'device' object type. The relevant metrics are 'rsp_error' for failed responses and 'error' for general errors. I'll also include 'req' and 'rsp' to provide context on total authentication volume.",
+        "LDAP authentication monitoring uses ldap_server category with device object type. Key metrics: req/rsp for volume, rsp_error/error for failures, tprocess for latency.",
+        "To analyze LDAP health, I use ldap_server category. Metrics include req (requests), rsp_error (auth failures), tprocess (response time). Device object type for server-level view."
+      ],
+      "variables": {
+        "dc_name": ["DC01", "DC02", "dc-primary", "dc-replica", "ad-server"],
+        "time_range": ["5 minutes", "15 minutes", "1 hour", "6 hours", "24 hours"]
+      }
+    },
+    {
+      "id": "extrahop_dhcp_health",
+      "name": "ExtraHop: DHCP Server Health",
+      "tool": "extrahop_api",
+      "category": "infrastructure",
+      "objective": "Monitor IP address allocation",
+      "api_category": "dhcp_server",
+      "object_type": "device",
+      "metrics": ["discover", "offer", "request", "ack", "nak"],
+      "query_templates": [
+        "Check DHCP server health - are we seeing any NAK responses?",
+        "Monitor DHCP lease activity for the past {time_range}.",
+        "Are there any DHCP pool exhaustion issues?",
+        "Show me DHCP transaction metrics.",
+        "Check for DHCP failures across our network.",
+        "What's the DHCP success rate on our servers?",
+        "Identify any IP allocation problems.",
+        "Find DHCP servers with high NAK rates.",
+        "Check for rogue DHCP servers on the network.",
+        "Monitor lease renewals on the {vlan_name} VLAN."
+      ],
+      "reasoning_templates": [
+        "The user wants DHCP server health metrics, specifically NAK responses which indicate lease denials. For DHCP server metrics, I use 'dhcp_server' category. Key metrics include 'nak' for denied leases, 'ack' for successful leases, 'discover' and 'request' for client activity.",
+        "DHCP health monitoring uses dhcp_server category with device object type. Metrics: discover/offer/request/ack for normal flow, nak for failures indicating pool exhaustion or config issues.",
+        "To check DHCP health, I use dhcp_server category. The DORA process metrics (discover, offer, request, ack) plus nak for failures give a complete picture of IP allocation health."
+      ],
+      "variables": {
+        "vlan_name": ["corporate", "guest", "IoT", "management", "DMZ", "voice"],
+        "time_range": ["15 minutes", "1 hour", "6 hours", "24 hours"]
+      }
+    },
+    {
+      "id": "extrahop_storage_ops",
+      "name": "ExtraHop: Storage Operations Analysis",
+      "tool": "extrahop_api",
+      "category": "performance",
+      "objective": "Monitor NAS/NFS storage performance",
+      "api_category": "nas",
+      "object_type": "application",
+      "metrics": ["read", "write", "read_bytes", "write_bytes", "error"],
+      "query_templates": [
+        "What's the read/write ratio on our NAS storage?",
+        "Check storage I/O patterns for the past {time_range}.",
+        "Monitor NFS performance across our file servers.",
+        "Show me storage throughput metrics.",
+        "Are there any storage errors or bottlenecks?",
+        "Analyze file server workload distribution.",
+        "What's the storage utilization trend?",
+        "Find storage volumes with high error rates.",
+        "Check NFS latency on {storage_name}.",
+        "Compare read vs write throughput on our NAS."
+      ],
+      "reasoning_templates": [
+        "The user wants NAS storage operation metrics. For NAS/NFS metrics at the application level, I use 'nas' category with 'application' object type. Key metrics are 'read' for read operations, 'write' for write operations, and 'read_bytes'/'write_bytes' for data volume.",
+        "Storage analysis uses nas category with application object type. Metrics: read/write for operation counts, read_bytes/write_bytes for throughput, error for failures.",
+        "To analyze storage I/O, I use the nas category. Key metrics: read/write (operation counts), read_bytes/write_bytes (data volume). Application object type for aggregate view."
+      ],
+      "variables": {
+        "storage_name": ["NetApp-01", "Isilon-cluster", "Pure-array", "VMAX", "Unity"],
+        "time_range": ["15 minutes", "1 hour", "6 hours", "24 hours"]
+      }
+    },
+    {
+      "id": "extrahop_threat_detection",
+      "name": "ExtraHop: Threat Intelligence Correlation",
+      "tool": "extrahop_api",
+      "category": "security",
+      "objective": "Identify connections to suspicious hosts",
+      "api_category": "net",
+      "object_type": "application",
+      "metrics": ["threat_connected", "threat_bytes_out", "threat_bytes_in", "threat_pkts_out", "threat_pkts_in"],
+      "query_templates": [
+        "Show me any connections to suspicious hosts in the last {time_range}.",
+        "Find traffic to known bad IPs across our network.",
+        "Identify threat indicators in network traffic.",
+        "Check for outbound connections to malicious hosts.",
+        "Are any devices communicating with suspicious external IPs?",
+        "Run a threat intelligence check on our network traffic.",
+        "Show suspicious network activity from the past {time_range}.",
+        "Find devices with connections to threat-listed IPs.",
+        "Check for C2 communication patterns.",
+        "Identify potential data exfiltration to suspicious destinations."
+      ],
+      "reasoning_templates": [
+        "The user wants to identify connections to known malicious hosts. ExtraHop's threat intelligence metrics track this. For network-level threat indicators, I use 'net' category with 'application' object type. The metric 'threat_connected' shows connections to suspicious IPs. I'll also include 'threat_bytes_out' and 'threat_bytes_in' to see data volume.",
+        "Threat detection requires network-level metrics with threat intelligence. Using net category with application object type. Key metrics: threat_connected (suspicious connections), threat_bytes_out/in (data volume to/from bad IPs).",
+        "To find malicious connections, I use the net category's threat intelligence metrics: threat_connected for connection count, threat_bytes_out/in for data volume. Application object type gives network-wide visibility."
+      ],
+      "variables": {
+        "time_range": ["5 minutes", "15 minutes", "1 hour", "6 hours", "24 hours"]
+      }
+    },
+    {
+      "id": "extrahop_site_overview",
+      "name": "ExtraHop: Site-Wide TCP Overview",
+      "tool": "extrahop_api",
+      "category": "infrastructure",
+      "objective": "Monitor aggregate TCP connection health",
+      "api_category": "tcp",
+      "object_type": "capture",
+      "metrics": ["conn", "established", "conn_in", "threat_in", "threat_out"],
+      "query_templates": [
+        "Give me an overview of total TCP connections at the site level.",
+        "Show site-wide connection statistics for the past {time_range}.",
+        "How many active TCP connections do we have?",
+        "Check overall network connection health.",
+        "Monitor inbound vs outbound connection ratios.",
+        "Show me the TCP connection baseline for our site.",
+        "What's the current connection load across the network?",
+        "Check for unusual connection patterns at the site level.",
+        "Monitor total network throughput for the {site_name} site.",
+        "Show aggregate connection metrics for capacity planning."
+      ],
+      "reasoning_templates": [
+        "The user wants site-wide TCP statistics. For site/appliance-level metrics, I use object_type 'capture'. The 'tcp' category at capture level provides aggregate connection statistics. Key metrics include 'conn' for total connections, 'established' for active connections, and 'conn_in' for inbound connections.",
+        "Site-level TCP overview requires capture object type for aggregate metrics. Using tcp category with metrics: conn (total), established (active), conn_in (inbound). This gives site-wide visibility.",
+        "For site-wide TCP stats, I use tcp category with capture object type. Metrics like conn, established, and conn_in provide the aggregate connection picture across the entire site."
+      ],
+      "variables": {
+        "site_name": ["HQ", "DC1", "DC2", "branch-west", "branch-east", "cloud-region"],
+        "time_range": ["5 minutes", "15 minutes", "1 hour", "6 hours"]
+      }
+    },
+    {
+      "id": "tshark_protocol_filter",
+      "name": "TShark: Protocol Filtering",
+      "tool": "tshark",
+      "category": "triage",
+      "objective": "Filter packets by protocol for focused analysis",
+      "query_templates": [
+        "Extract all {protocol} traffic from the capture.",
+        "Filter the pcap to show only {protocol} packets.",
+        "Show me all {protocol} conversations in this capture.",
+        "Find {protocol} traffic between {src_ip} and {dst_ip}.",
+        "Extract {protocol} packets from port {port}.",
+        "Filter for {protocol} errors or anomalies.",
+        "Show {protocol} traffic in the last {time_range} of the capture.",
+        "Find all {protocol} requests to {domain}.",
+        "Extract {protocol} packets with specific flags.",
+        "Filter for {protocol} traffic larger than {size} bytes."
+      ],
+      "reasoning_templates": [
+        "The user wants to filter packets by protocol. TShark's display filter syntax uses protocol names directly. For {protocol}, I'll use the filter '{protocol}' or more specific filters like '{protocol}.request' for request packets only.",
+        "Protocol filtering in TShark requires the correct display filter. For {protocol}, the basic filter is just the protocol name. I can add qualifiers like src/dst IP, port numbers, or specific fields.",
+        "TShark display filters allow protocol-based extraction. The filter syntax is straightforward: use the protocol name, optionally combined with IP addresses, ports, or field-specific conditions."
+      ],
+      "variables": {
+        "protocol": ["http", "https", "dns", "ssh", "ftp", "smtp", "smb", "ldap", "kerberos", "rdp", "telnet", "icmp"],
+        "src_ip": ["10.0.0.1", "192.168.1.100", "172.16.0.50"],
+        "dst_ip": ["8.8.8.8", "1.1.1.1", "10.0.0.254"],
+        "port": ["80", "443", "22", "53", "445", "3389"],
+        "domain": ["example.com", "internal.corp", "api.service.local"],
+        "size": ["1000", "5000", "10000"],
+        "time_range": ["first 5 minutes", "last 10 minutes", "middle section"]
+      },
+      "config_template": {
+        "displayFilter": "{protocol}",
+        "outputFormat": "json",
+        "maxPackets": 0
+      }
+    },
+    {
+      "id": "tshark_conversation_analysis",
+      "name": "TShark: Conversation Analysis",
+      "tool": "tshark",
+      "category": "triage",
+      "objective": "Analyze network conversations and flows",
+      "query_templates": [
+        "Show me all TCP conversations in this capture.",
+        "List the top talkers by bytes transferred.",
+        "Find conversations involving {ip_address}.",
+        "Show UDP flows sorted by packet count.",
+        "Identify the longest-running TCP sessions.",
+        "Find conversations with the most retransmissions.",
+        "List all unique IP pairs in the capture.",
+        "Show conversations to external IP addresses.",
+        "Find flows with unusual port combinations.",
+        "Identify conversations with high packet rates."
+      ],
+      "reasoning_templates": [
+        "The user wants conversation-level analysis. TShark's -z conv option provides conversation statistics. I'll use -z conv,tcp for TCP conversations or -z conv,ip for IP-level flows.",
+        "Conversation analysis in TShark uses the statistics mode. The -z conv,{protocol} option shows bidirectional flows with packet/byte counts for each direction.",
+        "To analyze conversations, I use TShark's statistics features. The conv option groups packets into flows and provides summary statistics for each conversation."
+      ],
+      "variables": {
+        "ip_address": ["10.0.0.1", "192.168.1.100", "172.16.0.50", "8.8.8.8"]
+      },
+      "config_template": {
+        "displayFilter": "",
+        "outputFormat": "text",
+        "statistics": "conv,tcp"
+      }
+    },
+    {
+      "id": "tshark_field_extraction",
+      "name": "TShark: Field Extraction",
+      "tool": "tshark",
+      "category": "triage",
+      "objective": "Extract specific fields from packets",
+      "query_templates": [
+        "Extract all {field_type} from the capture.",
+        "List unique {field_type} values in the pcap.",
+        "Show {field_type} for {protocol} packets only.",
+        "Extract {field_type} and {field_type2} together.",
+        "Find packets where {field_type} matches {pattern}.",
+        "Export {field_type} to CSV format.",
+        "Count occurrences of each unique {field_type}.",
+        "Extract {field_type} from packets to {dst_ip}.",
+        "Show {field_type} sorted by frequency.",
+        "Find {field_type} values that appear only once."
+      ],
+      "reasoning_templates": [
+        "The user wants to extract specific fields. TShark's -T fields -e option allows extracting specific protocol fields. For {field_type}, I'll use the appropriate field name like 'ip.src', 'http.host', or 'dns.qry.name'.",
+        "Field extraction in TShark uses -T fields mode with -e to specify each field. Multiple -e options can extract multiple fields per packet.",
+        "To extract fields, I configure TShark with -T fields and -e {field_name}. The output can be formatted as text, CSV, or JSON for further processing."
+      ],
+      "variables": {
+        "field_type": ["IP addresses", "HTTP hosts", "DNS queries", "User-Agents", "URLs", "MAC addresses", "ports", "TLS SNI"],
+        "field_type2": ["timestamps", "packet sizes", "TTL values", "TCP flags"],
+        "protocol": ["http", "dns", "tls", "smtp"],
+        "pattern": ["*admin*", "*.exe", "192.168.*"],
+        "dst_ip": ["8.8.8.8", "external IPs", "internal servers"]
+      },
+      "config_template": {
+        "displayFilter": "",
+        "outputFormat": "csv",
+        "fields": ["ip.src", "ip.dst", "tcp.port"]
+      }
+    },
+    {
+      "id": "suricata_ids_scan",
+      "name": "Suricata: IDS Rule Matching",
+      "tool": "suricata",
+      "category": "detection",
+      "objective": "Detect threats using Suricata IDS rules",
+      "query_templates": [
+        "Scan the pcap for known attack signatures.",
+        "Run IDS analysis on this capture file.",
+        "Check for malware communication patterns.",
+        "Detect any exploit attempts in the traffic.",
+        "Find packets matching {rule_category} rules.",
+        "Scan for {threat_type} indicators.",
+        "Run the {ruleset} ruleset against this capture.",
+        "Check for lateral movement patterns.",
+        "Detect command and control traffic.",
+        "Find packets triggering high-severity alerts."
+      ],
+      "reasoning_templates": [
+        "The user wants IDS-based threat detection. Suricata will process the pcap against its ruleset and generate alerts in EVE JSON format. I'll configure it to use the appropriate rules path and enable fast pattern matching.",
+        "Suricata IDS analysis requires running the pcap through the rule engine. The output will be EVE JSON format containing any alerts triggered by matching signatures.",
+        "For IDS scanning, I configure Suricata with the rules path and input pcap. The fast pattern option improves performance. Results include alert details, classification, and severity."
+      ],
+      "variables": {
+        "rule_category": ["malware", "exploit", "policy", "scan", "dos", "web-attack"],
+        "threat_type": ["ransomware", "trojan", "botnet", "cryptominer", "RAT"],
+        "ruleset": ["ET Open", "Snort Community", "custom"]
+      },
+      "config_template": {
+        "rulesPath": "/etc/suricata/rules",
+        "fastPattern": true
+      }
+    },
+    {
+      "id": "yara_malware_scan",
+      "name": "YARA: Malware Pattern Matching",
+      "tool": "yara",
+      "category": "detection",
+      "objective": "Identify malware using YARA rules",
+      "query_templates": [
+        "Scan the file for known malware signatures.",
+        "Check if this binary matches any YARA rules.",
+        "Run malware classification on extracted files.",
+        "Identify the malware family for this sample.",
+        "Scan for {malware_family} indicators.",
+        "Check for {indicator_type} patterns.",
+        "Run the {ruleset} rules against this file.",
+        "Scan extracted files for malicious content.",
+        "Identify obfuscation techniques in the binary.",
+        "Check for packer signatures."
+      ],
+      "reasoning_templates": [
+        "The user wants YARA-based malware detection. I'll configure YARA with the appropriate rules file and scan the target. The output will show any matching rules with their metadata.",
+        "YARA scanning requires a rules file and target. I'll set an appropriate timeout and enable recursive scanning if needed for directories.",
+        "For malware identification, YARA matches byte patterns and strings against rules. The results include rule names, tags, and any metadata defined in matching rules."
+      ],
+      "variables": {
+        "malware_family": ["Emotet", "Cobalt Strike", "Mimikatz", "Metasploit", "Empire"],
+        "indicator_type": ["shellcode", "encoded strings", "suspicious imports", "anti-analysis"],
+        "ruleset": ["YARA-Rules", "Malpedia", "custom", "signature-base"]
+      },
+      "config_template": {
+        "rulesFile": "/opt/yara-rules/index.yar",
+        "timeout": 60,
+        "recursive": false
+      }
+    },
+    {
+      "id": "networkminer_extraction",
+      "name": "NetworkMiner: File and Credential Extraction",
+      "tool": "networkminer",
+      "category": "reconstruction",
+      "objective": "Extract files, images, and credentials from traffic",
+      "query_templates": [
+        "Extract all files transferred in this capture.",
+        "Find any images in the network traffic.",
+        "Look for cleartext credentials in the pcap.",
+        "Extract DNS queries and responses.",
+        "Find all downloaded executables.",
+        "Extract email attachments from the traffic.",
+        "Look for sensitive data in cleartext.",
+        "Find all HTTP file downloads.",
+        "Extract SSL certificates from the capture.",
+        "Identify all hosts and their operating systems."
+      ],
+      "reasoning_templates": [
+        "The user wants to extract artifacts from network traffic. NetworkMiner can carve files, identify credentials, and extract DNS data. I'll enable the appropriate extraction options.",
+        "NetworkMiner performs passive analysis to extract files and metadata. I'll configure it to extract images, look for credentials, and parse DNS traffic.",
+        "For artifact extraction, NetworkMiner reassembles TCP streams and carves files based on magic bytes. It also identifies cleartext credentials and extracts metadata."
+      ],
+      "variables": {},
+      "config_template": {
+        "extractImages": true,
+        "extractCredentials": true,
+        "extractDNS": true
+      }
+    },
+    {
+      "id": "xplico_reconstruction",
+      "name": "Xplico: Session Reconstruction",
+      "tool": "xplico",
+      "category": "reconstruction",
+      "objective": "Reconstruct application-layer sessions",
+      "query_templates": [
+        "Reconstruct all HTTP sessions from the capture.",
+        "Extract email communications from the traffic.",
+        "Rebuild web browsing sessions.",
+        "Extract VoIP call audio.",
+        "Reconstruct FTP file transfers.",
+        "Find all web forms submitted in the capture.",
+        "Extract chat messages from the traffic.",
+        "Rebuild downloaded web pages.",
+        "Extract all POST data from HTTP traffic.",
+        "Reconstruct the user's browsing timeline."
+      ],
+      "reasoning_templates": [
+        "The user wants session reconstruction. Xplico can reassemble application-layer data from packets. I'll enable file extraction and configure protocol-specific options.",
+        "Xplico performs deep protocol analysis to reconstruct sessions. For HTTP, it rebuilds pages and extracts files. For email, it reconstructs messages with attachments.",
+        "Session reconstruction requires reassembling TCP streams and parsing application protocols. Xplico handles multiple protocols and outputs structured data."
+      ],
+      "variables": {},
+      "config_template": {
+        "extractFiles": true,
+        "extractEmails": true,
+        "extractVoIP": false
+      }
+    },
+    {
+      "id": "cyberchef_decode",
+      "name": "CyberChef: Data Decoding",
+      "tool": "cyberchef",
+      "category": "decode",
+      "objective": "Decode and transform obfuscated data",
+      "query_templates": [
+        "Decode this {encoding} encoded string.",
+        "Decrypt this data using {algorithm}.",
+        "Convert from {format_from} to {format_to}.",
+        "Deobfuscate this {obfuscation_type} payload.",
+        "Extract strings from this encoded blob.",
+        "Decode multiple layers of encoding.",
+        "Convert this hex dump to ASCII.",
+        "Decompress this {compression} data.",
+        "Parse this {data_format} structure.",
+        "Reverse the encoding on this payload."
+      ],
+      "reasoning_templates": [
+        "The user wants to decode data. CyberChef can handle multiple encoding types and transformations. I'll build a recipe with the appropriate operations.",
+        "Data decoding in CyberChef uses recipes - chains of operations. For {encoding}, I'll use the corresponding decode operation, possibly chained with other transforms.",
+        "CyberChef's auto-detect feature can identify encoding types. For known encodings, I'll specify the exact operations. For unknown, I'll enable auto-detection."
+      ],
+      "variables": {
+        "encoding": ["Base64", "URL", "HTML entities", "hex", "ROT13", "XOR"],
+        "algorithm": ["AES", "DES", "RC4", "XOR"],
+        "format_from": ["hex", "binary", "decimal", "Base64"],
+        "format_to": ["ASCII", "UTF-8", "hex", "binary"],
+        "obfuscation_type": ["JavaScript", "PowerShell", "VBScript", "macro"],
+        "compression": ["gzip", "zlib", "deflate", "bzip2"],
+        "data_format": ["JSON", "XML", "protobuf", "MessagePack"]
+      },
+      "config_template": {
+        "recipe": "",
+        "autoDetect": true
+      }
+    },
+    {
+      "id": "strings_extraction",
+      "name": "Strings: Text Extraction",
+      "tool": "strings",
+      "category": "extraction",
+      "objective": "Extract readable strings from binary files",
+      "query_templates": [
+        "Extract all strings from this binary.",
+        "Find URLs in the executable.",
+        "Look for IP addresses in the file.",
+        "Extract registry keys from the malware.",
+        "Find embedded file paths.",
+        "Look for API function names.",
+        "Extract email addresses from the binary.",
+        "Find command strings in the sample.",
+        "Look for encoded or encrypted strings.",
+        "Extract configuration data from the malware."
+      ],
+      "reasoning_templates": [
+        "The user wants to extract strings from a binary. I'll configure the minimum string length and encoding type based on the expected content.",
+        "String extraction reveals embedded text in binaries. For malware analysis, I look for URLs, IPs, registry keys, and API names. Setting minimum length helps filter noise.",
+        "The strings tool extracts printable character sequences. I'll use both ASCII and Unicode modes to catch all embedded text, with an appropriate minimum length."
+      ],
+      "variables": {},
+      "config_template": {
+        "minLength": 4,
+        "encoding": "both"
+      }
+    },
+    {
+      "id": "foremost_carving",
+      "name": "Foremost: File Carving",
+      "tool": "foremost",
+      "category": "extraction",
+      "objective": "Recover files from binary data",
+      "query_templates": [
+        "Carve files from this disk image.",
+        "Recover deleted files from the capture.",
+        "Extract embedded documents.",
+        "Find hidden images in the data.",
+        "Recover {file_type} files from the binary.",
+        "Carve all recognizable files.",
+        "Extract files from memory dump.",
+        "Recover files from slack space.",
+        "Find embedded executables.",
+        "Extract archives from the data."
+      ],
+      "reasoning_templates": [
+        "The user wants to carve files from binary data. Foremost identifies files by their headers and footers. I'll configure the file types to search for.",
+        "File carving with Foremost scans for magic bytes that indicate file boundaries. I'll enable the relevant file types or use 'all' for comprehensive recovery.",
+        "Foremost recovers files based on header/footer signatures. For targeted recovery, I specify file types. For broad recovery, I use 'all' mode."
+      ],
+      "variables": {
+        "file_type": ["jpg", "png", "pdf", "doc", "exe", "zip", "ole"]
+      },
+      "config_template": {
+        "fileTypes": "all",
+        "verbose": false
+      }
+    },
+    {
+      "id": "binwalk_firmware",
+      "name": "Binwalk: Firmware Analysis",
+      "tool": "binwalk",
+      "category": "extraction",
+      "objective": "Analyze and extract firmware components",
+      "query_templates": [
+        "Analyze this firmware image.",
+        "Extract the filesystem from the firmware.",
+        "Find embedded certificates in the image.",
+        "Identify compression algorithms used.",
+        "Extract configuration files.",
+        "Find hardcoded credentials in firmware.",
+        "Identify the bootloader.",
+        "Extract kernel and rootfs.",
+        "Find encryption keys in the image.",
+        "Analyze the firmware structure."
+      ],
+      "reasoning_templates": [
+        "The user wants firmware analysis. Binwalk scans for embedded files and filesystems. I'll enable extraction and signature scanning.",
+        "Firmware analysis with Binwalk identifies embedded components through signature matching. I'll enable extraction to pull out filesystems and other embedded data.",
+        "Binwalk performs entropy analysis and signature scanning on firmware. For deep analysis, I enable recursive extraction to handle nested archives."
+      ],
+      "variables": {},
+      "config_template": {
+        "extract": true,
+        "matryoshka": false,
+        "signature": true
+      }
+    },
+    {
+      "id": "volatility_memory",
+      "name": "Volatility: Memory Forensics",
+      "tool": "volatility",
+      "category": "extraction",
+      "objective": "Analyze memory dumps for forensic artifacts",
+      "query_templates": [
+        "List all processes in the memory dump.",
+        "Find network connections in memory.",
+        "Extract command history.",
+        "Find injected code in processes.",
+        "List loaded DLLs for each process.",
+        "Find registry hives in memory.",
+        "Extract encryption keys.",
+        "Identify malicious processes.",
+        "Find hidden processes.",
+        "Extract browser history from memory."
+      ],
+      "reasoning_templates": [
+        "The user wants memory forensics. Volatility requires the correct memory profile and plugin selection. I'll configure the appropriate plugin for the requested analysis.",
+        "Memory analysis with Volatility uses plugins for specific artifacts. For process listing, I use pslist. For network connections, I use netscan. The profile must match the OS.",
+        "Volatility extracts artifacts from memory dumps. Each analysis type requires a specific plugin. I'll set the profile based on the OS and select the appropriate plugin."
+      ],
+      "variables": {},
+      "config_template": {
+        "profile": "",
+        "plugin": "pslist"
+      }
+    },
+    {
+      "id": "splunk_search",
+      "name": "Splunk: Log Analysis",
+      "tool": "splunk",
+      "category": "correlation",
+      "objective": "Search and correlate security events in Splunk",
+      "query_templates": [
+        "Search for {event_type} events in the last {time_range}.",
+        "Find failed login attempts from {source_ip}.",
+        "Correlate events from {source_a} and {source_b}.",
+        "Search for {indicator} across all logs.",
+        "Find anomalous {activity_type} patterns.",
+        "List all events from {hostname}.",
+        "Search for {attack_type} indicators.",
+        "Correlate network and endpoint events.",
+        "Find events matching {search_pattern}.",
+        "Generate a timeline of {incident_type} activity."
+      ],
+      "reasoning_templates": [
+        "The user wants to search Splunk logs. I'll construct an SPL query with the appropriate search terms, time range, and any necessary transformations.",
+        "Splunk searching uses SPL (Search Processing Language). I'll build a query with the search terms, add time constraints, and include any needed stats or table commands.",
+        "For log correlation in Splunk, I construct SPL queries that join or correlate events across sources. Time alignment and field extraction are key considerations."
+      ],
+      "variables": {
+        "event_type": ["authentication", "network", "process", "file", "registry"],
+        "time_range": ["15 minutes", "1 hour", "24 hours", "7 days"],
+        "source_ip": ["10.0.0.100", "192.168.1.50", "external IP"],
+        "source_a": ["firewall", "IDS", "endpoint"],
+        "source_b": ["Active Directory", "DNS", "proxy"],
+        "indicator": ["IP address", "domain", "hash", "user"],
+        "activity_type": ["login", "data transfer", "process execution"],
+        "hostname": ["workstation-01", "server-prod", "dc-primary"],
+        "attack_type": ["brute force", "lateral movement", "exfiltration"],
+        "search_pattern": ["error", "failed", "denied", "malicious"],
+        "incident_type": ["breach", "malware", "insider threat"]
+      },
+      "config_template": {
+        "query": "search index=* {search_terms}",
+        "timeRange": "-24h"
+      }
+    },
+    {
+      "id": "otx_threat_lookup",
+      "name": "OTX: Threat Intelligence Lookup",
+      "tool": "otx",
+      "category": "threat_intel",
+      "objective": "Look up indicators in AlienVault OTX",
+      "query_templates": [
+        "Check if {indicator} is malicious.",
+        "Look up threat intelligence for {ip_address}.",
+        "Find OTX pulses mentioning {domain}.",
+        "Check the reputation of {hash}.",
+        "Find related indicators for {ioc}.",
+        "Look up CVE information for {cve_id}.",
+        "Find threat actors associated with {indicator}.",
+        "Check if {url} is in any threat feeds.",
+        "Find malware families associated with {hash}.",
+        "Get the full pulse details for {indicator}."
+      ],
+      "reasoning_templates": [
+        "The user wants threat intelligence lookup. OTX provides reputation data, related indicators, and pulse information. I'll query the appropriate endpoint based on indicator type.",
+        "OTX lookup requires identifying the indicator type (IP, domain, hash, URL, CVE) and querying the corresponding API endpoint. Results include reputation, pulses, and related IOCs.",
+        "For threat intelligence, I query OTX with the indicator. The response includes reputation scores, associated pulses (threat reports), and related indicators for pivoting."
+      ],
+      "variables": {
+        "indicator": ["suspicious IP", "malicious domain", "file hash"],
+        "ip_address": ["8.8.8.8", "1.2.3.4", "192.168.1.1"],
+        "domain": ["evil.com", "malware.net", "c2server.xyz"],
+        "hash": ["abc123...", "def456...", "ghi789..."],
+        "ioc": ["IP", "domain", "hash", "URL"],
+        "cve_id": ["CVE-2021-44228", "CVE-2023-1234", "CVE-2022-5678"],
+        "url": ["http://evil.com/malware", "https://phishing.site/login"]
+      },
+      "config_template": {
+        "indicatorType": "ip",
+        "indicator": ""
+      }
+    },
+    {
+      "id": "capinfos_metadata",
+      "name": "Capinfos: PCAP Metadata",
+      "tool": "capinfos",
+      "category": "triage",
+      "objective": "Extract metadata from pcap files",
+      "query_templates": [
+        "How many packets are in this capture?",
+        "What's the time range of this pcap?",
+        "What's the average packet size?",
+        "How long is this capture?",
+        "What's the data rate of this capture?",
+        "Get the file size and packet count.",
+        "What capture format is this file?",
+        "Show me the capture statistics.",
+        "What's the first and last packet timestamp?",
+        "Calculate the packets per second rate."
+      ],
+      "reasoning_templates": [
+        "The user wants pcap metadata. Capinfos extracts statistics like packet count, time range, and data rates without parsing individual packets.",
+        "Capinfos provides quick statistics about pcap files. I'll enable the relevant output options for packet count, time range, and data rate.",
+        "For pcap metadata, capinfos is the fastest tool. It reads file headers and provides statistics without full packet parsing."
+      ],
+      "variables": {},
+      "config_template": {
+        "showPacketCount": true,
+        "showTimeRange": true,
+        "showDataRate": true
+      }
+    },
+    {
+      "id": "multi_tool_malware_workflow",
+      "name": "Multi-Tool: Malware Analysis Workflow",
+      "tool": "workflow",
+      "category": "workflow",
+      "objective": "Complete malware analysis using multiple tools",
+      "query_templates": [
+        "Run a complete malware analysis on this pcap.",
+        "Analyze this capture for malicious activity.",
+        "Perform a full forensic analysis of the traffic.",
+        "Check this pcap for threats and extract IOCs.",
+        "Run the malware analysis pipeline.",
+        "Analyze and extract all artifacts from this capture.",
+        "Perform threat hunting on this network capture.",
+        "Run comprehensive analysis and generate a report.",
+        "Check for malware, extract files, and correlate with threat intel.",
+        "Execute the full forensic workflow on this capture."
+      ],
+      "reasoning_templates": [
+        "The user wants comprehensive malware analysis. This requires multiple tools: TShark for filtering, Suricata for IDS, NetworkMiner for extraction, YARA for classification, and OTX for threat intel correlation.",
+        "A complete malware analysis workflow chains multiple tools: 1) Capinfos for metadata, 2) TShark for protocol analysis, 3) Suricata for IDS alerts, 4) NetworkMiner for file extraction, 5) YARA for malware classification, 6) OTX for IOC lookup.",
+        "Comprehensive analysis requires a pipeline: triage with capinfos, detect with Suricata, extract with NetworkMiner, classify with YARA, and correlate with OTX. Each tool's output feeds the next stage."
+      ],
+      "workflow_steps": [
+        {"tool": "capinfos", "purpose": "Get capture metadata and statistics"},
+        {"tool": "tshark", "purpose": "Filter and extract relevant traffic"},
+        {"tool": "suricata", "purpose": "Run IDS rules for threat detection"},
+        {"tool": "networkminer", "purpose": "Extract files and credentials"},
+        {"tool": "yara", "purpose": "Classify extracted files for malware"},
+        {"tool": "otx", "purpose": "Correlate IOCs with threat intelligence"}
+      ],
+      "variables": {}
+    },
+    {
+      "id": "multi_tool_incident_response",
+      "name": "Multi-Tool: Incident Response Workflow",
+      "tool": "workflow",
+      "category": "workflow",
+      "objective": "Investigate security incidents using multiple tools",
+      "query_templates": [
+        "Investigate this potential breach.",
+        "Analyze the incident and identify the attack vector.",
+        "Perform incident response analysis on this capture.",
+        "Investigate lateral movement in this traffic.",
+        "Analyze the attack timeline from this pcap.",
+        "Identify the scope of the compromise.",
+        "Investigate data exfiltration in this capture.",
+        "Analyze command and control activity.",
+        "Investigate the initial access vector.",
+        "Perform post-incident forensic analysis."
+      ],
+      "reasoning_templates": [
+        "Incident response requires systematic analysis: 1) Scope the incident with metadata, 2) Identify attack patterns with IDS, 3) Extract artifacts for evidence, 4) Correlate with threat intel, 5) Build timeline.",
+        "For incident investigation, I chain tools to build a complete picture: TShark for traffic analysis, Suricata for attack detection, NetworkMiner for artifact extraction, and Splunk for log correlation.",
+        "IR workflow: First understand the scope (capinfos), then detect malicious patterns (Suricata), extract evidence (NetworkMiner/Xplico), identify malware (YARA), and correlate across sources (Splunk)."
+      ],
+      "workflow_steps": [
+        {"tool": "capinfos", "purpose": "Scope the incident timeframe"},
+        {"tool": "tshark", "purpose": "Identify suspicious conversations"},
+        {"tool": "suricata", "purpose": "Detect attack patterns"},
+        {"tool": "xplico", "purpose": "Reconstruct attacker sessions"},
+        {"tool": "networkminer", "purpose": "Extract transferred files"},
+        {"tool": "splunk", "purpose": "Correlate with endpoint logs"},
+        {"tool": "otx", "purpose": "Identify threat actor TTPs"}
+      ],
+      "variables": {}
+    }
+  ],
+  "negative_examples": [
+    {
+      "query": "Hack into the target system.",
+      "response": "I cannot assist with unauthorized access to computer systems. This would be illegal and unethical. I can help with legitimate security testing, forensic analysis, or defensive security tasks.",
+      "category": "ethical_boundary"
+    },
+    {
+      "query": "Create malware to infect computers.",
+      "response": "I cannot help create malware or other malicious software. I can assist with malware analysis for defensive purposes, understanding how malware works to better defend against it, or legitimate security research.",
+      "category": "ethical_boundary"
+    },
+    {
+      "query": "What's the weather like today?",
+      "response": "I'm a network forensics assistant specialized in packet analysis, threat detection, and security investigations. I can't provide weather information, but I'd be happy to help with network security tasks like analyzing pcap files, investigating threats, or querying security metrics.",
+      "category": "out_of_scope"
+    },
+    {
+      "query": "Write me a poem about cybersecurity.",
+      "response": "While I appreciate creative requests, I'm optimized for technical network forensics tasks. I can help you analyze network traffic, investigate security incidents, or query ExtraHop metrics. Would you like help with any of those?",
+      "category": "out_of_scope"
+    },
+    {
+      "query": "Query the TLS metrics from the ExtraHop API.",
+      "response": "I'll query TLS metrics for you. Note: The ExtraHop API uses 'ssl' as the category name, not 'tls'. I'll use metric_category 'ssl_server' or 'ssl_client' depending on whether you want server-side or client-side TLS metrics.",
+      "category": "terminology_correction"
+    },
+    {
+      "query": "Show me SSL certificate issues.",
+      "response": "I'll check for certificate issues. The ExtraHop API uses 'ssl_server' category for server-side TLS/SSL metrics. Key metrics include 'expired_cert' for expired certificates, 'self_signed' for self-signed certs, and 'weak_cipher' for weak encryption.",
+      "category": "terminology_correction"
+    },
+    {
+      "query": "Analyze this Word document for malware.",
+      "response": "For document analysis, I recommend: 1) Use 'strings' to extract embedded text and URLs, 2) Use 'foremost' to carve any embedded files, 3) Use 'yara' with document-specific rules to detect malicious macros. Note that deep OLE/macro analysis may require specialized tools like oletools.",
+      "category": "tool_recommendation"
+    },
+    {
+      "query": "Decrypt this encrypted traffic.",
+      "response": "Decrypting encrypted traffic requires the encryption keys. If you have the private key or session keys, TShark can decrypt TLS traffic with the appropriate configuration. Without keys, I can analyze the encrypted traffic metadata (certificate info, cipher suites, SNI) but cannot decrypt the payload.",
+      "category": "limitation_explanation"
+    }
+  ],
+  "derivation_rules": {
+    "ssl_vs_tls": "ExtraHop API uses 'ssl' in category names even for TLS traffic. Always translate user's 'TLS' references to 'ssl' in API calls.",
+    "object_types": {
+      "device": "Individual hosts/servers - use for per-device metrics",
+      "application": "Application-level aggregates - use for protocol-wide metrics",
+      "capture": "Site/appliance level - use for aggregate site statistics"
+    },
+    "metric_categories": {
+      "db_server": "Database server metrics (PostgreSQL, MySQL, Oracle, etc.)",
+      "http_server": "HTTP server metrics, use http_server_detail for URI breakdown",
+      "ssl_server": "TLS/SSL server-side metrics including certificates",
+      "tcp": "TCP layer metrics for congestion and performance",
+      "dns": "DNS query and response metrics",
+      "sip": "VoIP/SIP signaling metrics",
+      "ldap_server": "LDAP/Active Directory authentication metrics",
+      "dhcp_server": "DHCP lease and allocation metrics",
+      "nas": "NAS/NFS storage operation metrics",
+      "net": "Network-level metrics including threat indicators"
+    },
+    "time_format": "Use relative time strings like '-5m', '-1h', '-24h' for from_time parameter"
+  }
+}

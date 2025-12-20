@@ -34,3 +34,12 @@
 - [x] Add pipeline graph visualization
 - [x] Add Holoscan to sidebar navigation
 - [x] Test Holoscan tab integration
+
+# Nemotron Training Data Integration
+
+- [x] Copy training data files to project
+- [x] Index playbooks in RAG knowledge base
+- [x] Create Training Data Viewer component
+- [x] Display training examples with filtering
+- [x] Add playbook browser to Data module
+- [x] Test training data integration
