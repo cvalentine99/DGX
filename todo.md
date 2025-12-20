@@ -194,3 +194,17 @@
 - [x] Add Logs button to container rows
 - [x] Add auto-refresh option for live log streaming
 - [x] Test container logs display
+
+# Ngrok Connection
+
+- [x] Check current ngrok/VLLM_API_URL configuration
+- [x] Update dashboard to connect via ngrok tunnel
+- [x] Test live data connection through ngrok
+
+# ComfyUI Integration Panel
+
+- [x] Create ComfyUI panel component with status indicator
+- [x] Add iframe embed or external link to ComfyUI
+- [x] Add COMFYUI_URL environment variable
+- [x] Integrate panel into Dashboard layout
+- [x] Test ComfyUI panel functionality

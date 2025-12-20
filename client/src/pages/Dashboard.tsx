@@ -36,6 +36,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { trpc } from "@/lib/trpc";
 import { GpuHistoryChart, GpuHistoryComparisonChart } from "@/components/GpuHistoryChart";
 import { ContainerInventory } from "@/components/ContainerInventory";
+import { ComfyUIPanel } from "@/components/ComfyUIPanel";
 
 // Model Status
 const MODEL_STATUS = {
@@ -620,6 +621,9 @@ export default function Dashboard() {
       
       {/* Container Inventory */}
       <ContainerInventory />
+      
+      {/* ComfyUI Panel */}
+      <ComfyUIPanel />
       
       {/* Quick Stats */}
       <QuickStatsCard />
