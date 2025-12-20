@@ -21,6 +21,64 @@ const DGX_HOSTS = {
 
 type HostId = keyof typeof DGX_HOSTS;
 
+// Retry configuration for SSH connections
+const RETRY_CONFIG = {
+  maxAttempts: 5,
+  baseDelayMs: 1000,
+  maxDelayMs: 30000,
+  timeoutMs: 15000,
+  jitterFactor: 0.3, // Add up to 30% random jitter
+};
+
+// Connection state tracking per host
+interface ConnectionState {
+  status: 'disconnected' | 'connecting' | 'connected' | 'retrying' | 'failed';
+  lastAttempt: number;
+  lastSuccess: number | null;
+  consecutiveFailures: number;
+  currentRetryAttempt: number;
+  nextRetryTime: number | null;
+  lastError: string | null;
+}
+
+const connectionStates: Record<HostId, ConnectionState> = {
+  alpha: {
+    status: 'disconnected',
+    lastAttempt: 0,
+    lastSuccess: null,
+    consecutiveFailures: 0,
+    currentRetryAttempt: 0,
+    nextRetryTime: null,
+    lastError: null,
+  },
+  beta: {
+    status: 'disconnected',
+    lastAttempt: 0,
+    lastSuccess: null,
+    consecutiveFailures: 0,
+    currentRetryAttempt: 0,
+    nextRetryTime: null,
+    lastError: null,
+  },
+};
+
+// Calculate delay with exponential backoff and jitter
+function calculateBackoffDelay(attempt: number): number {
+  const exponentialDelay = Math.min(
+    RETRY_CONFIG.baseDelayMs * Math.pow(2, attempt),
+    RETRY_CONFIG.maxDelayMs
+  );
+  
+  // Add jitter to prevent thundering herd
+  const jitter = exponentialDelay * RETRY_CONFIG.jitterFactor * Math.random();
+  return Math.floor(exponentialDelay + jitter);
+}
+
+// Sleep helper for delays
+function sleep(ms: number): Promise<void> {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
 // Helper to parse storage size strings (e.g., "377G", "31.6G", "1.2T")
 function parseStorageSize(sizeStr: string): number {
   const match = sizeStr.match(/^([\d.]+)\s*([KMGT])?B?$/i);
@@ -79,26 +137,54 @@ function getSSHCredentials() {
   return { username, password, privateKey };
 }
 
-// Create SSH connection to a host
-function createSSHConnection(hostId: HostId): Promise<Client> {
+// Create single SSH connection attempt (internal helper)
+function createSSHConnectionAttempt(hostId: HostId, timeoutMs: number = RETRY_CONFIG.timeoutMs): Promise<Client> {
   return new Promise((resolve, reject) => {
     const host = DGX_HOSTS[hostId];
     const credentials = getSSHCredentials();
     const conn = new Client();
+    let settled = false;
+
+    // Connection timeout
+    const timeoutId = setTimeout(() => {
+      if (!settled) {
+        settled = true;
+        conn.end();
+        reject(new Error(`SSH connection timeout after ${timeoutMs}ms`));
+      }
+    }, timeoutMs);
 
     conn.on("ready", () => {
-      resolve(conn);
+      if (!settled) {
+        settled = true;
+        clearTimeout(timeoutId);
+        resolve(conn);
+      }
     });
 
     conn.on("error", (err) => {
-      reject(new Error(`SSH connection failed to ${host.name}: ${err.message}`));
+      if (!settled) {
+        settled = true;
+        clearTimeout(timeoutId);
+        reject(new Error(`SSH connection failed: ${err.message}`));
+      }
+    });
+
+    conn.on("close", () => {
+      if (!settled) {
+        settled = true;
+        clearTimeout(timeoutId);
+        reject(new Error("SSH connection closed unexpectedly"));
+      }
     });
 
     const config: any = {
       host: host.host,
       port: host.port,
       username: credentials.username,
-      readyTimeout: 10000,
+      readyTimeout: timeoutMs,
+      keepaliveInterval: 10000,
+      keepaliveCountMax: 3,
     };
 
     // Use private key if available, otherwise use password
@@ -107,12 +193,102 @@ function createSSHConnection(hostId: HostId): Promise<Client> {
     } else if (credentials.password) {
       config.password = credentials.password;
     } else {
+      settled = true;
+      clearTimeout(timeoutId);
       reject(new Error("No SSH authentication method configured"));
       return;
     }
 
-    conn.connect(config);
+    try {
+      conn.connect(config);
+    } catch (err: any) {
+      if (!settled) {
+        settled = true;
+        clearTimeout(timeoutId);
+        reject(new Error(`SSH connect error: ${err.message}`));
+      }
+    }
   });
+}
+
+// Create SSH connection with automatic retry and exponential backoff
+async function createSSHConnection(hostId: HostId): Promise<Client> {
+  const host = DGX_HOSTS[hostId];
+  const state = connectionStates[hostId];
+  
+  // Update state to connecting
+  state.status = 'connecting';
+  state.lastAttempt = Date.now();
+  state.currentRetryAttempt = 0;
+  
+  let lastError: Error | null = null;
+  
+  for (let attempt = 0; attempt < RETRY_CONFIG.maxAttempts; attempt++) {
+    state.currentRetryAttempt = attempt;
+    
+    // Log retry attempt
+    if (attempt > 0) {
+      state.status = 'retrying';
+      const delay = calculateBackoffDelay(attempt - 1);
+      state.nextRetryTime = Date.now() + delay;
+      console.log(`[SSH] Retry attempt ${attempt}/${RETRY_CONFIG.maxAttempts - 1} for ${host.name} in ${delay}ms`);
+      await sleep(delay);
+    }
+    
+    try {
+      console.log(`[SSH] Connecting to ${host.name} (${host.host}:${host.port}) - attempt ${attempt + 1}/${RETRY_CONFIG.maxAttempts}`);
+      
+      const conn = await createSSHConnectionAttempt(hostId);
+      
+      // Success! Update state
+      state.status = 'connected';
+      state.lastSuccess = Date.now();
+      state.consecutiveFailures = 0;
+      state.nextRetryTime = null;
+      state.lastError = null;
+      
+      console.log(`[SSH] Successfully connected to ${host.name}`);
+      
+      // Track disconnection
+      conn.on('close', () => {
+        state.status = 'disconnected';
+        console.log(`[SSH] Connection to ${host.name} closed`);
+      });
+      
+      conn.on('error', (err) => {
+        state.lastError = err.message;
+        console.log(`[SSH] Connection error on ${host.name}: ${err.message}`);
+      });
+      
+      return conn;
+      
+    } catch (err: any) {
+      lastError = err;
+      state.consecutiveFailures++;
+      state.lastError = err.message;
+      
+      console.log(`[SSH] Connection attempt ${attempt + 1} failed for ${host.name}: ${err.message}`);
+      
+      // Check if this is a non-retryable error
+      const nonRetryableErrors = [
+        'No SSH authentication method configured',
+        'DGX_SSH_USERNAME not configured',
+      ];
+      
+      if (nonRetryableErrors.some(msg => err.message.includes(msg))) {
+        state.status = 'failed';
+        throw err;
+      }
+    }
+  }
+  
+  // All retries exhausted
+  state.status = 'failed';
+  state.nextRetryTime = null;
+  
+  const errorMsg = `SSH connection to ${host.name} failed after ${RETRY_CONFIG.maxAttempts} attempts. Last error: ${lastError?.message}`;
+  console.log(`[SSH] ${errorMsg}`);
+  throw new Error(errorMsg);
 }
 
 // Execute command via SSH and return output
@@ -1874,5 +2050,100 @@ WantedBy=multi-user.target
           host: DGX_HOSTS[input.hostId],
         };
       }
+    }),
+
+  // Get SSH connection status for all hosts
+  getConnectionStatus: publicProcedure
+    .query(() => {
+      return {
+        alpha: {
+          ...connectionStates.alpha,
+          host: DGX_HOSTS.alpha,
+          retryConfig: RETRY_CONFIG,
+        },
+        beta: {
+          ...connectionStates.beta,
+          host: DGX_HOSTS.beta,
+          retryConfig: RETRY_CONFIG,
+        },
+      };
+    }),
+
+  // Get connection status for a specific host
+  getHostConnectionStatus: publicProcedure
+    .input(z.object({
+      hostId: z.enum(["alpha", "beta"]),
+    }))
+    .query(({ input }) => {
+      const state = connectionStates[input.hostId];
+      return {
+        ...state,
+        host: DGX_HOSTS[input.hostId],
+        retryConfig: RETRY_CONFIG,
+        timeSinceLastAttempt: state.lastAttempt ? Date.now() - state.lastAttempt : null,
+        timeSinceLastSuccess: state.lastSuccess ? Date.now() - state.lastSuccess : null,
+        timeUntilNextRetry: state.nextRetryTime ? Math.max(0, state.nextRetryTime - Date.now()) : null,
+      };
+    }),
+
+  // Manually trigger a connection retry
+  retryConnection: publicProcedure
+    .input(z.object({
+      hostId: z.enum(["alpha", "beta"]),
+    }))
+    .mutation(async ({ input }) => {
+      const host = DGX_HOSTS[input.hostId];
+      const state = connectionStates[input.hostId];
+      
+      // Reset state for manual retry
+      state.status = 'connecting';
+      state.currentRetryAttempt = 0;
+      state.nextRetryTime = null;
+      
+      try {
+        console.log(`[SSH] Manual retry triggered for ${host.name}`);
+        const conn = await createSSHConnection(input.hostId);
+        
+        // Test the connection with a simple command
+        const result = await executeSSHCommand(conn, 'echo "Connection test successful"');
+        conn.end();
+        
+        return {
+          success: true,
+          message: `Successfully connected to ${host.name}`,
+          testOutput: result.stdout.trim(),
+          state: connectionStates[input.hostId],
+        };
+      } catch (error: any) {
+        return {
+          success: false,
+          message: `Failed to connect to ${host.name}`,
+          error: error.message,
+          state: connectionStates[input.hostId],
+        };
+      }
+    }),
+
+  // Reset connection state (clear failure history)
+  resetConnectionState: publicProcedure
+    .input(z.object({
+      hostId: z.enum(["alpha", "beta"]),
+    }))
+    .mutation(({ input }) => {
+      const state = connectionStates[input.hostId];
+      
+      state.status = 'disconnected';
+      state.consecutiveFailures = 0;
+      state.currentRetryAttempt = 0;
+      state.nextRetryTime = null;
+      state.lastError = null;
+      
+      console.log(`[SSH] Connection state reset for ${DGX_HOSTS[input.hostId].name}`);
+      
+      return {
+        success: true,
+        message: `Connection state reset for ${DGX_HOSTS[input.hostId].name}`,
+        state: connectionStates[input.hostId],
+      };
     }),
 });

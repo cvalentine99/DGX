@@ -428,3 +428,25 @@
 - [x] Implement service status check endpoint
 - [x] Add start/stop/restart controls via API
 - [ ] Test auto-start on system boot (requires DGX access)
+
+## SSH Connection Retry Logic - December 2024
+
+### Exponential Backoff Implementation
+- [x] Create retry configuration with max attempts, base delay, max delay
+- [x] Implement exponential backoff algorithm (delay = baseDelay * 2^attempt)
+- [x] Add jitter to prevent thundering herd problem
+- [x] Wrap createSSHConnection with retry logic
+- [x] Add connection timeout handling
+- [x] Log retry attempts with detailed error messages
+
+### Connection Status Tracking
+- [x] Track connection state per host (connected, connecting, retrying, failed)
+- [x] Store last successful connection timestamp
+- [x] Track consecutive failure count
+- [x] Add retry attempt counter to connection status
+
+### UI Indicators
+- [x] Show retry status via getConnectionStatus API endpoint
+- [x] Display retry countdown timer via timeUntilNextRetry field
+- [x] Add manual retry button via retryConnection endpoint
+- [x] Show connection history/logs via lastError and consecutiveFailures fields
