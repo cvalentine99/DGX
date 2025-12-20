@@ -1,4 +1,4 @@
-/*
+/**
  * DashboardLayout - Cybernetic Control Room Layout
  * 
  * Design: Mission Control paradigm with persistent left command rail,
@@ -26,9 +26,11 @@ import {
   Database,
   BookOpen,
   Workflow,
+  AlertCircle,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { trpc } from "@/lib/trpc";
 
 interface DashboardLayoutProps {
   children: React.ReactNode;
@@ -36,8 +38,8 @@ interface DashboardLayoutProps {
 
 // DGX Spark Host Configuration
 const DGX_HOSTS = [
-  { id: "spark-1", ip: "192.168.50.139", name: "DGX Spark Alpha", status: "online" as const },
-  { id: "spark-2", ip: "192.168.50.110", name: "DGX Spark Beta", status: "online" as const },
+  { id: "alpha", ip: "192.168.50.139", name: "DGX Spark Alpha", status: "online" as const },
+  { id: "beta", ip: "192.168.50.110", name: "DGX Spark Beta", status: "online" as const },
 ];
 
 // Navigation Items
@@ -53,18 +55,18 @@ const NAV_ITEMS = [
   { path: "/cuda", icon: Cpu, label: "CUDA", description: "Toolkit & Versions" },
 ];
 
-// Simulated host metrics (in production, these would come from API)
-const getHostMetrics = (hostId: string) => ({
-  gpuUtil: hostId === "spark-1" ? 78 : 65,
-  memUsed: hostId === "spark-1" ? 45.2 : 38.7,
-  memTotal: 128,
-  temp: hostId === "spark-1" ? 62 : 58,
-  power: hostId === "spark-1" ? 285 : 245,
-});
+interface HostMetrics {
+  gpuUtil: number;
+  memUsed: number;
+  memTotal: number;
+  temp: number;
+  power: number;
+  isLive: boolean;
+  error?: string;
+}
 
-function HostStatusCard({ host }: { host: typeof DGX_HOSTS[0] }) {
-  const metrics = getHostMetrics(host.id);
-  const isOnline = host.status === "online";
+function HostStatusCard({ host, metrics }: { host: typeof DGX_HOSTS[0]; metrics: HostMetrics }) {
+  const isOnline = host.status === "online" && !metrics.error;
 
   return (
     <div className="flex items-center gap-3 px-3 py-2 rounded-lg bg-card/50 border border-border/50 hover:border-primary/30 transition-colors">
@@ -84,7 +86,7 @@ function HostStatusCard({ host }: { host: typeof DGX_HOSTS[0] }) {
         <span className="text-[10px] font-mono text-muted-foreground">{host.ip}</span>
       </div>
       
-      {isOnline && (
+      {isOnline ? (
         <div className="flex items-center gap-3 ml-auto text-[10px] font-mono">
           <Tooltip>
             <TooltipTrigger asChild>
@@ -93,17 +95,17 @@ function HostStatusCard({ host }: { host: typeof DGX_HOSTS[0] }) {
                 <span className="text-nvidia-green">{metrics.gpuUtil}%</span>
               </div>
             </TooltipTrigger>
-            <TooltipContent>GPU Utilization</TooltipContent>
+            <TooltipContent>GPU Utilization {metrics.isLive ? "(Live)" : "(Cached)"}</TooltipContent>
           </Tooltip>
           
           <Tooltip>
             <TooltipTrigger asChild>
               <div className="flex items-center gap-1">
                 <HardDrive className="w-3 h-3 text-nvidia-teal" />
-                <span className="text-nvidia-teal">{metrics.memUsed}GB</span>
+                <span className="text-nvidia-teal">{metrics.memUsed.toFixed(1)}GB</span>
               </div>
             </TooltipTrigger>
-            <TooltipContent>Memory: {metrics.memUsed}/{metrics.memTotal}GB</TooltipContent>
+            <TooltipContent>Memory: {metrics.memUsed.toFixed(1)}/{metrics.memTotal}GB</TooltipContent>
           </Tooltip>
           
           <Tooltip>
@@ -117,6 +119,11 @@ function HostStatusCard({ host }: { host: typeof DGX_HOSTS[0] }) {
             </TooltipTrigger>
             <TooltipContent>Temperature</TooltipContent>
           </Tooltip>
+        </div>
+      ) : (
+        <div className="flex items-center gap-2 ml-auto text-[10px] text-muted-foreground">
+          <AlertCircle className="w-3 h-3" />
+          <span>Offline</span>
         </div>
       )}
     </div>
@@ -228,6 +235,53 @@ function Sidebar({ expanded, onToggle }: { expanded: boolean; onToggle: () => vo
 }
 
 function StatusBar({ sidebarExpanded }: { sidebarExpanded: boolean }) {
+  // Fetch live DCGM metrics for header stats
+  const { data: dcgmData } = trpc.dcgm.getAllMetrics.useQuery(undefined, {
+    refetchInterval: 10000, // Refresh every 10 seconds
+    staleTime: 5000,
+  });
+
+  // Transform DCGM data to metrics format
+  const getMetricsForHost = (hostId: string): HostMetrics => {
+    if (!dcgmData?.hosts) {
+      return {
+        gpuUtil: 0,
+        memUsed: 0,
+        memTotal: 120,
+        temp: 0,
+        power: 0,
+        isLive: false,
+        error: "Loading...",
+      };
+    }
+
+    const host = dcgmData.hosts.find(h => h.hostId === hostId);
+    if (!host || host.error || !host.connected) {
+      return {
+        gpuUtil: 0,
+        memUsed: 0,
+        memTotal: 120,
+        temp: 0,
+        power: 0,
+        isLive: false,
+        error: host?.error || "Connection failed",
+      };
+    }
+
+    const gpu = host.gpus?.[0];
+    // Memory is returned in MB from the server, convert to GB for display
+    const memUsedMB = host.systemMetrics?.memoryUsed || 0;
+    const memTotalMB = host.systemMetrics?.memoryTotal || 122880; // 120GB default
+    return {
+      gpuUtil: Math.round(gpu?.utilization || 0),
+      memUsed: memUsedMB / 1024, // Convert MB to GB
+      memTotal: memTotalMB / 1024, // Convert MB to GB
+      temp: Math.round(gpu?.temperature || 0),
+      power: Math.round(gpu?.powerDraw || 0),
+      isLive: true,
+    };
+  };
+
   return (
     <motion.header
       initial={false}
@@ -247,14 +301,23 @@ function StatusBar({ sidebarExpanded }: { sidebarExpanded: boolean }) {
       <div className="flex items-center gap-3">
         <span className="text-xs text-muted-foreground font-medium mr-2">DGX SPARK HOSTS</span>
         {DGX_HOSTS.map((host) => (
-          <HostStatusCard key={host.id} host={host} />
+          <HostStatusCard 
+            key={host.id} 
+            host={host} 
+            metrics={getMetricsForHost(host.id)}
+          />
         ))}
       </div>
 
-      {/* System Time */}
-      <div className="flex items-center gap-2 text-xs font-mono text-muted-foreground">
-        <Activity className="w-3 h-3 text-nvidia-green animate-pulse" />
-        <span>SYSTEM ACTIVE</span>
+      {/* System Status Indicator */}
+      <div className="flex items-center gap-2">
+        <div className={cn(
+          "w-2 h-2 rounded-full",
+          dcgmData?.hosts?.some(h => !h.error) ? "bg-nvidia-green animate-pulse" : "bg-muted-foreground"
+        )} />
+        <span className="text-xs text-muted-foreground">
+          {dcgmData?.hosts?.some(h => !h.error) ? "SYSTEM ACTIVE" : "CONNECTING..."}
+        </span>
       </div>
     </motion.header>
   );

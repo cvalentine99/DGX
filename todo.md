@@ -222,3 +222,9 @@
 - [x] Update VLLM_API_URL to ngrok endpoint (https://unpopular-thad-unblamed.ngrok-free.dev)
 - [x] Test inference connection from dashboard
 - [x] Verify chat interface works with live model (53 tokens in 2084ms)
+
+# Ngrok Persistence & Config Improvements
+
+- [x] Create ngrok systemd service configuration for DGX Spark
+- [x] Add DGX_SSH_HOST and DGX_SSH_PORT environment variables
+- [x] Update header stats to use live DCGM data instead of simulated values
