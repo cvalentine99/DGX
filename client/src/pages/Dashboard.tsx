@@ -192,7 +192,7 @@ function HostCard({
           {/* GPU Info */}
           <div className="flex items-center gap-2 text-xs text-muted-foreground">
             <Cpu className="w-3 h-3" />
-            <span>1x {gpu?.name || "NVIDIA Grace Hopper"}</span>
+            <span>1x {gpu?.name || "NVIDIA GB10 Grace Blackwell"}</span>
           </div>
           
           {/* Error State */}
@@ -513,11 +513,11 @@ export default function Dashboard() {
       connected: true,
       gpus: [{
         index: 0,
-        name: "NVIDIA Grace Hopper",
+        name: "NVIDIA GH200 Grace Hopper",
         uuid: "GPU-alpha-0",
         utilization: 78,
         memoryUsed: 46285,
-        memoryTotal: 98304,
+        memoryTotal: 131072,
         memoryUtilization: 47,
         temperature: 62,
         powerDraw: 285,
@@ -543,11 +543,11 @@ export default function Dashboard() {
       connected: true,
       gpus: [{
         index: 0,
-        name: "NVIDIA Grace Hopper",
+        name: "NVIDIA GH200 Grace Hopper",
         uuid: "GPU-beta-0",
         utilization: 65,
         memoryUsed: 39629,
-        memoryTotal: 98304,
+        memoryTotal: 131072,
         memoryUtilization: 40,
         temperature: 58,
         powerDraw: 245,

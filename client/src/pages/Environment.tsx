@@ -38,24 +38,24 @@ const TOPOLOGY_DATA = {
       ip: "192.168.50.139",
       name: "DGX Spark Alpha",
       gpus: [
-        { id: "gpu-0", name: "NVIDIA GH200", memory: 128, nvlink: true, pcie: "Gen5 x16" }
+        { id: "gpu-0", name: "NVIDIA GB10 Grace Blackwell", memory: 128, nvlink: true, pcie: "NVLink-C2C" }
       ],
-      cpu: "NVIDIA Grace CPU (72 cores)",
-      ram: "512GB LPDDR5X",
-      storage: "4TB NVMe SSD",
-      network: "ConnectX-7 400GbE",
+      cpu: "NVIDIA Grace CPU (20-core Arm)",
+      ram: "128GB Unified Memory",
+      storage: "1TB NVMe SSD",
+      network: "NVIDIA ConnectX",
     },
     {
       id: "spark-2",
       ip: "192.168.50.110",
       name: "DGX Spark Beta",
       gpus: [
-        { id: "gpu-0", name: "NVIDIA GH200", memory: 128, nvlink: true, pcie: "Gen5 x16" }
+        { id: "gpu-0", name: "NVIDIA GB10 Grace Blackwell", memory: 128, nvlink: true, pcie: "NVLink-C2C" }
       ],
-      cpu: "NVIDIA Grace CPU (72 cores)",
-      ram: "512GB LPDDR5X",
-      storage: "4TB NVMe SSD",
-      network: "ConnectX-7 400GbE",
+      cpu: "NVIDIA Grace CPU (20-core Arm)",
+      ram: "128GB Unified Memory",
+      storage: "1TB NVMe SSD",
+      network: "NVIDIA ConnectX",
     }
   ],
   interconnect: {

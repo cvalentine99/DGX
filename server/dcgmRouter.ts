@@ -174,6 +174,15 @@ async function executeSSHCommand(hostIp: string, command: string, sshHost?: stri
 }
 
 // Parse nvidia-smi output
+// Map GPU names to correct display names
+function mapGpuName(rawName: string): string {
+  // DGX Spark uses GB10 Grace Blackwell Superchip
+  if (rawName.includes("GB10")) {
+    return "NVIDIA GB10 Grace Blackwell";
+  }
+  return rawName;
+}
+
 function parseNvidiaSmi(output: string): GpuMetrics[] {
   const gpus: GpuMetrics[] = [];
   const lines = output.trim().split("\n");
@@ -183,7 +192,7 @@ function parseNvidiaSmi(output: string): GpuMetrics[] {
     if (parts.length >= 15) {
       gpus.push({
         index: parseInt(parts[0]) || 0,
-        name: parts[1] || "Unknown GPU",
+        name: mapGpuName(parts[1] || "Unknown GPU"),
         uuid: parts[2] || "",
         utilization: parseInt(parts[3]) || 0,
         memoryUsed: parseInt(parts[4]) || 0,

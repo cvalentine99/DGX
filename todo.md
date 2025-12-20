@@ -237,3 +237,12 @@
 - [x] Update Statistics page to use live DCGM data
 - [x] Remove "SIMULATED" badges when showing real data
 - [x] Store real GPU metrics in database for history
+
+# Hardware Spec Corrections (DGX Spark)
+
+- [x] Keep GPU name as GB10 Grace Blackwell Superchip (correct)
+- [x] Update GPU memory display to 128GB unified
+- [x] Update CPU info to NVIDIA Grace CPU (20-core Arm)
+- [x] Update system RAM to 128GB unified memory
+- [x] Update storage info to 1TB NVMe SSD
+- [x] Add ConnectX networking info
