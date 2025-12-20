@@ -4,8 +4,11 @@
  * Design: Mission Control overview showing both DGX Spark hosts,
  * system health, model status, and quick access to all modules.
  * Optimized for ultrawide monitors with flexible grid layout.
+ * 
+ * Now with real-time GPU metrics via DCGM/nvidia-smi over SSH.
  */
 
+import { useState, useEffect } from "react";
 import { motion } from "framer-motion";
 import {
   Server,
@@ -21,61 +24,27 @@ import {
   CheckCircle2,
   AlertTriangle,
   XCircle,
+  RefreshCw,
+  Wifi,
+  WifiOff,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Progress } from "@/components/ui/progress";
-
-// DGX Spark Host Data
-const DGX_HOSTS = [
-  {
-    id: "spark-1",
-    ip: "192.168.50.139",
-    name: "DGX Spark Alpha",
-    status: "online" as const,
-    gpuModel: "NVIDIA Grace Hopper",
-    gpuCount: 1,
-    gpuUtil: 78,
-    gpuMemUsed: 45.2,
-    gpuMemTotal: 128,
-    cpuUtil: 34,
-    ramUsed: 89.4,
-    ramTotal: 512,
-    temp: 62,
-    power: 285,
-    powerMax: 450,
-    uptime: "14d 7h 23m",
-  },
-  {
-    id: "spark-2",
-    ip: "192.168.50.110",
-    name: "DGX Spark Beta",
-    status: "online" as const,
-    gpuModel: "NVIDIA Grace Hopper",
-    gpuCount: 1,
-    gpuUtil: 65,
-    gpuMemUsed: 38.7,
-    gpuMemTotal: 128,
-    cpuUtil: 28,
-    ramUsed: 76.2,
-    ramTotal: 512,
-    temp: 58,
-    power: 245,
-    powerMax: 450,
-    uptime: "14d 7h 23m",
-  },
-];
+import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { trpc } from "@/lib/trpc";
 
 // Model Status
 const MODEL_STATUS = {
-  name: "Nemotron-3-Nano-30B-A3B-BF16",
+  name: "Nemotron-3-Nano-30B-A3B-FP8",
   architecture: "Mixture of Experts (MoE)",
   experts: 128,
   layers: 32,
   activeExperts: 8,
-  precision: "BF16",
+  precision: "FP8",
   status: "loaded",
-  inferenceEngine: "vLLM",
+  inferenceEngine: "vLLM 25.11",
   tokensProcessed: 1247832,
   avgLatency: 42.3,
 };
@@ -106,7 +75,8 @@ function MetricGauge({
   label, 
   unit, 
   icon: Icon,
-  color = "nvidia-green"
+  color = "nvidia-green",
+  isLoading = false,
 }: { 
   value: number; 
   max: number; 
@@ -114,24 +84,25 @@ function MetricGauge({
   unit: string;
   icon: React.ElementType;
   color?: string;
+  isLoading?: boolean;
 }) {
-  const percentage = (value / max) * 100;
+  const percentage = max > 0 ? (value / max) * 100 : 0;
   const colorClass = percentage > 80 ? "text-nvidia-warning" : `text-${color}`;
   
   return (
     <div className="flex flex-col gap-2">
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
-          <Icon className={cn("w-4 h-4", colorClass)} />
+          <Icon className={cn("w-4 h-4", isLoading ? "text-muted-foreground animate-pulse" : colorClass)} />
           <span className="text-xs text-muted-foreground">{label}</span>
         </div>
-        <span className={cn("text-sm font-mono font-semibold", colorClass)}>
-          {value}{unit}
+        <span className={cn("text-sm font-mono font-semibold", isLoading ? "text-muted-foreground" : colorClass)}>
+          {isLoading ? "..." : `${value}${unit}`}
         </span>
       </div>
       <div className="progress-glow">
         <div 
-          className="progress-glow-fill"
+          className={cn("progress-glow-fill transition-all duration-500", isLoading && "opacity-50")}
           style={{ 
             width: `${percentage}%`,
             background: percentage > 80 
@@ -144,8 +115,55 @@ function MetricGauge({
   );
 }
 
-function HostCard({ host }: { host: typeof DGX_HOSTS[0] }) {
-  const isOnline = host.status === "online";
+interface HostMetrics {
+  hostId: string;
+  hostName: string;
+  hostIp: string;
+  timestamp: number;
+  connected: boolean;
+  error?: string;
+  gpus: Array<{
+    index: number;
+    name: string;
+    uuid: string;
+    utilization: number;
+    memoryUsed: number;
+    memoryTotal: number;
+    memoryUtilization: number;
+    temperature: number;
+    powerDraw: number;
+    powerLimit: number;
+    fanSpeed: number;
+    clockGraphics: number;
+    clockMemory: number;
+    pcieGen: number;
+    pcieLinkWidth: number;
+  }>;
+  systemMetrics: {
+    cpuUtilization: number;
+    memoryUsed: number;
+    memoryTotal: number;
+    uptime: string;
+  };
+}
+
+function HostCard({ 
+  metrics, 
+  isLoading,
+  isSimulated,
+}: { 
+  metrics: HostMetrics;
+  isLoading: boolean;
+  isSimulated: boolean;
+}) {
+  const gpu = metrics.gpus[0];
+  const isOnline = metrics.connected && !metrics.error;
+  
+  // Convert memory from MB to GB for display
+  const gpuMemUsedGB = gpu ? (gpu.memoryUsed / 1024).toFixed(1) : "0";
+  const gpuMemTotalGB = gpu ? Math.round(gpu.memoryTotal / 1024) : 96;
+  const ramUsedGB = (metrics.systemMetrics.memoryUsed / 1024).toFixed(1);
+  const ramTotalGB = Math.round(metrics.systemMetrics.memoryTotal / 1024);
   
   return (
     <motion.div variants={itemVariants}>
@@ -160,14 +178,28 @@ function HostCard({ host }: { host: typeof DGX_HOSTS[0] }) {
                 <Server className={cn("w-5 h-5", isOnline ? "text-nvidia-green" : "text-muted-foreground")} />
               </div>
               <div>
-                <CardTitle className="text-base font-display tracking-wide">{host.name}</CardTitle>
-                <p className="text-xs font-mono text-muted-foreground">{host.ip}</p>
+                <CardTitle className="text-base font-display tracking-wide">{metrics.hostName}</CardTitle>
+                <p className="text-xs font-mono text-muted-foreground">{metrics.hostIp}</p>
               </div>
             </div>
-            <div className={cn(
-              "hex-status",
-              isOnline ? "hex-status-online" : "hex-status-offline"
-            )} />
+            <div className="flex items-center gap-2">
+              {isSimulated && (
+                <Tooltip>
+                  <TooltipTrigger>
+                    <Badge variant="outline" className="text-[10px] border-nvidia-warning/50 text-nvidia-warning">
+                      SIMULATED
+                    </Badge>
+                  </TooltipTrigger>
+                  <TooltipContent>
+                    <p>Configure SSH credentials to see live metrics</p>
+                  </TooltipContent>
+                </Tooltip>
+              )}
+              <div className={cn(
+                "hex-status",
+                isOnline ? "hex-status-online" : "hex-status-offline"
+              )} />
+            </div>
           </div>
         </CardHeader>
         
@@ -175,40 +207,54 @@ function HostCard({ host }: { host: typeof DGX_HOSTS[0] }) {
           {/* GPU Info */}
           <div className="flex items-center gap-2 text-xs text-muted-foreground">
             <Cpu className="w-3 h-3" />
-            <span>{host.gpuCount}x {host.gpuModel}</span>
+            <span>1x {gpu?.name || "NVIDIA Grace Hopper"}</span>
           </div>
+          
+          {/* Error State */}
+          {metrics.error && (
+            <div className="p-2 rounded bg-nvidia-critical/10 border border-nvidia-critical/30">
+              <div className="flex items-center gap-2 text-xs text-nvidia-critical">
+                <WifiOff className="w-3 h-3" />
+                <span>{metrics.error}</span>
+              </div>
+            </div>
+          )}
           
           {/* Metrics Grid */}
           <div className="grid grid-cols-2 gap-4">
             <MetricGauge 
-              value={host.gpuUtil} 
+              value={gpu?.utilization || 0} 
               max={100} 
               label="GPU Util" 
               unit="%" 
               icon={Cpu}
+              isLoading={isLoading}
             />
             <MetricGauge 
-              value={host.gpuMemUsed} 
-              max={host.gpuMemTotal} 
+              value={parseFloat(gpuMemUsedGB)} 
+              max={gpuMemTotalGB} 
               label="GPU Mem" 
               unit="GB" 
               icon={HardDrive}
               color="nvidia-teal"
+              isLoading={isLoading}
             />
             <MetricGauge 
-              value={host.temp} 
+              value={gpu?.temperature || 0} 
               max={90} 
               label="Temp" 
               unit="°C" 
               icon={Thermometer}
+              isLoading={isLoading}
             />
             <MetricGauge 
-              value={host.power} 
-              max={host.powerMax} 
+              value={gpu?.powerDraw || 0} 
+              max={gpu?.powerLimit || 500} 
               label="Power" 
               unit="W" 
               icon={Zap}
               color="nvidia-teal"
+              isLoading={isLoading}
             />
           </div>
           
@@ -216,15 +262,21 @@ function HostCard({ host }: { host: typeof DGX_HOSTS[0] }) {
           <div className="pt-2 border-t border-border/50 space-y-3">
             <div className="flex items-center justify-between text-xs">
               <span className="text-muted-foreground">CPU Utilization</span>
-              <span className="font-mono text-foreground">{host.cpuUtil}%</span>
+              <span className={cn("font-mono", isLoading ? "text-muted-foreground" : "text-foreground")}>
+                {isLoading ? "..." : `${metrics.systemMetrics.cpuUtilization}%`}
+              </span>
             </div>
             <div className="flex items-center justify-between text-xs">
               <span className="text-muted-foreground">System RAM</span>
-              <span className="font-mono text-foreground">{host.ramUsed}/{host.ramTotal}GB</span>
+              <span className={cn("font-mono", isLoading ? "text-muted-foreground" : "text-foreground")}>
+                {isLoading ? "..." : `${ramUsedGB}/${ramTotalGB}GB`}
+              </span>
             </div>
             <div className="flex items-center justify-between text-xs">
               <span className="text-muted-foreground">Uptime</span>
-              <span className="font-mono text-nvidia-green">{host.uptime}</span>
+              <span className={cn("font-mono", isLoading ? "text-muted-foreground" : "text-nvidia-green")}>
+                {isLoading ? "..." : metrics.systemMetrics.uptime}
+              </span>
             </div>
           </div>
         </CardContent>
@@ -389,6 +441,97 @@ function QuickStatsCard() {
 }
 
 export default function Dashboard() {
+  const [refreshInterval, setRefreshInterval] = useState(5000); // 5 seconds
+  const [lastRefresh, setLastRefresh] = useState<Date | null>(null);
+  
+  // Fetch metrics from DCGM backend
+  const { data: metricsData, isLoading, refetch, isFetching, dataUpdatedAt } = trpc.dcgm.getAllMetrics.useQuery(
+    { forceRefresh: false },
+    {
+      refetchInterval: refreshInterval,
+      refetchIntervalInBackground: false,
+    }
+  );
+  
+  // Update last refresh time when data changes
+  useEffect(() => {
+    if (dataUpdatedAt) {
+      setLastRefresh(new Date(dataUpdatedAt));
+    }
+  }, [dataUpdatedAt]);
+  
+  // Manual refresh handler
+  const handleRefresh = () => {
+    refetch();
+  };
+  
+  // Default metrics for initial render
+  const defaultMetrics: HostMetrics[] = [
+    {
+      hostId: "alpha",
+      hostName: "DGX Spark Alpha",
+      hostIp: "192.168.50.139",
+      timestamp: Date.now(),
+      connected: true,
+      gpus: [{
+        index: 0,
+        name: "NVIDIA Grace Hopper",
+        uuid: "GPU-alpha-0",
+        utilization: 78,
+        memoryUsed: 46285,
+        memoryTotal: 98304,
+        memoryUtilization: 47,
+        temperature: 62,
+        powerDraw: 285,
+        powerLimit: 500,
+        fanSpeed: 35,
+        clockGraphics: 1980,
+        clockMemory: 2619,
+        pcieGen: 5,
+        pcieLinkWidth: 16,
+      }],
+      systemMetrics: {
+        cpuUtilization: 34,
+        memoryUsed: 91546,
+        memoryTotal: 524288,
+        uptime: "14d 7h 23m",
+      },
+    },
+    {
+      hostId: "beta",
+      hostName: "DGX Spark Beta",
+      hostIp: "192.168.50.110",
+      timestamp: Date.now(),
+      connected: true,
+      gpus: [{
+        index: 0,
+        name: "NVIDIA Grace Hopper",
+        uuid: "GPU-beta-0",
+        utilization: 65,
+        memoryUsed: 39629,
+        memoryTotal: 98304,
+        memoryUtilization: 40,
+        temperature: 58,
+        powerDraw: 245,
+        powerLimit: 500,
+        fanSpeed: 32,
+        clockGraphics: 1980,
+        clockMemory: 2619,
+        pcieGen: 5,
+        pcieLinkWidth: 16,
+      }],
+      systemMetrics: {
+        cpuUtilization: 28,
+        memoryUsed: 78029,
+        memoryTotal: 524288,
+        uptime: "14d 7h 23m",
+      },
+    },
+  ];
+  
+  const hosts = metricsData?.hosts || defaultMetrics;
+  const isSimulated = metricsData?.isSimulated ?? true;
+  
   return (
     <motion.div
       variants={containerVariants}
@@ -406,12 +549,56 @@ export default function Dashboard() {
             Real-time monitoring of DGX Spark infrastructure and model status
           </p>
         </div>
+        
+        {/* Refresh Controls */}
+        <div className="flex items-center gap-3">
+          {lastRefresh && (
+            <span className="text-xs text-muted-foreground">
+              Last updated: {lastRefresh.toLocaleTimeString()}
+            </span>
+          )}
+          
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handleRefresh}
+                disabled={isFetching}
+                className="gap-2"
+              >
+                <RefreshCw className={cn("w-4 h-4", isFetching && "animate-spin")} />
+                Refresh
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>
+              <p>Auto-refresh every {refreshInterval / 1000}s</p>
+            </TooltipContent>
+          </Tooltip>
+          
+          {isSimulated ? (
+            <Badge variant="outline" className="border-nvidia-warning/50 text-nvidia-warning gap-1">
+              <WifiOff className="w-3 h-3" />
+              Simulated
+            </Badge>
+          ) : (
+            <Badge variant="outline" className="border-nvidia-green/50 text-nvidia-green gap-1">
+              <Wifi className="w-3 h-3" />
+              Live
+            </Badge>
+          )}
+        </div>
       </div>
       
       {/* DGX Spark Hosts */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {DGX_HOSTS.map((host) => (
-          <HostCard key={host.id} host={host} />
+        {hosts.map((host) => (
+          <HostCard 
+            key={host.hostId} 
+            metrics={host} 
+            isLoading={isLoading}
+            isSimulated={isSimulated}
+          />
         ))}
       </div>
       

@@ -6,6 +6,7 @@ import { trainingDataRouter } from "./trainingDataRouter";
 import { ragRouter } from "./ragRouter";
 import { vllmRouter } from "./vllmRouter";
 import { sshRouter } from "./sshRouter";
+import { dcgmRouter } from "./dcgmRouter";
 
 export const appRouter = router({
     // if you need to use socket.io, read and register route in server/_core/index.ts, all api should start with '/api/' so that the gateway can route correctly
@@ -32,6 +33,9 @@ export const appRouter = router({
 
   // SSH integration for DGX Spark hosts
   ssh: sshRouter,
+
+  // DCGM real-time GPU metrics
+  dcgm: dcgmRouter,
 });
 
 export type AppRouter = typeof appRouter;

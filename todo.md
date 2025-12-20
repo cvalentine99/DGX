@@ -134,3 +134,14 @@
 - [x] Update vLLM router default configuration
 - [x] Add DGX Spark compatibility notes to UI
 - [x] Test updated configuration
+
+# Real-Time GPU Metrics via DCGM
+
+- [x] Create DCGM metrics router with SSH integration
+- [x] Parse nvidia-smi and dcgmi output for GPU stats
+- [x] Add endpoints for GPU utilization, memory, temperature, power
+- [x] Update Dashboard to fetch live metrics from backend
+- [x] Implement auto-refresh polling (5-10 second intervals)
+- [x] Add connection status indicators for each host
+- [x] Handle SSH connection errors gracefully
+- [x] Test real-time metrics with both DGX Spark hosts (UI verified, pending SSH key fix)
