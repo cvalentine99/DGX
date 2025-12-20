@@ -1,5 +1,5 @@
-import { useState } from "react";
-import { motion } from "framer-motion";
+import { useState, useEffect } from "react";
+import { motion, AnimatePresence } from "framer-motion";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -8,6 +8,7 @@ import { Progress } from "@/components/ui/progress";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
+import { Slider } from "@/components/ui/slider";
 import {
   Select,
   SelectContent,
@@ -15,6 +16,14 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog";
 import {
   Play,
   Square,
@@ -43,86 +52,216 @@ import {
   AlertTriangle,
   CheckCircle2,
   XCircle,
+  Usb,
+  Maximize2,
+  SunDim,
+  Focus,
+  Aperture,
+  Sliders,
+  Plus,
+  Trash2,
+  Copy,
+  Download,
+  Upload,
+  FileCode,
+  Sparkles,
+  Brain,
+  ImageIcon,
+  Mic,
+  Volume2,
 } from "lucide-react";
 import { toast } from "sonner";
+import { trpc } from "@/lib/trpc";
 
-// Simulated Holoscan applications
-const holoscanApps = [
+// BRIO Camera Configuration
+const brioCameraConfig = {
+  name: "Logitech BRIO",
+  vendorId: "046d",
+  productId: "085e",
+  serial: "409CBA2F",
+  firmware: "3.17",
+  connection: "USB 3.1 Gen 1 SuperSpeed (5 Gbps)",
+  powerDraw: "896mA",
+  deviceNodes: [
+    { path: "/dev/video0", type: "RGB Camera", interface: "IF1" },
+    { path: "/dev/video1", type: "Metadata", interface: "IF1" },
+    { path: "/dev/video2", type: "IR Camera", interface: "IF2" },
+    { path: "/dev/video3", type: "Metadata", interface: "IF2" },
+  ],
+  resolutions: [
+    { label: "4K UHD", width: 3840, height: 2160, fps: [30, 24, 15], formats: ["MJPEG", "H.264"] },
+    { label: "QHD", width: 2560, height: 1440, fps: [30, 24, 20, 15], formats: ["MJPEG", "H.264"] },
+    { label: "1080p", width: 1920, height: 1080, fps: [60, 30, 24], formats: ["MJPEG", "H.264", "YUY2"] },
+    { label: "720p", width: 1280, height: 720, fps: [60, 30, 24], formats: ["MJPEG", "H.264", "YUY2"] },
+    { label: "480p", width: 640, height: 480, fps: [90, 60, 30], formats: ["MJPEG", "H.264", "YUY2"] },
+  ],
+  fieldOfView: [
+    { label: "Narrow", angle: 65, description: "Portrait/Close-up" },
+    { label: "Medium", angle: 78, description: "Standard" },
+    { label: "Wide", angle: 90, description: "Conference/Room" },
+  ],
+  audio: {
+    channels: 2,
+    sampleRates: [16000, 24000, 32000, 48000],
+    format: "S16_LE",
+  },
+};
+
+// Holoscan Pipeline Templates
+const pipelineTemplates = [
   {
-    id: "endoscopy-pipeline",
-    name: "Endoscopy Tool Detection",
-    status: "running",
-    fragments: 2,
-    operators: 8,
+    id: "object-detection",
+    name: "Object Detection Pipeline",
+    description: "Real-time object detection using YOLO/SSD models",
+    icon: Box,
+    operators: ["VideoStreamInput", "FormatConverter", "InferenceOp", "PostProcessor", "HoloViz"],
+    model: "yolov8n.engine",
     fps: 60,
-    latency: 12.5,
-    gpuUtil: 45,
-    memUsed: 2.8,
+    latency: "15ms",
   },
   {
-    id: "ultrasound-segmentation",
-    name: "Ultrasound Segmentation",
-    status: "running",
-    fragments: 1,
-    operators: 5,
+    id: "pose-estimation",
+    name: "Pose Estimation Pipeline",
+    description: "Human pose detection with skeleton overlay",
+    icon: Activity,
+    operators: ["VideoStreamInput", "Resize", "PoseNet", "SkeletonRenderer", "HoloViz"],
+    model: "posenet.engine",
     fps: 30,
-    latency: 18.2,
-    gpuUtil: 32,
-    memUsed: 1.9,
+    latency: "25ms",
   },
   {
-    id: "video-analytics",
-    name: "Video Analytics Pipeline",
-    status: "stopped",
-    fragments: 3,
-    operators: 12,
-    fps: 0,
-    latency: 0,
-    gpuUtil: 0,
-    memUsed: 0,
+    id: "segmentation",
+    name: "Semantic Segmentation",
+    description: "Pixel-wise scene segmentation",
+    icon: Layers,
+    operators: ["VideoStreamInput", "Preprocess", "SegmentationNet", "ColorMapper", "HoloViz"],
+    model: "deeplabv3.engine",
+    fps: 30,
+    latency: "35ms",
+  },
+  {
+    id: "face-detection",
+    name: "Face Detection & Recognition",
+    description: "Multi-face detection with embedding extraction",
+    icon: Eye,
+    operators: ["VideoStreamInput", "FaceDetector", "FaceAligner", "FaceNet", "HoloViz"],
+    model: "retinaface.engine",
+    fps: 60,
+    latency: "12ms",
+  },
+  {
+    id: "medical-endoscopy",
+    name: "Endoscopy Tool Detection",
+    description: "Surgical tool detection for endoscopic procedures",
+    icon: Sparkles,
+    operators: ["VideoStreamInput", "Debayer", "ToolDetector", "Annotator", "Recorder", "HoloViz"],
+    model: "endoscopy_tools.engine",
+    fps: 60,
+    latency: "10ms",
+  },
+  {
+    id: "ultrasound",
+    name: "Ultrasound Segmentation",
+    description: "Real-time ultrasound image segmentation",
+    icon: Brain,
+    operators: ["VideoStreamInput", "SpeckleFilter", "UNetSegment", "ContourExtract", "HoloViz"],
+    model: "ultrasound_seg.engine",
+    fps: 30,
+    latency: "20ms",
+  },
+];
+
+// Simulated running applications
+const initialApps = [
+  {
+    id: "brio-object-detection",
+    name: "BRIO Object Detection",
+    template: "object-detection",
+    status: "running",
+    camera: "/dev/video0",
+    resolution: "1920x1080",
+    fps: 60,
+    actualFps: 58.5,
+    latency: 14.2,
+    gpuUtil: 35,
+    memUsed: 1.8,
+    uptime: "2h 15m",
   },
 ];
 
 // Pipeline operators for visualization
-const pipelineOperators = [
-  { id: "source", name: "VideoStreamInput", type: "source", status: "active", x: 0, y: 1 },
-  { id: "decoder", name: "VideoDecoder", type: "process", status: "active", x: 1, y: 1 },
-  { id: "preprocess", name: "FormatConverter", type: "process", status: "active", x: 2, y: 0 },
-  { id: "inference", name: "InferenceOp", type: "inference", status: "active", x: 3, y: 0 },
-  { id: "postprocess", name: "PostProcessor", type: "process", status: "active", x: 4, y: 0 },
-  { id: "visualizer", name: "HoloViz", type: "sink", status: "active", x: 5, y: 0 },
-  { id: "recorder", name: "VideoRecorder", type: "sink", status: "idle", x: 5, y: 2 },
-  { id: "splitter", name: "FrameSplitter", type: "process", status: "active", x: 2, y: 2 },
-];
-
-const pipelineConnections = [
-  { from: "source", to: "decoder" },
-  { from: "decoder", to: "preprocess" },
-  { from: "decoder", to: "splitter" },
-  { from: "preprocess", to: "inference" },
-  { from: "inference", to: "postprocess" },
-  { from: "postprocess", to: "visualizer" },
-  { from: "splitter", to: "recorder" },
-];
+const getOperatorsForTemplate = (templateId: string) => {
+  const template = pipelineTemplates.find(t => t.id === templateId);
+  if (!template) return [];
+  
+  return template.operators.map((name, idx) => ({
+    id: `op-${idx}`,
+    name,
+    type: idx === 0 ? "source" : idx === template.operators.length - 1 ? "sink" : 
+          name.includes("Inference") || name.includes("Net") || name.includes("Detector") ? "inference" : "process",
+    status: "active",
+    x: idx,
+    y: 0,
+    metrics: {
+      throughput: Math.floor(Math.random() * 100) + 50,
+      latency: Math.random() * 5 + 1,
+    },
+  }));
+};
 
 // Simulated logs
-const holoscanLogs = [
-  { time: "06:11:23", level: "INFO", message: "[Application] Starting Endoscopy Tool Detection pipeline..." },
-  { time: "06:11:23", level: "INFO", message: "[Fragment-0] Initializing operators..." },
-  { time: "06:11:24", level: "INFO", message: "[VideoStreamInput] Connected to /dev/video0" },
-  { time: "06:11:24", level: "INFO", message: "[InferenceOp] Loading TensorRT engine: tool_detection.engine" },
-  { time: "06:11:25", level: "INFO", message: "[InferenceOp] Engine loaded successfully (GPU: 0)" },
-  { time: "06:11:25", level: "INFO", message: "[HoloViz] Display initialized: 1920x1080 @ 60Hz" },
-  { time: "06:11:26", level: "INFO", message: "[Scheduler] Pipeline started with GreedyScheduler" },
-  { time: "06:11:26", level: "DEBUG", message: "[DataFlowTracker] Tracking enabled for all operators" },
-  { time: "06:11:30", level: "WARN", message: "[VideoRecorder] Output file not specified, recording disabled" },
-  { time: "06:11:35", level: "INFO", message: "[Performance] Avg latency: 12.5ms, FPS: 60.0" },
+const generateLogs = (appName: string) => [
+  { time: new Date().toLocaleTimeString(), level: "INFO", message: `[Application] ${appName} pipeline initialized` },
+  { time: new Date().toLocaleTimeString(), level: "INFO", message: "[VideoStreamInput] Connected to /dev/video0 (Logitech BRIO)" },
+  { time: new Date().toLocaleTimeString(), level: "INFO", message: "[VideoStreamInput] Format: MJPEG 1920x1080 @ 60fps" },
+  { time: new Date().toLocaleTimeString(), level: "INFO", message: "[InferenceOp] Loading TensorRT engine..." },
+  { time: new Date().toLocaleTimeString(), level: "INFO", message: "[InferenceOp] Engine loaded on GPU 0 (GB10 Grace Blackwell)" },
+  { time: new Date().toLocaleTimeString(), level: "INFO", message: "[HoloViz] Display initialized: 1920x1080 @ 60Hz" },
+  { time: new Date().toLocaleTimeString(), level: "INFO", message: "[Scheduler] Pipeline started with GreedyScheduler" },
+  { time: new Date().toLocaleTimeString(), level: "DEBUG", message: "[DataFlowTracker] Tracking enabled for all operators" },
+  { time: new Date().toLocaleTimeString(), level: "INFO", message: "[Performance] Avg latency: 14.2ms, FPS: 58.5" },
 ];
 
 export default function Holoscan() {
-  const [selectedApp, setSelectedApp] = useState(holoscanApps[0]);
-  const [selectedOperator, setSelectedOperator] = useState<typeof pipelineOperators[0] | null>(null);
+  const [apps, setApps] = useState(initialApps);
+  const [selectedApp, setSelectedApp] = useState(apps[0] || null);
+  const [selectedOperator, setSelectedOperator] = useState<any>(null);
   const [autoRefresh, setAutoRefresh] = useState(true);
+  const [cameraConnected, setCameraConnected] = useState(true);
+  const [showDeployDialog, setShowDeployDialog] = useState(false);
+  const [logs, setLogs] = useState(generateLogs("BRIO Object Detection"));
+  
+  // Camera configuration state
+  const [cameraConfig, setCameraConfig] = useState({
+    resolution: "1920x1080",
+    fps: 60,
+    format: "MJPEG",
+    fov: 78,
+    brightness: 50,
+    contrast: 50,
+    saturation: 50,
+    sharpness: 50,
+    autoExposure: true,
+    autoFocus: true,
+    audioEnabled: false,
+    sampleRate: 48000,
+  });
+
+  // New pipeline deployment state
+  const [newPipeline, setNewPipeline] = useState({
+    template: "",
+    name: "",
+    camera: "/dev/video0",
+    resolution: "1920x1080",
+    fps: 60,
+    format: "MJPEG",
+  });
+
+  const operators = selectedApp ? getOperatorsForTemplate(selectedApp.template) : [];
+  const connections = operators.slice(0, -1).map((op, idx) => ({
+    from: op.id,
+    to: operators[idx + 1]?.id,
+  }));
 
   const getStatusColor = (status: string) => {
     switch (status) {
@@ -172,11 +311,54 @@ export default function Holoscan() {
   };
 
   const handleStartApp = (appId: string) => {
-    toast.success(`Starting application: ${appId}`);
+    setApps(apps.map(app => 
+      app.id === appId ? { ...app, status: "running" } : app
+    ));
+    toast.success(`Starting pipeline: ${appId}`);
   };
 
   const handleStopApp = (appId: string) => {
-    toast.info(`Stopping application: ${appId}`);
+    setApps(apps.map(app => 
+      app.id === appId ? { ...app, status: "stopped", actualFps: 0, gpuUtil: 0 } : app
+    ));
+    toast.info(`Stopping pipeline: ${appId}`);
+  };
+
+  const handleDeployPipeline = () => {
+    if (!newPipeline.template || !newPipeline.name) {
+      toast.error("Please select a template and provide a name");
+      return;
+    }
+    
+    const template = pipelineTemplates.find(t => t.id === newPipeline.template);
+    const newApp = {
+      id: `${newPipeline.template}-${Date.now()}`,
+      name: newPipeline.name,
+      template: newPipeline.template,
+      status: "running" as const,
+      camera: newPipeline.camera,
+      resolution: newPipeline.resolution,
+      fps: newPipeline.fps,
+      actualFps: newPipeline.fps * 0.97,
+      latency: parseFloat(template?.latency || "15"),
+      gpuUtil: Math.floor(Math.random() * 30) + 20,
+      memUsed: Math.random() * 2 + 1,
+      uptime: "0m",
+    };
+    
+    setApps([...apps, newApp]);
+    setSelectedApp(newApp);
+    setShowDeployDialog(false);
+    setNewPipeline({ template: "", name: "", camera: "/dev/video0", resolution: "1920x1080", fps: 60, format: "MJPEG" });
+    toast.success(`Deployed pipeline: ${newPipeline.name}`);
+  };
+
+  const handleDeleteApp = (appId: string) => {
+    setApps(apps.filter(app => app.id !== appId));
+    if (selectedApp?.id === appId) {
+      setSelectedApp(apps[0] || null);
+    }
+    toast.info("Pipeline removed");
   };
 
   return (
@@ -188,7 +370,7 @@ export default function Holoscan() {
             HOLOSCAN PIPELINES
           </h1>
           <p className="text-muted-foreground mt-1">
-            AI sensor processing pipeline management • SDK v3.9.0
+            AI sensor processing pipeline management • SDK v3.9.0 • GB10 Grace Blackwell
           </p>
         </div>
         <div className="flex items-center gap-4">
@@ -204,12 +386,189 @@ export default function Holoscan() {
             <RefreshCw className="h-4 w-4 mr-2" />
             Refresh
           </Button>
-          <Button className="bg-nvidia-green hover:bg-nvidia-green/90 text-black">
-            <Play className="h-4 w-4 mr-2" />
-            Deploy New
-          </Button>
+          <Dialog open={showDeployDialog} onOpenChange={setShowDeployDialog}>
+            <DialogTrigger asChild>
+              <Button className="bg-nvidia-green hover:bg-nvidia-green/90 text-black">
+                <Plus className="h-4 w-4 mr-2" />
+                Deploy Pipeline
+              </Button>
+            </DialogTrigger>
+            <DialogContent className="max-w-2xl">
+              <DialogHeader>
+                <DialogTitle className="font-display text-nvidia-green">Deploy New Pipeline</DialogTitle>
+                <DialogDescription>
+                  Select a pipeline template and configure the video source
+                </DialogDescription>
+              </DialogHeader>
+              <div className="space-y-6 py-4">
+                {/* Template Selection */}
+                <div className="space-y-3">
+                  <Label>Pipeline Template</Label>
+                  <div className="grid grid-cols-2 gap-3">
+                    {pipelineTemplates.map((template) => (
+                      <motion.div
+                        key={template.id}
+                        whileHover={{ scale: 1.02 }}
+                        className={`p-3 rounded-lg border cursor-pointer transition-all ${
+                          newPipeline.template === template.id
+                            ? "border-nvidia-green bg-nvidia-green/10"
+                            : "border-border hover:border-nvidia-green/50"
+                        }`}
+                        onClick={() => setNewPipeline({ ...newPipeline, template: template.id, name: template.name })}
+                      >
+                        <div className="flex items-center gap-2 mb-1">
+                          <template.icon className="h-4 w-4 text-nvidia-green" />
+                          <span className="font-medium text-sm">{template.name}</span>
+                        </div>
+                        <p className="text-xs text-muted-foreground">{template.description}</p>
+                        <div className="flex items-center gap-3 mt-2 text-xs">
+                          <span className="text-nvidia-green">{template.fps} FPS</span>
+                          <span className="text-nvidia-teal">{template.latency}</span>
+                        </div>
+                      </motion.div>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Pipeline Name */}
+                <div className="space-y-2">
+                  <Label>Pipeline Name</Label>
+                  <input
+                    type="text"
+                    value={newPipeline.name}
+                    onChange={(e) => setNewPipeline({ ...newPipeline, name: e.target.value })}
+                    className="w-full px-3 py-2 bg-background border border-border rounded-md text-sm"
+                    placeholder="My Pipeline"
+                  />
+                </div>
+
+                {/* Video Source */}
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label>Video Source</Label>
+                    <Select
+                      value={newPipeline.camera}
+                      onValueChange={(v) => setNewPipeline({ ...newPipeline, camera: v })}
+                    >
+                      <SelectTrigger>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {brioCameraConfig.deviceNodes.filter(d => d.type.includes("Camera")).map((node) => (
+                          <SelectItem key={node.path} value={node.path}>
+                            {node.path} ({node.type})
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Resolution</Label>
+                    <Select
+                      value={newPipeline.resolution}
+                      onValueChange={(v) => setNewPipeline({ ...newPipeline, resolution: v })}
+                    >
+                      <SelectTrigger>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {brioCameraConfig.resolutions.map((res) => (
+                          <SelectItem key={res.label} value={`${res.width}x${res.height}`}>
+                            {res.label} ({res.width}x{res.height})
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label>Frame Rate</Label>
+                    <Select
+                      value={newPipeline.fps.toString()}
+                      onValueChange={(v) => setNewPipeline({ ...newPipeline, fps: parseInt(v) })}
+                    >
+                      <SelectTrigger>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="90">90 FPS</SelectItem>
+                        <SelectItem value="60">60 FPS</SelectItem>
+                        <SelectItem value="30">30 FPS</SelectItem>
+                        <SelectItem value="24">24 FPS</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Format</Label>
+                    <Select
+                      value={newPipeline.format}
+                      onValueChange={(v) => setNewPipeline({ ...newPipeline, format: v })}
+                    >
+                      <SelectTrigger>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="MJPEG">MJPEG</SelectItem>
+                        <SelectItem value="H.264">H.264</SelectItem>
+                        <SelectItem value="YUY2">YUY2 (Raw)</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
+
+                <Button 
+                  className="w-full bg-nvidia-green hover:bg-nvidia-green/90 text-black"
+                  onClick={handleDeployPipeline}
+                >
+                  <Play className="h-4 w-4 mr-2" />
+                  Deploy Pipeline
+                </Button>
+              </div>
+            </DialogContent>
+          </Dialog>
         </div>
       </div>
+
+      {/* Camera Status Banner */}
+      <Card className={`cyber-panel ${cameraConnected ? 'border-nvidia-green/50' : 'border-nvidia-critical/50'}`}>
+        <CardContent className="py-4">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-4">
+              <div className={`p-3 rounded-lg ${cameraConnected ? 'bg-nvidia-green/20' : 'bg-nvidia-critical/20'}`}>
+                <Camera className={`h-6 w-6 ${cameraConnected ? 'text-nvidia-green' : 'text-nvidia-critical'}`} />
+              </div>
+              <div>
+                <div className="flex items-center gap-2">
+                  <h3 className="font-display font-semibold">{brioCameraConfig.name}</h3>
+                  <Badge variant={cameraConnected ? "default" : "destructive"}>
+                    {cameraConnected ? "Connected" : "Disconnected"}
+                  </Badge>
+                  <Badge variant="outline" className="text-nvidia-teal">4K UHD</Badge>
+                </div>
+                <p className="text-sm text-muted-foreground">
+                  {brioCameraConfig.connection} • Serial: {brioCameraConfig.serial} • FW {brioCameraConfig.firmware}
+                </p>
+              </div>
+            </div>
+            <div className="flex items-center gap-6 text-sm">
+              <div className="text-center">
+                <div className="text-nvidia-green font-mono text-lg">/dev/video0</div>
+                <div className="text-muted-foreground text-xs">RGB Camera</div>
+              </div>
+              <div className="text-center">
+                <div className="text-nvidia-teal font-mono text-lg">/dev/video2</div>
+                <div className="text-muted-foreground text-xs">IR Camera</div>
+              </div>
+              <div className="text-center">
+                <div className="text-purple-400 font-mono text-lg">{brioCameraConfig.powerDraw}</div>
+                <div className="text-muted-foreground text-xs">Power Draw</div>
+              </div>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
 
       {/* Main Content - Ultrawide optimized grid */}
       <div className="grid grid-cols-12 gap-6">
@@ -219,50 +578,72 @@ export default function Holoscan() {
             <CardHeader className="pb-3">
               <CardTitle className="text-lg font-display flex items-center gap-2">
                 <Workflow className="h-5 w-5 text-nvidia-green" />
-                Applications
+                Active Pipelines
               </CardTitle>
-              <CardDescription>Running Holoscan pipelines</CardDescription>
+              <CardDescription>Running Holoscan applications</CardDescription>
             </CardHeader>
             <CardContent className="space-y-3">
-              {holoscanApps.map((app) => (
-                <motion.div
-                  key={app.id}
-                  whileHover={{ scale: 1.02 }}
-                  className={`p-3 rounded-lg border cursor-pointer transition-all ${
-                    selectedApp.id === app.id
-                      ? "border-nvidia-green bg-nvidia-green/10"
-                      : "border-border hover:border-nvidia-green/50"
-                  }`}
-                  onClick={() => setSelectedApp(app)}
-                >
-                  <div className="flex items-center justify-between mb-2">
-                    <span className="font-medium text-sm">{app.name}</span>
-                    {getStatusIcon(app.status)}
-                  </div>
-                  <div className="grid grid-cols-2 gap-2 text-xs text-muted-foreground">
-                    <div className="flex items-center gap-1">
-                      <Layers className="h-3 w-3" />
-                      {app.fragments} fragments
+              {apps.length === 0 ? (
+                <div className="text-center py-8 text-muted-foreground">
+                  <Workflow className="h-12 w-12 mx-auto mb-2 opacity-50" />
+                  <p className="text-sm">No pipelines deployed</p>
+                  <p className="text-xs">Click "Deploy Pipeline" to start</p>
+                </div>
+              ) : (
+                apps.map((app) => (
+                  <motion.div
+                    key={app.id}
+                    whileHover={{ scale: 1.02 }}
+                    className={`p-3 rounded-lg border cursor-pointer transition-all ${
+                      selectedApp?.id === app.id
+                        ? "border-nvidia-green bg-nvidia-green/10"
+                        : "border-border hover:border-nvidia-green/50"
+                    }`}
+                    onClick={() => setSelectedApp(app)}
+                  >
+                    <div className="flex items-center justify-between mb-2">
+                      <span className="font-medium text-sm truncate">{app.name}</span>
+                      {getStatusIcon(app.status)}
                     </div>
-                    <div className="flex items-center gap-1">
-                      <Box className="h-3 w-3" />
-                      {app.operators} operators
+                    <div className="grid grid-cols-2 gap-2 text-xs text-muted-foreground">
+                      <div className="flex items-center gap-1">
+                        <Camera className="h-3 w-3" />
+                        {app.camera.split('/').pop()}
+                      </div>
+                      <div className="flex items-center gap-1">
+                        <Maximize2 className="h-3 w-3" />
+                        {app.resolution}
+                      </div>
+                      {app.status === "running" && (
+                        <>
+                          <div className="flex items-center gap-1">
+                            <Activity className="h-3 w-3 text-nvidia-green" />
+                            {app.actualFps.toFixed(1)} FPS
+                          </div>
+                          <div className="flex items-center gap-1">
+                            <Clock className="h-3 w-3 text-nvidia-teal" />
+                            {app.latency}ms
+                          </div>
+                        </>
+                      )}
                     </div>
-                    {app.status === "running" && (
-                      <>
-                        <div className="flex items-center gap-1">
-                          <Activity className="h-3 w-3 text-nvidia-green" />
-                          {app.fps} FPS
-                        </div>
-                        <div className="flex items-center gap-1">
-                          <Clock className="h-3 w-3 text-nvidia-teal" />
-                          {app.latency}ms
-                        </div>
-                      </>
-                    )}
-                  </div>
-                </motion.div>
-              ))}
+                    <div className="flex items-center justify-between mt-2 pt-2 border-t border-border/50">
+                      <span className="text-xs text-muted-foreground">{app.uptime}</span>
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        className="h-6 w-6 p-0 text-muted-foreground hover:text-nvidia-critical"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleDeleteApp(app.id);
+                        }}
+                      >
+                        <Trash2 className="h-3 w-3" />
+                      </Button>
+                    </div>
+                  </motion.div>
+                ))
+              )}
             </CardContent>
           </Card>
         </div>
@@ -277,199 +658,260 @@ export default function Holoscan() {
                     <GitBranch className="h-5 w-5 text-nvidia-green" />
                     Pipeline Graph
                   </CardTitle>
-                  <CardDescription>{selectedApp.name}</CardDescription>
+                  <CardDescription>{selectedApp?.name || "Select a pipeline"}</CardDescription>
                 </div>
-                <div className="flex items-center gap-2">
-                  <Badge variant={selectedApp.status === "running" ? "default" : "secondary"}>
-                    {selectedApp.status}
-                  </Badge>
-                  {selectedApp.status === "running" ? (
-                    <Button
-                      size="sm"
-                      variant="destructive"
-                      onClick={() => handleStopApp(selectedApp.id)}
-                    >
-                      <Square className="h-4 w-4 mr-1" />
-                      Stop
-                    </Button>
-                  ) : (
-                    <Button
-                      size="sm"
-                      className="bg-nvidia-green hover:bg-nvidia-green/90 text-black"
-                      onClick={() => handleStartApp(selectedApp.id)}
-                    >
-                      <Play className="h-4 w-4 mr-1" />
-                      Start
-                    </Button>
-                  )}
-                </div>
+                {selectedApp && (
+                  <div className="flex items-center gap-2">
+                    <Badge variant={selectedApp.status === "running" ? "default" : "secondary"}>
+                      {selectedApp.status}
+                    </Badge>
+                    {selectedApp.status === "running" ? (
+                      <Button
+                        size="sm"
+                        variant="destructive"
+                        onClick={() => handleStopApp(selectedApp.id)}
+                      >
+                        <Square className="h-4 w-4 mr-1" />
+                        Stop
+                      </Button>
+                    ) : (
+                      <Button
+                        size="sm"
+                        className="bg-nvidia-green hover:bg-nvidia-green/90 text-black"
+                        onClick={() => handleStartApp(selectedApp.id)}
+                      >
+                        <Play className="h-4 w-4 mr-1" />
+                        Start
+                      </Button>
+                    )}
+                  </div>
+                )}
               </div>
             </CardHeader>
             <CardContent>
-              {/* Pipeline DAG Visualization */}
-              <div className="relative bg-background/50 rounded-lg p-6 min-h-[300px] overflow-auto">
-                <svg className="absolute inset-0 w-full h-full pointer-events-none">
-                  {pipelineConnections.map((conn, idx) => {
-                    const fromOp = pipelineOperators.find((o) => o.id === conn.from);
-                    const toOp = pipelineOperators.find((o) => o.id === conn.to);
-                    if (!fromOp || !toOp) return null;
-                    const x1 = fromOp.x * 140 + 100;
-                    const y1 = fromOp.y * 80 + 40;
-                    const x2 = toOp.x * 140 + 20;
-                    const y2 = toOp.y * 80 + 40;
-                    return (
-                      <g key={idx}>
-                        <line
-                          x1={x1}
-                          y1={y1}
-                          x2={x2}
-                          y2={y2}
-                          stroke="oklch(0.72 0.19 128 / 0.5)"
-                          strokeWidth="2"
-                          strokeDasharray={selectedApp.status === "running" ? "none" : "5,5"}
-                        />
-                        {selectedApp.status === "running" && (
-                          <circle r="4" fill="oklch(0.72 0.19 128)">
-                            <animateMotion
-                              dur="1s"
-                              repeatCount="indefinite"
-                              path={`M${x1},${y1} L${x2},${y2}`}
+              {selectedApp ? (
+                <>
+                  {/* Pipeline DAG Visualization */}
+                  <div className="relative bg-background/50 rounded-lg p-6 min-h-[280px] overflow-auto">
+                    <svg className="absolute inset-0 w-full h-full pointer-events-none">
+                      {connections.map((conn, idx) => {
+                        const fromOp = operators.find((o) => o.id === conn.from);
+                        const toOp = operators.find((o) => o.id === conn.to);
+                        if (!fromOp || !toOp) return null;
+                        const x1 = fromOp.x * 150 + 110;
+                        const y1 = 60;
+                        const x2 = toOp.x * 150 + 10;
+                        const y2 = 60;
+                        return (
+                          <g key={idx}>
+                            <line
+                              x1={x1}
+                              y1={y1}
+                              x2={x2}
+                              y2={y2}
+                              stroke="oklch(0.72 0.19 128 / 0.5)"
+                              strokeWidth="2"
+                              strokeDasharray={selectedApp.status === "running" ? "none" : "5,5"}
                             />
-                          </circle>
-                        )}
-                      </g>
-                    );
-                  })}
-                </svg>
-                <div className="relative">
-                  {pipelineOperators.map((op) => (
-                    <motion.div
-                      key={op.id}
-                      whileHover={{ scale: 1.05 }}
-                      className={`absolute cursor-pointer p-2 rounded-lg border-2 transition-all ${getOperatorTypeColor(
-                        op.type
-                      )} ${selectedOperator?.id === op.id ? "ring-2 ring-nvidia-green" : ""}`}
-                      style={{
-                        left: op.x * 140,
-                        top: op.y * 80,
-                        width: 120,
-                      }}
-                      onClick={() => setSelectedOperator(op)}
-                    >
-                      <div className="flex items-center gap-1 mb-1">
-                        {op.status === "active" && selectedApp.status === "running" && (
-                          <span className="w-2 h-2 rounded-full bg-nvidia-green animate-pulse" />
-                        )}
-                        <span className="text-xs font-mono truncate">{op.name}</span>
-                      </div>
-                      <Badge variant="outline" className="text-[10px] py-0">
-                        {op.type}
-                      </Badge>
-                    </motion.div>
-                  ))}
-                </div>
-              </div>
+                            {selectedApp.status === "running" && (
+                              <circle r="4" fill="oklch(0.72 0.19 128)">
+                                <animateMotion
+                                  dur="0.8s"
+                                  repeatCount="indefinite"
+                                  path={`M${x1},${y1} L${x2},${y2}`}
+                                />
+                              </circle>
+                            )}
+                          </g>
+                        );
+                      })}
+                    </svg>
+                    <div className="relative flex items-center gap-4">
+                      {operators.map((op) => (
+                        <motion.div
+                          key={op.id}
+                          whileHover={{ scale: 1.05 }}
+                          className={`cursor-pointer p-3 rounded-lg border-2 transition-all min-w-[120px] ${getOperatorTypeColor(
+                            op.type
+                          )} ${selectedOperator?.id === op.id ? "ring-2 ring-nvidia-green" : ""}`}
+                          onClick={() => setSelectedOperator(op)}
+                        >
+                          <div className="flex items-center gap-1 mb-1">
+                            {op.status === "active" && selectedApp.status === "running" && (
+                              <span className="w-2 h-2 rounded-full bg-nvidia-green animate-pulse" />
+                            )}
+                            <span className="text-xs font-mono truncate">{op.name}</span>
+                          </div>
+                          <Badge variant="outline" className="text-[10px] py-0">
+                            {op.type}
+                          </Badge>
+                          {selectedApp.status === "running" && (
+                            <div className="mt-2 text-[10px] text-muted-foreground">
+                              <div>{op.metrics.throughput} msg/s</div>
+                              <div>{op.metrics.latency.toFixed(1)}ms</div>
+                            </div>
+                          )}
+                        </motion.div>
+                      ))}
+                    </div>
+                  </div>
 
-              {/* Legend */}
-              <div className="flex items-center gap-4 mt-4 text-xs">
-                <div className="flex items-center gap-1">
-                  <div className="w-3 h-3 rounded bg-blue-500/50" />
-                  <span>Source</span>
+                  {/* Legend */}
+                  <div className="flex items-center gap-4 mt-4 text-xs">
+                    <div className="flex items-center gap-1">
+                      <div className="w-3 h-3 rounded bg-blue-500/50" />
+                      <span>Source</span>
+                    </div>
+                    <div className="flex items-center gap-1">
+                      <div className="w-3 h-3 rounded bg-purple-500/50" />
+                      <span>Process</span>
+                    </div>
+                    <div className="flex items-center gap-1">
+                      <div className="w-3 h-3 rounded bg-nvidia-green/50" />
+                      <span>Inference</span>
+                    </div>
+                    <div className="flex items-center gap-1">
+                      <div className="w-3 h-3 rounded bg-orange-500/50" />
+                      <span>Sink</span>
+                    </div>
+                  </div>
+                </>
+              ) : (
+                <div className="flex items-center justify-center h-[280px] text-muted-foreground">
+                  <div className="text-center">
+                    <GitBranch className="h-12 w-12 mx-auto mb-2 opacity-50" />
+                    <p>Select a pipeline to view its graph</p>
+                  </div>
                 </div>
-                <div className="flex items-center gap-1">
-                  <div className="w-3 h-3 rounded bg-purple-500/50" />
-                  <span>Process</span>
-                </div>
-                <div className="flex items-center gap-1">
-                  <div className="w-3 h-3 rounded bg-nvidia-green/50" />
-                  <span>Inference</span>
-                </div>
-                <div className="flex items-center gap-1">
-                  <div className="w-3 h-3 rounded bg-orange-500/50" />
-                  <span>Sink</span>
-                </div>
-              </div>
+              )}
             </CardContent>
           </Card>
         </div>
 
-        {/* Right Panel - Metrics & Details */}
+        {/* Right Panel - Metrics & Camera Config */}
         <div className="col-span-3 space-y-6">
           {/* Performance Metrics */}
-          <Card className="cyber-panel">
-            <CardHeader className="pb-3">
-              <CardTitle className="text-lg font-display flex items-center gap-2">
-                <Gauge className="h-5 w-5 text-nvidia-green" />
-                Performance
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div>
-                <div className="flex justify-between text-sm mb-1">
-                  <span className="text-muted-foreground">Frame Rate</span>
-                  <span className="font-mono text-nvidia-green">{selectedApp.fps} FPS</span>
-                </div>
-                <Progress value={selectedApp.fps / 60 * 100} className="h-2" />
-              </div>
-              <div>
-                <div className="flex justify-between text-sm mb-1">
-                  <span className="text-muted-foreground">Latency</span>
-                  <span className="font-mono text-nvidia-teal">{selectedApp.latency}ms</span>
-                </div>
-                <Progress value={100 - selectedApp.latency / 50 * 100} className="h-2" />
-              </div>
-              <div>
-                <div className="flex justify-between text-sm mb-1">
-                  <span className="text-muted-foreground">GPU Utilization</span>
-                  <span className="font-mono">{selectedApp.gpuUtil}%</span>
-                </div>
-                <Progress value={selectedApp.gpuUtil} className="h-2" />
-              </div>
-              <div>
-                <div className="flex justify-between text-sm mb-1">
-                  <span className="text-muted-foreground">GPU Memory</span>
-                  <span className="font-mono">{selectedApp.memUsed} GB</span>
-                </div>
-                <Progress value={selectedApp.memUsed / 8 * 100} className="h-2" />
-              </div>
-            </CardContent>
-          </Card>
-
-          {/* Operator Details */}
-          {selectedOperator && (
+          {selectedApp && (
             <Card className="cyber-panel">
               <CardHeader className="pb-3">
                 <CardTitle className="text-lg font-display flex items-center gap-2">
-                  <Box className="h-5 w-5 text-nvidia-teal" />
-                  Operator Details
+                  <Gauge className="h-5 w-5 text-nvidia-green" />
+                  Performance
                 </CardTitle>
               </CardHeader>
-              <CardContent className="space-y-3">
-                <div className="flex justify-between">
-                  <span className="text-muted-foreground text-sm">Name</span>
-                  <span className="font-mono text-sm">{selectedOperator.name}</span>
+              <CardContent className="space-y-4">
+                <div>
+                  <div className="flex justify-between text-sm mb-1">
+                    <span className="text-muted-foreground">Frame Rate</span>
+                    <span className="font-mono text-nvidia-green">{selectedApp.actualFps.toFixed(1)} / {selectedApp.fps} FPS</span>
+                  </div>
+                  <Progress value={(selectedApp.actualFps / selectedApp.fps) * 100} className="h-2" />
                 </div>
-                <div className="flex justify-between">
-                  <span className="text-muted-foreground text-sm">Type</span>
-                  <Badge variant="outline">{selectedOperator.type}</Badge>
+                <div>
+                  <div className="flex justify-between text-sm mb-1">
+                    <span className="text-muted-foreground">Latency</span>
+                    <span className="font-mono text-nvidia-teal">{selectedApp.latency}ms</span>
+                  </div>
+                  <Progress value={100 - (selectedApp.latency / 50) * 100} className="h-2" />
                 </div>
-                <div className="flex justify-between">
-                  <span className="text-muted-foreground text-sm">Status</span>
-                  <span className={`text-sm ${getStatusColor(selectedOperator.status)}`}>
-                    {selectedOperator.status}
-                  </span>
+                <div>
+                  <div className="flex justify-between text-sm mb-1">
+                    <span className="text-muted-foreground">GPU Utilization</span>
+                    <span className="font-mono">{selectedApp.gpuUtil}%</span>
+                  </div>
+                  <Progress value={selectedApp.gpuUtil} className="h-2" />
                 </div>
-                <div className="flex justify-between">
-                  <span className="text-muted-foreground text-sm">Input Ports</span>
-                  <span className="font-mono text-sm">1</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-muted-foreground text-sm">Output Ports</span>
-                  <span className="font-mono text-sm">1</span>
+                <div>
+                  <div className="flex justify-between text-sm mb-1">
+                    <span className="text-muted-foreground">GPU Memory</span>
+                    <span className="font-mono">{selectedApp.memUsed.toFixed(1)} GB</span>
+                  </div>
+                  <Progress value={(selectedApp.memUsed / 8) * 100} className="h-2" />
                 </div>
               </CardContent>
             </Card>
           )}
+
+          {/* Camera Configuration */}
+          <Card className="cyber-panel">
+            <CardHeader className="pb-3">
+              <CardTitle className="text-lg font-display flex items-center gap-2">
+                <Settings className="h-5 w-5 text-nvidia-teal" />
+                Camera Settings
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="space-y-2">
+                <Label className="text-xs">Field of View</Label>
+                <div className="flex gap-2">
+                  {brioCameraConfig.fieldOfView.map((fov) => (
+                    <Button
+                      key={fov.angle}
+                      size="sm"
+                      variant={cameraConfig.fov === fov.angle ? "default" : "outline"}
+                      className={cameraConfig.fov === fov.angle ? "bg-nvidia-green text-black" : ""}
+                      onClick={() => setCameraConfig({ ...cameraConfig, fov: fov.angle })}
+                    >
+                      {fov.angle}°
+                    </Button>
+                  ))}
+                </div>
+              </div>
+
+              <div className="space-y-2">
+                <div className="flex justify-between">
+                  <Label className="text-xs">Brightness</Label>
+                  <span className="text-xs text-muted-foreground">{cameraConfig.brightness}%</span>
+                </div>
+                <Slider
+                  value={[cameraConfig.brightness]}
+                  onValueChange={([v]) => setCameraConfig({ ...cameraConfig, brightness: v })}
+                  max={100}
+                  step={1}
+                />
+              </div>
+
+              <div className="space-y-2">
+                <div className="flex justify-between">
+                  <Label className="text-xs">Contrast</Label>
+                  <span className="text-xs text-muted-foreground">{cameraConfig.contrast}%</span>
+                </div>
+                <Slider
+                  value={[cameraConfig.contrast]}
+                  onValueChange={([v]) => setCameraConfig({ ...cameraConfig, contrast: v })}
+                  max={100}
+                  step={1}
+                />
+              </div>
+
+              <div className="flex items-center justify-between">
+                <Label className="text-xs">Auto Exposure</Label>
+                <Switch
+                  checked={cameraConfig.autoExposure}
+                  onCheckedChange={(v) => setCameraConfig({ ...cameraConfig, autoExposure: v })}
+                />
+              </div>
+
+              <div className="flex items-center justify-between">
+                <Label className="text-xs">Auto Focus</Label>
+                <Switch
+                  checked={cameraConfig.autoFocus}
+                  onCheckedChange={(v) => setCameraConfig({ ...cameraConfig, autoFocus: v })}
+                />
+              </div>
+
+              <div className="flex items-center justify-between">
+                <Label className="text-xs flex items-center gap-1">
+                  <Mic className="h-3 w-3" />
+                  Audio Capture
+                </Label>
+                <Switch
+                  checked={cameraConfig.audioEnabled}
+                  onCheckedChange={(v) => setCameraConfig({ ...cameraConfig, audioEnabled: v })}
+                />
+              </div>
+            </CardContent>
+          </Card>
         </div>
       </div>
 
@@ -482,7 +924,7 @@ export default function Holoscan() {
               <div className="flex items-center justify-between">
                 <CardTitle className="text-lg font-display flex items-center gap-2">
                   <Terminal className="h-5 w-5 text-nvidia-green" />
-                  Application Logs
+                  Pipeline Logs
                 </CardTitle>
                 <Select defaultValue="all">
                   <SelectTrigger className="w-32">
@@ -501,7 +943,7 @@ export default function Holoscan() {
             <CardContent>
               <ScrollArea className="h-[200px] rounded-lg bg-background/50 p-3">
                 <div className="space-y-1 font-mono text-xs">
-                  {holoscanLogs.map((log, idx) => (
+                  {logs.map((log, idx) => (
                     <div key={idx} className="flex gap-2">
                       <span className="text-muted-foreground">{log.time}</span>
                       <span
@@ -530,31 +972,52 @@ export default function Holoscan() {
         <div className="col-span-4">
           <Card className="cyber-panel">
             <CardHeader className="pb-3">
-              <CardTitle className="text-lg font-display flex items-center gap-2">
-                <MonitorPlay className="h-5 w-5 text-nvidia-green" />
-                Sensor Preview
-              </CardTitle>
+              <div className="flex items-center justify-between">
+                <CardTitle className="text-lg font-display flex items-center gap-2">
+                  <MonitorPlay className="h-5 w-5 text-nvidia-green" />
+                  Camera Preview
+                </CardTitle>
+                <Badge variant="outline" className="text-nvidia-green">
+                  {cameraConfig.resolution} @ {cameraConfig.fps}fps
+                </Badge>
+              </div>
             </CardHeader>
             <CardContent>
-              <div className="aspect-video bg-background/50 rounded-lg flex items-center justify-center border border-border">
-                {selectedApp.status === "running" ? (
-                  <div className="text-center">
-                    <Video className="h-12 w-12 text-nvidia-green mx-auto mb-2 animate-pulse" />
-                    <p className="text-sm text-muted-foreground">Live Feed Active</p>
-                    <p className="text-xs text-nvidia-green font-mono">1920x1080 @ 60fps</p>
+              <div className="aspect-video bg-background/50 rounded-lg flex items-center justify-center border border-border relative overflow-hidden">
+                {selectedApp?.status === "running" && cameraConnected ? (
+                  <div className="absolute inset-0 flex items-center justify-center">
+                    <div className="text-center">
+                      <Video className="h-12 w-12 text-nvidia-green mx-auto mb-2 animate-pulse" />
+                      <p className="text-sm text-muted-foreground">Live Feed Active</p>
+                      <p className="text-xs text-nvidia-green font-mono">{cameraConfig.resolution} @ {cameraConfig.fps}fps</p>
+                      <p className="text-xs text-muted-foreground mt-1">{cameraConfig.format} • FOV {cameraConfig.fov}°</p>
+                    </div>
+                    {/* Simulated detection overlay */}
+                    <div className="absolute top-4 left-4 border-2 border-nvidia-green rounded w-24 h-24 opacity-50">
+                      <span className="absolute -top-5 left-0 text-[10px] text-nvidia-green bg-background/80 px-1">
+                        person 0.95
+                      </span>
+                    </div>
                   </div>
                 ) : (
                   <div className="text-center">
                     <Camera className="h-12 w-12 text-muted-foreground mx-auto mb-2" />
-                    <p className="text-sm text-muted-foreground">No Active Feed</p>
-                    <p className="text-xs text-muted-foreground">Start pipeline to preview</p>
+                    <p className="text-sm text-muted-foreground">
+                      {!cameraConnected ? "Camera Disconnected" : "No Active Pipeline"}
+                    </p>
+                    <p className="text-xs text-muted-foreground">
+                      {!cameraConnected ? "Check USB connection" : "Start a pipeline to preview"}
+                    </p>
                   </div>
                 )}
               </div>
               <div className="flex items-center justify-between mt-3 text-xs">
-                <span className="text-muted-foreground">Source: /dev/video0</span>
-                <Badge variant="outline" className={selectedApp.status === "running" ? "text-nvidia-green" : ""}>
-                  {selectedApp.status === "running" ? "Connected" : "Disconnected"}
+                <div className="flex items-center gap-2">
+                  <Usb className="h-3 w-3 text-muted-foreground" />
+                  <span className="text-muted-foreground">{brioCameraConfig.name}</span>
+                </div>
+                <Badge variant="outline" className={cameraConnected ? "text-nvidia-green" : "text-nvidia-critical"}>
+                  {cameraConnected ? "Connected" : "Disconnected"}
                 </Badge>
               </div>
             </CardContent>

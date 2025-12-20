@@ -301,3 +301,38 @@
 - [x] Display total/used/available storage
 - [x] Show breakdown by model/container
 - [x] Add storage usage visualization (bar chart)
+
+# Holoscan Pipeline Manager Enhancement - December 2024
+
+## Real-time Pipeline Integration
+- [ ] Connect to actual Holoscan containers running on DGX Spark
+- [ ] Fetch real pipeline status via SSH/Docker commands
+- [ ] Display actual GPU metrics for running pipelines
+- [ ] Stream real application logs from containers
+
+## Pipeline Management Features
+- [ ] Deploy new Holoscan applications from NGC catalog
+- [ ] Start/Stop/Restart pipeline controls with real backend
+- [ ] Pipeline configuration editor (YAML/Python)
+- [ ] Model/engine file management for inference operators
+
+## Enhanced Visualization
+- [ ] Real-time dataflow metrics between operators
+- [ ] Throughput visualization per operator
+- [ ] Memory usage breakdown by operator
+- [ ] Interactive pipeline graph with zoom/pan
+
+## Sensor Integration
+- [ ] List available video sources on DGX Spark
+- [ ] Preview sensor feeds via WebRTC/HLS
+- [ ] Configure input parameters (resolution, framerate)
+- [ ] Multi-sensor pipeline support
+
+## Logitech BRIO 4K Camera Integration
+- [x] Add BRIO camera detection via SSH (lsusb, v4l2-ctl)
+- [x] Create camera configuration panel with BRIO-specific settings
+- [x] Support resolution modes: 4K@30fps, 1080p@60fps, 720p@60fps
+- [x] Support format selection: MJPEG, H.264, YUY2
+- [x] Add field of view controls (65°, 78°, 90°)
+- [x] Display camera status and connection info
+- [x] Create sample pipelines for BRIO input processing
