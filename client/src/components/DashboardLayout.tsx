@@ -50,6 +50,7 @@ const NAV_ITEMS = [
   { path: "/statistics", icon: BarChart3, label: "Statistics", description: "Observability Deck" },
   { path: "/knowledge", icon: BookOpen, label: "Knowledge", description: "RAG & Documents" },
   { path: "/holoscan", icon: Workflow, label: "Holoscan", description: "Pipeline Manager" },
+  { path: "/cuda", icon: Cpu, label: "CUDA", description: "Toolkit & Versions" },
 ];
 
 // Simulated host metrics (in production, these would come from API)

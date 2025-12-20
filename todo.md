@@ -66,3 +66,15 @@
 - [x] Add validation status badge to example list
 - [x] Add Valid/Invalid filter tabs to example browser
 - [x] Test validation with various response formats
+
+# CUDA Toolkit Tab
+
+- [x] Create CUDA Toolkit page with version cards
+- [x] Display CUDA 12.x compatibility status
+- [x] Display cuDNN 8.9+ compatibility status
+- [x] Display TensorRT 10.x compatibility status
+- [x] Add NCCL and Driver version cards
+- [x] Add Compatibility Matrix tab
+- [x] Add NeMo Requirements tab
+- [x] Add CUDA tab to sidebar navigation
+- [x] Test CUDA tab integration
