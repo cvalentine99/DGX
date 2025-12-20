@@ -34,6 +34,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { trpc } from "@/lib/trpc";
+import { GpuHistoryChart, GpuHistoryComparisonChart } from "@/components/GpuHistoryChart";
 
 // Model Status
 const MODEL_STATUS = {
@@ -601,6 +602,20 @@ export default function Dashboard() {
           />
         ))}
       </div>
+      
+      {/* GPU History Charts */}
+      <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
+        {hosts.map((host) => (
+          <GpuHistoryChart
+            key={`history-${host.hostId}`}
+            hostId={host.hostId}
+            hostName={host.hostName}
+          />
+        ))}
+      </div>
+      
+      {/* GPU Comparison Chart */}
+      <GpuHistoryComparisonChart />
       
       {/* Quick Stats */}
       <QuickStatsCard />

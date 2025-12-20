@@ -47,6 +47,87 @@ interface HostMetrics {
 const metricsCache: Map<string, { data: HostMetrics; timestamp: number }> = new Map();
 const CACHE_TTL = 5000; // 5 seconds
 
+// History storage for time-series charts
+interface MetricsHistoryPoint {
+  timestamp: number;
+  utilization: number;
+  temperature: number;
+  powerDraw: number;
+  memoryUsed: number;
+  memoryTotal: number;
+}
+
+const metricsHistory: Map<string, MetricsHistoryPoint[]> = new Map();
+const MAX_HISTORY_POINTS = 1440; // 24 hours at 1-minute intervals
+const HISTORY_INTERVAL = 60000; // 1 minute
+
+// Initialize history for hosts
+DGX_HOSTS.forEach(host => {
+  metricsHistory.set(host.id, []);
+});
+
+// Add metrics to history (called on each fetch)
+function addToHistory(hostId: string, metrics: HostMetrics) {
+  const history = metricsHistory.get(hostId) || [];
+  const gpu = metrics.gpus[0];
+  
+  if (!gpu) return;
+  
+  // Only add if enough time has passed since last point
+  const lastPoint = history[history.length - 1];
+  if (lastPoint && Date.now() - lastPoint.timestamp < HISTORY_INTERVAL) {
+    return;
+  }
+  
+  history.push({
+    timestamp: Date.now(),
+    utilization: gpu.utilization,
+    temperature: gpu.temperature,
+    powerDraw: gpu.powerDraw,
+    memoryUsed: gpu.memoryUsed,
+    memoryTotal: gpu.memoryTotal,
+  });
+  
+  // Trim to max points
+  while (history.length > MAX_HISTORY_POINTS) {
+    history.shift();
+  }
+  
+  metricsHistory.set(hostId, history);
+}
+
+// Generate simulated history for demo
+function generateSimulatedHistory(hostId: string, timeRangeMs: number): MetricsHistoryPoint[] {
+  const points: MetricsHistoryPoint[] = [];
+  const now = Date.now();
+  const interval = 60000; // 1 minute
+  const numPoints = Math.min(Math.floor(timeRangeMs / interval), 1440);
+  
+  const baseUtil = hostId === "alpha" ? 78 : 65;
+  const baseTemp = hostId === "alpha" ? 62 : 58;
+  const basePower = hostId === "alpha" ? 285 : 245;
+  const baseMemUsed = hostId === "alpha" ? 46285 : 39629;
+  
+  for (let i = numPoints; i >= 0; i--) {
+    const timestamp = now - (i * interval);
+    // Add sinusoidal variation for realistic patterns
+    const hourOfDay = new Date(timestamp).getHours();
+    const workloadFactor = Math.sin((hourOfDay - 6) * Math.PI / 12) * 0.2 + 0.8; // Peak at noon
+    const noise = () => (Math.random() - 0.5) * 8;
+    
+    points.push({
+      timestamp,
+      utilization: Math.max(0, Math.min(100, Math.round(baseUtil * workloadFactor + noise()))),
+      temperature: Math.max(30, Math.min(85, Math.round(baseTemp + (baseUtil * workloadFactor - baseUtil) * 0.3 + noise() * 0.5))),
+      powerDraw: Math.max(100, Math.min(500, Math.round(basePower * workloadFactor + noise() * 3))),
+      memoryUsed: Math.max(0, Math.round(baseMemUsed * (0.9 + Math.random() * 0.2))),
+      memoryTotal: 98304,
+    });
+  }
+  
+  return points;
+}
+
 // SSH configuration from environment
 function getSSHConfig() {
   return {
@@ -216,6 +297,9 @@ async function fetchHostMetrics(hostId: string, hostName: string, hostIp: string
     
     // Update cache
     metricsCache.set(hostId, { data: metrics, timestamp: Date.now() });
+    
+    // Add to history
+    addToHistory(hostId, metrics);
     
     return metrics;
   } catch (error) {
@@ -391,6 +475,48 @@ export const dcgmRouter = router({
           error: error instanceof Error ? error.message : "Connection failed",
         };
       }
+    }),
+
+  // Get metrics history for time-series charts
+  getHistory: publicProcedure
+    .input(z.object({
+      hostId: z.string(),
+      timeRange: z.enum(["1h", "6h", "24h"]).default("1h"),
+    }))
+    .query(({ input }) => {
+      const host = DGX_HOSTS.find(h => h.id === input.hostId);
+      if (!host) {
+        throw new Error(`Host ${input.hostId} not found`);
+      }
+      
+      const timeRangeMs = {
+        "1h": 60 * 60 * 1000,
+        "6h": 6 * 60 * 60 * 1000,
+        "24h": 24 * 60 * 60 * 1000,
+      }[input.timeRange];
+      
+      const history = metricsHistory.get(input.hostId) || [];
+      const cutoff = Date.now() - timeRangeMs;
+      const filteredHistory = history.filter(p => p.timestamp >= cutoff);
+      
+      // If no real history, generate simulated data
+      if (filteredHistory.length < 10) {
+        return {
+          hostId: input.hostId,
+          hostName: host.name,
+          timeRange: input.timeRange,
+          points: generateSimulatedHistory(input.hostId, timeRangeMs),
+          isSimulated: true,
+        };
+      }
+      
+      return {
+        hostId: input.hostId,
+        hostName: host.name,
+        timeRange: input.timeRange,
+        points: filteredHistory,
+        isSimulated: false,
+      };
     }),
 
   // Get DCGM-specific metrics (if dcgmi is available)

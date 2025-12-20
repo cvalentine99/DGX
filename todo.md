@@ -145,3 +145,13 @@
 - [x] Add connection status indicators for each host
 - [x] Handle SSH connection errors gracefully
 - [x] Test real-time metrics with both DGX Spark hosts (UI verified, pending SSH key fix)
+
+# GPU Metrics History Charts
+
+- [x] Create in-memory metrics history storage in backend
+- [x] Add endpoint to retrieve historical metrics by time range
+- [x] Build GpuHistoryChart component with Recharts
+- [x] Add time range selector (1h, 6h, 24h)
+- [x] Display GPU utilization, temperature, and power trends
+- [x] Integrate charts into Dashboard below host cards
+- [x] Test time-series charts with simulated data
