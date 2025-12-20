@@ -656,13 +656,7 @@ export default function CudaToolkit() {
 
           {/* NGC Catalog Browser Tab */}
           <TabsContent value="ngc" className="min-h-[600px]">
-            <NgcCatalogBrowser
-              onPullContainer={(container, tag) => {
-                toast.success(`Ready to pull ${container.displayName}:${tag}`, {
-                  description: `Execute on ${currentHost.hostname} (${currentHost.ip})`,
-                });
-              }}
-            />
+            <NgcCatalogBrowser />
           </TabsContent>
         </Tabs>
       </div>

@@ -88,3 +88,14 @@
 - [x] Integrate NGC browser as new tab in CUDA page
 - [x] Add pull command copy functionality
 - [x] Test NGC catalog browser integration
+
+# SSH Integration for Container Pulls
+
+- [x] Request SSH credentials for DGX Spark hosts
+- [x] Install ssh2 package for Node.js SSH connections
+- [x] Create SSH router with host connection management
+- [x] Implement container pull endpoint with docker pull command
+- [x] Add real-time progress polling via tRPC
+- [x] Create pull progress modal in NGC browser UI
+- [x] Add host selection dropdown to NGC browser
+- [ ] Test SSH integration with both DGX Spark hosts (pending network connectivity)

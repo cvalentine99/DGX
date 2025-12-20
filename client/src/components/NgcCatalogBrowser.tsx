@@ -3,6 +3,7 @@
  * 
  * Browse and pull NVIDIA container images from NGC registry.
  * Supports NeMo, PyTorch, TensorRT, Triton, and infrastructure containers.
+ * Integrates with SSH for direct pulls to DGX Spark hosts.
  */
 
 import { useState, useMemo } from "react";
@@ -17,7 +18,6 @@ import {
   Layers,
   Clock,
   Tag,
-  Filter,
   ChevronRight,
   Terminal,
   Server,
@@ -27,14 +27,21 @@ import {
   Shield,
   Workflow,
   Sparkles,
+  ChevronDown,
 } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
+import PullProgressModal from "./PullProgressModal";
 
 // NGC Container Data
 interface NgcContainer {
@@ -274,16 +281,22 @@ const CATEGORIES = [
   { id: "infrastructure", label: "Infrastructure", icon: Server },
 ];
 
-interface NgcCatalogBrowserProps {
-  onPullContainer?: (container: NgcContainer, tag: string) => void;
-}
+const DGX_HOSTS = [
+  { id: "alpha" as const, name: "DGX Spark Alpha", ip: "192.168.50.139" },
+  { id: "beta" as const, name: "DGX Spark Beta", ip: "192.168.50.110" },
+];
 
-export default function NgcCatalogBrowser({ onPullContainer }: NgcCatalogBrowserProps) {
+export default function NgcCatalogBrowser() {
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedCategory, setSelectedCategory] = useState("all");
   const [selectedContainer, setSelectedContainer] = useState<NgcContainer | null>(null);
   const [selectedTag, setSelectedTag] = useState<string>("");
   const [copiedCommand, setCopiedCommand] = useState<string | null>(null);
+  
+  // Pull modal state
+  const [pullModalOpen, setPullModalOpen] = useState(false);
+  const [pullHostId, setPullHostId] = useState<"alpha" | "beta">("alpha");
+  const [pullImageTag, setPullImageTag] = useState("");
 
   // Filter containers based on search and category
   const filteredContainers = useMemo(() => {
@@ -313,6 +326,12 @@ export default function NgcCatalogBrowser({ onPullContainer }: NgcCatalogBrowser
     return `${baseName}:${tag}`;
   };
 
+  // Get full image tag for pulling
+  const getImageTag = (container: NgcContainer, tag: string) => {
+    const fullCommand = getPullCommand(container, tag);
+    return fullCommand.replace("docker pull ", "");
+  };
+
   // Copy command to clipboard
   const handleCopyCommand = (command: string) => {
     navigator.clipboard.writeText(command);
@@ -321,106 +340,103 @@ export default function NgcCatalogBrowser({ onPullContainer }: NgcCatalogBrowser
     setTimeout(() => setCopiedCommand(null), 2000);
   };
 
-  // Handle pull action
-  const handlePull = () => {
+  // Handle pull to specific host
+  const handlePullToHost = (hostId: "alpha" | "beta") => {
     if (selectedContainer && selectedTag) {
-      const command = getPullCommand(selectedContainer, selectedTag);
-      if (onPullContainer) {
-        onPullContainer(selectedContainer, selectedTag);
-      }
-      toast.success(`Pull command ready: ${command}`, {
-        description: "Execute this command on your DGX Spark host",
-      });
+      const imageTag = getImageTag(selectedContainer, selectedTag);
+      setPullHostId(hostId);
+      setPullImageTag(imageTag);
+      setPullModalOpen(true);
     }
   };
 
   return (
-    <div className="grid grid-cols-12 gap-4 h-full">
-      {/* Container List */}
-      <div className="col-span-5 flex flex-col gap-4">
-        {/* Search */}
-        <div className="relative">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-          <Input
-            placeholder="Search containers..."
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            className="pl-10 bg-card/50 border-border/50"
-          />
-        </div>
-
-        {/* Category Tabs */}
-        <div className="flex flex-wrap gap-2">
-          {CATEGORIES.map((category) => (
-            <Button
-              key={category.id}
-              variant={selectedCategory === category.id ? "default" : "outline"}
-              size="sm"
-              onClick={() => setSelectedCategory(category.id)}
-              className={cn(
-                "gap-1.5",
-                selectedCategory === category.id && "bg-primary text-primary-foreground"
-              )}
-            >
-              <category.icon className="w-3.5 h-3.5" />
-              {category.label}
-            </Button>
-          ))}
-        </div>
-
+    <>
+      <div className="grid grid-cols-12 gap-4 h-full">
         {/* Container List */}
-        <ScrollArea className="flex-1 -mx-1 px-1">
-          <div className="space-y-2">
-            {filteredContainers.map((container) => (
-              <motion.div
-                key={container.id}
-                initial={{ opacity: 0, y: 10 }}
-                animate={{ opacity: 1, y: 0 }}
+        <div className="col-span-5 flex flex-col gap-4">
+          {/* Search */}
+          <div className="relative">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+            <Input
+              placeholder="Search containers..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="pl-10 bg-card/50 border-border/50"
+            />
+          </div>
+
+          {/* Category Tabs */}
+          <div className="flex flex-wrap gap-2">
+            {CATEGORIES.map((category) => (
+              <Button
+                key={category.id}
+                variant={selectedCategory === category.id ? "default" : "outline"}
+                size="sm"
+                onClick={() => setSelectedCategory(category.id)}
                 className={cn(
-                  "p-3 rounded-lg border cursor-pointer transition-all",
-                  selectedContainer?.id === container.id
-                    ? "bg-primary/10 border-primary/50"
-                    : "bg-card/30 border-border/50 hover:border-primary/30"
+                  "gap-1.5",
+                  selectedCategory === category.id && "bg-primary text-primary-foreground"
                 )}
-                onClick={() => handleSelectContainer(container)}
               >
-                <div className="flex items-start gap-3">
-                  <div className="p-2 rounded-md bg-primary/10">
-                    <container.icon className="w-5 h-5 text-primary" />
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2">
-                      <span className="font-semibold text-foreground">
-                        {container.displayName}
-                      </span>
-                      <Badge variant="outline" className="text-xs">
-                        {container.latestTag}
-                      </Badge>
-                    </div>
-                    <p className="text-xs text-muted-foreground mt-0.5 line-clamp-2">
-                      {container.description}
-                    </p>
-                    <div className="flex items-center gap-3 mt-2 text-xs text-muted-foreground">
-                      <span className="flex items-center gap-1">
-                        <Download className="w-3 h-3" />
-                        {container.downloads}
-                      </span>
-                      <span className="flex items-center gap-1">
-                        <Clock className="w-3 h-3" />
-                        {container.updatedAt}
-                      </span>
-                    </div>
-                  </div>
-                  <ChevronRight className="w-4 h-4 text-muted-foreground" />
-                </div>
-              </motion.div>
+                <category.icon className="w-3.5 h-3.5" />
+                {category.label}
+              </Button>
             ))}
           </div>
-        </ScrollArea>
-      </div>
 
-      {/* Container Details */}
-      <div className="col-span-7 flex flex-col">
+          {/* Container List */}
+          <ScrollArea className="flex-1 -mx-1 px-1">
+            <div className="space-y-2">
+              {filteredContainers.map((container) => (
+                <motion.div
+                  key={container.id}
+                  initial={{ opacity: 0, y: 10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  className={cn(
+                    "p-3 rounded-lg border cursor-pointer transition-all",
+                    selectedContainer?.id === container.id
+                      ? "bg-primary/10 border-primary/50"
+                      : "bg-card/30 border-border/50 hover:border-primary/30"
+                  )}
+                  onClick={() => handleSelectContainer(container)}
+                >
+                  <div className="flex items-start gap-3">
+                    <div className="p-2 rounded-md bg-primary/10">
+                      <container.icon className="w-5 h-5 text-primary" />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2">
+                        <span className="font-semibold text-foreground">
+                          {container.displayName}
+                        </span>
+                        <Badge variant="outline" className="text-xs">
+                          {container.latestTag}
+                        </Badge>
+                      </div>
+                      <p className="text-xs text-muted-foreground mt-0.5 line-clamp-2">
+                        {container.description}
+                      </p>
+                      <div className="flex items-center gap-3 mt-2 text-xs text-muted-foreground">
+                        <span className="flex items-center gap-1">
+                          <Download className="w-3 h-3" />
+                          {container.downloads}
+                        </span>
+                        <span className="flex items-center gap-1">
+                          <Clock className="w-3 h-3" />
+                          {container.updatedAt}
+                        </span>
+                      </div>
+                    </div>
+                    <ChevronRight className="w-4 h-4 text-muted-foreground" />
+                  </div>
+                </motion.div>
+              ))}
+            </div>
+          </ScrollArea>
+        </div>
+
+        {/* Container Details */}
         <AnimatePresence mode="wait">
           {selectedContainer ? (
             <motion.div
@@ -428,17 +444,17 @@ export default function NgcCatalogBrowser({ onPullContainer }: NgcCatalogBrowser
               initial={{ opacity: 0, x: 20 }}
               animate={{ opacity: 1, x: 0 }}
               exit={{ opacity: 0, x: -20 }}
-              className="flex-1 flex flex-col gap-4"
+              className="col-span-7 flex flex-col gap-4"
             >
               {/* Header */}
               <div className="cyber-panel p-4">
                 <div className="flex items-start gap-4">
-                  <div className="p-3 rounded-lg bg-primary/10 border border-primary/30">
+                  <div className="p-3 rounded-lg bg-primary/10">
                     <selectedContainer.icon className="w-8 h-8 text-primary" />
                   </div>
                   <div className="flex-1">
                     <div className="flex items-center gap-2">
-                      <h3 className="text-xl font-bold text-foreground font-orbitron">
+                      <h3 className="text-xl font-bold text-foreground">
                         {selectedContainer.displayName}
                       </h3>
                       <Badge className="bg-primary/20 text-primary border-primary/30">
@@ -448,9 +464,13 @@ export default function NgcCatalogBrowser({ onPullContainer }: NgcCatalogBrowser
                     <p className="text-sm text-muted-foreground mt-1">
                       {selectedContainer.description}
                     </p>
-                    <div className="flex flex-wrap gap-2 mt-3">
+                    <div className="flex flex-wrap gap-1.5 mt-3">
                       {selectedContainer.tags.map((tag) => (
-                        <Badge key={tag} variant="outline" className="text-xs">
+                        <Badge
+                          key={tag}
+                          variant="outline"
+                          className="text-xs bg-card/50"
+                        >
                           {tag}
                         </Badge>
                       ))}
@@ -462,21 +482,21 @@ export default function NgcCatalogBrowser({ onPullContainer }: NgcCatalogBrowser
               {/* Stats */}
               <div className="grid grid-cols-3 gap-3">
                 <div className="cyber-panel p-3 text-center">
-                  <Download className="w-5 h-5 text-primary mx-auto mb-1" />
+                  <Download className="w-5 h-5 mx-auto text-primary mb-1" />
                   <div className="text-lg font-bold text-foreground">
                     {selectedContainer.downloads}
                   </div>
                   <div className="text-xs text-muted-foreground">Downloads</div>
                 </div>
                 <div className="cyber-panel p-3 text-center">
-                  <Layers className="w-5 h-5 text-primary mx-auto mb-1" />
+                  <Layers className="w-5 h-5 mx-auto text-primary mb-1" />
                   <div className="text-lg font-bold text-foreground">
                     {selectedContainer.size}
                   </div>
                   <div className="text-xs text-muted-foreground">Image Size</div>
                 </div>
                 <div className="cyber-panel p-3 text-center">
-                  <Clock className="w-5 h-5 text-primary mx-auto mb-1" />
+                  <Clock className="w-5 h-5 mx-auto text-primary mb-1" />
                   <div className="text-lg font-bold text-foreground">
                     {selectedContainer.updatedAt}
                   </div>
@@ -494,7 +514,7 @@ export default function NgcCatalogBrowser({ onPullContainer }: NgcCatalogBrowser
                   {selectedContainer.features.map((feature) => (
                     <Badge
                       key={feature}
-                      className="bg-accent/50 text-accent-foreground border-accent"
+                      className="bg-primary/10 text-primary border-primary/30"
                     >
                       {feature}
                     </Badge>
@@ -556,13 +576,32 @@ export default function NgcCatalogBrowser({ onPullContainer }: NgcCatalogBrowser
                 </div>
 
                 <div className="flex items-center gap-2 mt-4">
-                  <Button
-                    className="flex-1 bg-primary hover:bg-primary/90"
-                    onClick={handlePull}
-                  >
-                    <Download className="w-4 h-4 mr-2" />
-                    Pull to DGX Spark
-                  </Button>
+                  {/* Pull to Host Dropdown */}
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <Button className="flex-1 bg-primary hover:bg-primary/90">
+                        <Download className="w-4 h-4 mr-2" />
+                        Pull to DGX Spark
+                        <ChevronDown className="w-4 h-4 ml-2" />
+                      </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="start" className="w-64">
+                      {DGX_HOSTS.map((host) => (
+                        <DropdownMenuItem
+                          key={host.id}
+                          onClick={() => handlePullToHost(host.id)}
+                          className="flex items-center gap-3 py-3"
+                        >
+                          <Server className="w-4 h-4 text-primary" />
+                          <div>
+                            <div className="font-medium">{host.name}</div>
+                            <div className="text-xs text-muted-foreground">{host.ip}</div>
+                          </div>
+                        </DropdownMenuItem>
+                      ))}
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                  
                   <Button
                     variant="outline"
                     onClick={() =>
@@ -582,7 +621,7 @@ export default function NgcCatalogBrowser({ onPullContainer }: NgcCatalogBrowser
             <motion.div
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
-              className="flex-1 flex items-center justify-center"
+              className="col-span-7 flex items-center justify-center"
             >
               <div className="text-center text-muted-foreground">
                 <Box className="w-16 h-16 mx-auto mb-4 opacity-30" />
@@ -595,6 +634,19 @@ export default function NgcCatalogBrowser({ onPullContainer }: NgcCatalogBrowser
           )}
         </AnimatePresence>
       </div>
-    </div>
+
+      {/* Pull Progress Modal */}
+      <PullProgressModal
+        open={pullModalOpen}
+        onOpenChange={setPullModalOpen}
+        imageTag={pullImageTag}
+        hostId={pullHostId}
+        onComplete={() => {
+          toast.success("Container pulled successfully!", {
+            description: `${pullImageTag} is now available on ${pullHostId === "alpha" ? "DGX Spark Alpha" : "DGX Spark Beta"}`,
+          });
+        }}
+      />
+    </>
   );
 }
