@@ -702,4 +702,159 @@ export const sshRouter = router({
 
       return { pullId, host: DGX_HOSTS[input.hostId as HostId] };
     }),
+
+  // Remove a container image from a host
+  removeImage: publicProcedure
+    .input(z.object({
+      hostId: z.enum(["alpha", "beta"]),
+      imageTag: z.string(),
+    }))
+    .mutation(async ({ input }: { input: { hostId: HostId; imageTag: string } }) => {
+      try {
+        const conn = await createSSHConnection(input.hostId);
+        
+        // First check if image exists
+        const checkResult = await executeSSHCommand(
+          conn,
+          `docker images -q "${input.imageTag}"`
+        );
+        
+        if (!checkResult.stdout.trim()) {
+          conn.end();
+          return { success: false, error: "Image not found on host" };
+        }
+        
+        // Remove the image (force to remove even if tagged multiple times)
+        const result = await executeSSHCommand(
+          conn,
+          `docker rmi -f "${input.imageTag}" 2>&1`
+        );
+        conn.end();
+        
+        if (result.code === 0) {
+          return { 
+            success: true, 
+            message: `Successfully removed ${input.imageTag}`,
+            host: DGX_HOSTS[input.hostId],
+          };
+        } else {
+          // Check if it's in use by a container
+          if (result.stdout.includes("image is being used") || result.stderr.includes("image is being used")) {
+            return { 
+              success: false, 
+              error: "Cannot remove: image is being used by a running container",
+              host: DGX_HOSTS[input.hostId],
+            };
+          }
+          return { 
+            success: false, 
+            error: result.stderr || result.stdout || "Failed to remove image",
+            host: DGX_HOSTS[input.hostId],
+          };
+        }
+      } catch (error: any) {
+        return { 
+          success: false, 
+          error: error.message,
+          host: DGX_HOSTS[input.hostId],
+        };
+      }
+    }),
+
+  // Update (pull latest) a container image on a host
+  updateImage: publicProcedure
+    .input(z.object({
+      hostId: z.enum(["alpha", "beta"]),
+      imageTag: z.string(),
+    }))
+    .mutation(async ({ input }: { input: { hostId: HostId; imageTag: string } }) => {
+      const pullId = `update-${input.hostId}-${Date.now()}`;
+      
+      // Initialize pull tracking
+      const progress: PullProgress = {
+        status: "connecting",
+        phase: "Initializing update",
+        overallPercent: 0,
+        layers: new Map(),
+        downloadSpeed: "0 B/s",
+        downloadedSize: "0 B",
+        totalSize: "0 B",
+        eta: "calculating...",
+        logs: [],
+        startTime: Date.now(),
+        imageTag: input.imageTag,
+        hostId: input.hostId,
+      };
+      
+      activePulls.set(pullId, progress);
+      
+      // Start async pull operation
+      (async () => {
+        try {
+          const conn = await createSSHConnection(input.hostId);
+          activeConnections.set(pullId, conn);
+          
+          progress.status = "authenticating";
+          progress.phase = "Authenticating with NGC";
+          progress.logs.push(`Updating ${input.imageTag} on ${DGX_HOSTS[input.hostId as HostId].name}`);
+          
+          // NGC login if pulling from nvcr.io
+          if (input.imageTag.startsWith("nvcr.io")) {
+            const ngcKey = process.env.NGC_API_KEY;
+            if (ngcKey) {
+              await executeSSHCommand(
+                conn,
+                `echo "${ngcKey}" | docker login nvcr.io -u '$oauthtoken' --password-stdin 2>&1`
+              );
+              progress.logs.push("✓ NGC authentication successful");
+            }
+          }
+          
+          progress.status = "pulling";
+          progress.phase = "Pulling latest version";
+          
+          // Pull with --pull=always to force update
+          await new Promise<void>((resolve) => {
+            conn.exec(`docker pull "${input.imageTag}" 2>&1`, (err, stream) => {
+              if (err) {
+                progress.status = "failed";
+                progress.error = err.message;
+                resolve();
+                return;
+              }
+              
+              stream.on("close", (code: number) => {
+                if (code === 0) {
+                  progress.status = "completed";
+                  progress.phase = "Update complete";
+                  progress.overallPercent = 100;
+                  progress.logs.push(`✓ Successfully updated ${input.imageTag}`);
+                } else {
+                  progress.status = "failed";
+                  progress.error = "Update failed";
+                }
+                resolve();
+              });
+              
+              stream.on("data", (data: Buffer) => {
+                const line = data.toString();
+                parseDockerProgress(line, progress);
+              });
+            });
+          });
+          
+          conn.end();
+          activeConnections.delete(pullId);
+          
+        } catch (error: any) {
+          progress.status = "failed";
+          progress.error = error.message;
+          progress.logs.push(`✗ Error: ${error.message}`);
+        }
+        
+        progress.endTime = Date.now();
+      })();
+      
+      return { pullId, host: DGX_HOSTS[input.hostId as HostId] };
+    }),
 });

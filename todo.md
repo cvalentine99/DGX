@@ -165,3 +165,23 @@
 - [x] Add refresh functionality
 - [x] Integrate into Dashboard layout
 - [x] Test container inventory display
+
+# SSH Private Key Fix
+
+- [x] Guide user on proper OpenSSH key format
+- [ ] Document key requirements in UI error message
+
+# Container Management Actions
+
+- [x] Add removeImage endpoint to SSH router
+- [x] Add updateImage endpoint to SSH router (pull latest)
+- [x] Add confirmation dialogs for destructive actions
+- [x] Update ContainerInventory UI with action buttons
+
+# Pull History Tracking
+
+- [x] Create container_pull_history database table
+- [x] Add recordPullHistory function to track pulls
+- [x] Create getPullHistory endpoint
+- [x] Add Pull History tab to ContainerInventory
+- [x] Display recent pull activity with timestamps and user info

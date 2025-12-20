@@ -3,17 +3,31 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { trpc } from "@/lib/trpc";
+import { toast } from "sonner";
 import {
   RefreshCw,
   Container,
   HardDrive,
   Clock,
   AlertCircle,
-  CheckCircle2,
   Loader2,
   Server,
   Box,
+  Trash2,
+  Download,
+  History,
+  CheckCircle2,
+  XCircle,
+  ArrowUpCircle,
 } from "lucide-react";
 
 interface ContainerImage {
@@ -42,11 +56,9 @@ function getCategoryStyle(repository: string): { color: string; label: string } 
       return style;
     }
   }
-  // Check if it's any NGC container
   if (repository.startsWith("nvcr.io")) {
     return { color: "bg-[#76b900]/20 text-[#76b900] border-[#76b900]/30", label: "NGC" };
   }
-  // Default for non-NGC containers
   return { color: "bg-gray-500/20 text-gray-400 border-gray-500/30", label: "Other" };
 }
 
@@ -69,40 +81,77 @@ const SIMULATED_CONTAINERS: Record<string, ContainerImage[]> = {
   ],
 };
 
+// Simulated pull history for demo
+const SIMULATED_HISTORY = [
+  { id: 1, hostId: "alpha", hostName: "DGX Spark Alpha", imageTag: "nvcr.io/nvidia/vllm:25.11", action: "pull" as const, status: "completed" as const, userName: "Admin", startedAt: new Date(Date.now() - 3600000), completedAt: new Date(Date.now() - 3500000) },
+  { id: 2, hostId: "beta", hostName: "DGX Spark Beta", imageTag: "nvcr.io/nvidia/nemo:24.09", action: "update" as const, status: "completed" as const, userName: "Admin", startedAt: new Date(Date.now() - 86400000), completedAt: new Date(Date.now() - 86300000) },
+  { id: 3, hostId: "alpha", hostName: "DGX Spark Alpha", imageTag: "nvcr.io/nvidia/pytorch:24.10-py3", action: "remove" as const, status: "completed" as const, userName: "System", startedAt: new Date(Date.now() - 172800000), completedAt: new Date(Date.now() - 172800000) },
+  { id: 4, hostId: "beta", hostName: "DGX Spark Beta", imageTag: "nvcr.io/nvidia/tensorrt:24.11-py3", action: "pull" as const, status: "failed" as const, userName: "Admin", startedAt: new Date(Date.now() - 259200000), errorMessage: "Connection timeout" },
+];
+
 interface HostContainersProps {
   hostId: "alpha" | "beta";
   hostName: string;
   hostIp: string;
+  onActionComplete: () => void;
 }
 
-function HostContainers({ hostId, hostName, hostIp }: HostContainersProps) {
+function HostContainers({ hostId, hostName, hostIp, onActionComplete }: HostContainersProps) {
   const [useSimulated, setUseSimulated] = useState(false);
+  const [confirmDialog, setConfirmDialog] = useState<{ type: "remove" | "update"; container: ContainerImage } | null>(null);
+  const [actionInProgress, setActionInProgress] = useState<string | null>(null);
+  
+  const utils = trpc.useUtils();
   
   const { data, isLoading, error, refetch, isRefetching } = trpc.ssh.listImages.useQuery(
     { hostId },
-    {
-      refetchInterval: false,
-      retry: 1,
-    }
+    { refetchInterval: false, retry: 1 }
   );
 
-  // Handle error state
+  const removeImageMutation = trpc.ssh.removeImage.useMutation({
+    onSuccess: (result) => {
+      if (result.success) {
+        toast.success(`Removed ${confirmDialog?.container.fullTag}`);
+        refetch();
+        onActionComplete();
+      } else {
+        toast.error(result.error || "Failed to remove image");
+      }
+      setActionInProgress(null);
+      setConfirmDialog(null);
+    },
+    onError: (error) => {
+      toast.error(error.message);
+      setActionInProgress(null);
+      setConfirmDialog(null);
+    },
+  });
+
+  const updateImageMutation = trpc.ssh.updateImage.useMutation({
+    onSuccess: (result) => {
+      toast.info(`Update started for ${confirmDialog?.container.fullTag}. Check progress in NGC Catalog.`);
+      setActionInProgress(null);
+      setConfirmDialog(null);
+      onActionComplete();
+    },
+    onError: (error) => {
+      toast.error(error.message);
+      setActionInProgress(null);
+      setConfirmDialog(null);
+    },
+  });
+
+  const recordActionMutation = trpc.containerHistory.recordAction.useMutation();
+
   useEffect(() => {
-    if (error) {
-      setUseSimulated(true);
-    }
+    if (error) setUseSimulated(true);
   }, [error]);
 
   useEffect(() => {
-    if (data && !data.success) {
-      setUseSimulated(true);
-    }
+    if (data && !data.success) setUseSimulated(true);
   }, [data]);
 
-  const containers = useSimulated 
-    ? SIMULATED_CONTAINERS[hostId] 
-    : (data?.images || []);
-
+  const containers = useSimulated ? SIMULATED_CONTAINERS[hostId] : (data?.images || []);
   const ngcContainers = containers.filter(c => c.repository.startsWith("nvcr.io"));
   const otherContainers = containers.filter(c => !c.repository.startsWith("nvcr.io"));
 
@@ -116,6 +165,120 @@ function HostContainers({ hostId, hostName, hostIp }: HostContainersProps) {
     }
     return acc;
   }, 0);
+
+  const handleRemove = async () => {
+    if (!confirmDialog || confirmDialog.type !== "remove") return;
+    setActionInProgress(confirmDialog.container.fullTag);
+    
+    // Record the action
+    await recordActionMutation.mutateAsync({
+      hostId,
+      imageTag: confirmDialog.container.fullTag,
+      action: "remove",
+    });
+    
+    if (useSimulated) {
+      // Simulate removal for demo
+      setTimeout(() => {
+        toast.success(`Simulated: Removed ${confirmDialog.container.fullTag}`);
+        setActionInProgress(null);
+        setConfirmDialog(null);
+      }, 1000);
+    } else {
+      removeImageMutation.mutate({ hostId, imageTag: confirmDialog.container.fullTag });
+    }
+  };
+
+  const handleUpdate = async () => {
+    if (!confirmDialog || confirmDialog.type !== "update") return;
+    setActionInProgress(confirmDialog.container.fullTag);
+    
+    // Record the action
+    await recordActionMutation.mutateAsync({
+      hostId,
+      imageTag: confirmDialog.container.fullTag,
+      action: "update",
+    });
+    
+    if (useSimulated) {
+      // Simulate update for demo
+      setTimeout(() => {
+        toast.success(`Simulated: Update started for ${confirmDialog.container.fullTag}`);
+        setActionInProgress(null);
+        setConfirmDialog(null);
+      }, 1000);
+    } else {
+      updateImageMutation.mutate({ hostId, imageTag: confirmDialog.container.fullTag });
+    }
+  };
+
+  const renderContainerRow = (container: ContainerImage, idx: number) => {
+    const category = getCategoryStyle(container.repository);
+    const isProcessing = actionInProgress === container.fullTag;
+    
+    return (
+      <div
+        key={idx}
+        className="flex items-center justify-between p-3 bg-black/30 border border-gray-800 rounded-lg hover:border-[#76b900]/30 transition-colors group"
+      >
+        <div className="flex items-center gap-3">
+          <Container className="w-5 h-5 text-[#76b900]" />
+          <div>
+            <div className="flex items-center gap-2">
+              <span className="font-mono text-sm text-gray-200">
+                {container.repository.replace("nvcr.io/nvidia/", "")}
+              </span>
+              <Badge variant="outline" className={`${category.color} text-xs border`}>
+                {container.tag}
+              </Badge>
+            </div>
+            <div className="flex items-center gap-3 mt-1 text-xs text-gray-500">
+              <span className="flex items-center gap-1">
+                <HardDrive className="w-3 h-3" />
+                {container.size}
+              </span>
+              <span className="flex items-center gap-1">
+                <Clock className="w-3 h-3" />
+                {container.createdAt.split(" ")[0]}
+              </span>
+            </div>
+          </div>
+        </div>
+        
+        <div className="flex items-center gap-2">
+          <Badge variant="outline" className={`${category.color} text-xs mr-2`}>
+            {category.label}
+          </Badge>
+          
+          {/* Action buttons - visible on hover */}
+          <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-7 px-2 text-blue-400 hover:text-blue-300 hover:bg-blue-500/10"
+              onClick={() => setConfirmDialog({ type: "update", container })}
+              disabled={isProcessing}
+            >
+              {isProcessing ? (
+                <Loader2 className="w-4 h-4 animate-spin" />
+              ) : (
+                <ArrowUpCircle className="w-4 h-4" />
+              )}
+            </Button>
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-7 px-2 text-red-400 hover:text-red-300 hover:bg-red-500/10"
+              onClick={() => setConfirmDialog({ type: "remove", container })}
+              disabled={isProcessing}
+            >
+              <Trash2 className="w-4 h-4" />
+            </Button>
+          </div>
+        </div>
+      </div>
+    );
+  };
 
   return (
     <div className="space-y-4">
@@ -161,7 +324,7 @@ function HostContainers({ hostId, hostName, hostIp }: HostContainersProps) {
         </div>
       )}
 
-      {/* Error state (when not using simulated) */}
+      {/* Error state */}
       {error && !useSimulated && (
         <div className="flex items-center gap-2 p-3 bg-red-500/10 border border-red-500/30 rounded-lg">
           <AlertCircle className="w-4 h-4 text-red-400" />
@@ -172,7 +335,6 @@ function HostContainers({ hostId, hostName, hostIp }: HostContainersProps) {
       {/* Container list */}
       {(!isLoading || useSimulated) && containers.length > 0 && (
         <div className="space-y-3">
-          {/* NGC Containers */}
           {ngcContainers.length > 0 && (
             <div className="space-y-2">
               <div className="flex items-center gap-2">
@@ -180,47 +342,11 @@ function HostContainers({ hostId, hostName, hostIp }: HostContainersProps) {
                 <span className="text-xs text-gray-500">({ngcContainers.length})</span>
               </div>
               <div className="grid gap-2">
-                {ngcContainers.map((container, idx) => {
-                  const category = getCategoryStyle(container.repository);
-                  return (
-                    <div
-                      key={idx}
-                      className="flex items-center justify-between p-3 bg-black/30 border border-gray-800 rounded-lg hover:border-[#76b900]/30 transition-colors"
-                    >
-                      <div className="flex items-center gap-3">
-                        <Container className="w-5 h-5 text-[#76b900]" />
-                        <div>
-                          <div className="flex items-center gap-2">
-                            <span className="font-mono text-sm text-gray-200">
-                              {container.repository.replace("nvcr.io/nvidia/", "")}
-                            </span>
-                            <Badge variant="outline" className={`${category.color} text-xs border`}>
-                              {container.tag}
-                            </Badge>
-                          </div>
-                          <div className="flex items-center gap-3 mt-1 text-xs text-gray-500">
-                            <span className="flex items-center gap-1">
-                              <HardDrive className="w-3 h-3" />
-                              {container.size}
-                            </span>
-                            <span className="flex items-center gap-1">
-                              <Clock className="w-3 h-3" />
-                              {container.createdAt.split(" ")[0]}
-                            </span>
-                          </div>
-                        </div>
-                      </div>
-                      <Badge variant="outline" className={`${category.color} text-xs`}>
-                        {category.label}
-                      </Badge>
-                    </div>
-                  );
-                })}
+                {ngcContainers.map((container, idx) => renderContainerRow(container, idx))}
               </div>
             </div>
           )}
 
-          {/* Other Containers */}
           {otherContainers.length > 0 && (
             <div className="space-y-2">
               <div className="flex items-center gap-2">
@@ -228,29 +354,7 @@ function HostContainers({ hostId, hostName, hostIp }: HostContainersProps) {
                 <span className="text-xs text-gray-500">({otherContainers.length})</span>
               </div>
               <div className="grid gap-2">
-                {otherContainers.map((container, idx) => (
-                  <div
-                    key={idx}
-                    className="flex items-center justify-between p-3 bg-black/30 border border-gray-800 rounded-lg"
-                  >
-                    <div className="flex items-center gap-3">
-                      <Container className="w-5 h-5 text-gray-500" />
-                      <div>
-                        <span className="font-mono text-sm text-gray-300">{container.fullTag}</span>
-                        <div className="flex items-center gap-3 mt-1 text-xs text-gray-500">
-                          <span className="flex items-center gap-1">
-                            <HardDrive className="w-3 h-3" />
-                            {container.size}
-                          </span>
-                          <span className="flex items-center gap-1">
-                            <Clock className="w-3 h-3" />
-                            {container.createdAt.split(" ")[0]}
-                          </span>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                ))}
+                {otherContainers.map((container, idx) => renderContainerRow(container, idx))}
               </div>
             </div>
           )}
@@ -264,12 +368,177 @@ function HostContainers({ hostId, hostName, hostIp }: HostContainersProps) {
           <span className="text-sm">No containers found</span>
         </div>
       )}
+
+      {/* Confirmation Dialog */}
+      <Dialog open={!!confirmDialog} onOpenChange={() => setConfirmDialog(null)}>
+        <DialogContent className="bg-gray-900 border-gray-800">
+          <DialogHeader>
+            <DialogTitle className="text-white">
+              {confirmDialog?.type === "remove" ? "Remove Container Image" : "Update Container Image"}
+            </DialogTitle>
+            <DialogDescription className="text-gray-400">
+              {confirmDialog?.type === "remove" ? (
+                <>
+                  Are you sure you want to remove <span className="font-mono text-red-400">{confirmDialog?.container.fullTag}</span> from {hostName}?
+                  This action cannot be undone.
+                </>
+              ) : (
+                <>
+                  Pull the latest version of <span className="font-mono text-blue-400">{confirmDialog?.container.fullTag}</span> on {hostName}?
+                  This will download any updates from NGC.
+                </>
+              )}
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="ghost" onClick={() => setConfirmDialog(null)}>
+              Cancel
+            </Button>
+            {confirmDialog?.type === "remove" ? (
+              <Button
+                variant="destructive"
+                onClick={handleRemove}
+                disabled={!!actionInProgress}
+              >
+                {actionInProgress ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <Trash2 className="w-4 h-4 mr-2" />}
+                Remove
+              </Button>
+            ) : (
+              <Button
+                className="bg-blue-600 hover:bg-blue-700"
+                onClick={handleUpdate}
+                disabled={!!actionInProgress}
+              >
+                {actionInProgress ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <Download className="w-4 h-4 mr-2" />}
+                Update
+              </Button>
+            )}
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
+}
+
+function PullHistory() {
+  const { data, isLoading, error } = trpc.containerHistory.getHistory.useQuery(
+    { limit: 20 },
+    { refetchInterval: 30000 }
+  );
+
+  // Use simulated data if no real data
+  const history = data?.history?.length ? data.history : SIMULATED_HISTORY;
+  const isSimulated = !data?.history?.length;
+
+  const getActionIcon = (action: string) => {
+    switch (action) {
+      case "pull": return <Download className="w-4 h-4 text-green-400" />;
+      case "update": return <ArrowUpCircle className="w-4 h-4 text-blue-400" />;
+      case "remove": return <Trash2 className="w-4 h-4 text-red-400" />;
+      default: return <Container className="w-4 h-4 text-gray-400" />;
+    }
+  };
+
+  const getStatusBadge = (status: string) => {
+    switch (status) {
+      case "completed":
+        return <Badge variant="outline" className="bg-green-500/10 text-green-400 border-green-500/30 text-xs"><CheckCircle2 className="w-3 h-3 mr-1" />Completed</Badge>;
+      case "failed":
+        return <Badge variant="outline" className="bg-red-500/10 text-red-400 border-red-500/30 text-xs"><XCircle className="w-3 h-3 mr-1" />Failed</Badge>;
+      case "started":
+        return <Badge variant="outline" className="bg-yellow-500/10 text-yellow-400 border-yellow-500/30 text-xs"><Loader2 className="w-3 h-3 mr-1 animate-spin" />In Progress</Badge>;
+      default:
+        return null;
+    }
+  };
+
+  const formatTimeAgo = (date: Date) => {
+    const now = new Date();
+    const diff = now.getTime() - new Date(date).getTime();
+    const minutes = Math.floor(diff / 60000);
+    const hours = Math.floor(diff / 3600000);
+    const days = Math.floor(diff / 86400000);
+    
+    if (minutes < 60) return `${minutes}m ago`;
+    if (hours < 24) return `${hours}h ago`;
+    return `${days}d ago`;
+  };
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <History className="w-4 h-4 text-[#76b900]" />
+          <span className="text-sm text-gray-400">Recent Activity</span>
+        </div>
+        {isSimulated && (
+          <Badge variant="outline" className="bg-yellow-500/10 text-yellow-400 border-yellow-500/30 text-xs">
+            SIMULATED
+          </Badge>
+        )}
+      </div>
+
+      {isLoading && (
+        <div className="flex items-center justify-center py-8">
+          <Loader2 className="w-6 h-6 animate-spin text-[#76b900]" />
+        </div>
+      )}
+
+      {!isLoading && history.length > 0 && (
+        <div className="space-y-2">
+          {history.map((entry) => (
+            <div
+              key={entry.id}
+              className="flex items-center justify-between p-3 bg-black/30 border border-gray-800 rounded-lg"
+            >
+              <div className="flex items-center gap-3">
+                {getActionIcon(entry.action)}
+                <div>
+                  <div className="flex items-center gap-2">
+                    <span className="font-mono text-sm text-gray-200">
+                      {entry.imageTag.replace("nvcr.io/nvidia/", "")}
+                    </span>
+                    <Badge variant="outline" className="text-xs bg-gray-800/50 text-gray-400 border-gray-700">
+                      {entry.hostName.replace("DGX Spark ", "")}
+                    </Badge>
+                  </div>
+                  <div className="flex items-center gap-2 mt-1 text-xs text-gray-500">
+                    <span>{entry.userName}</span>
+                    <span>•</span>
+                    <span>{formatTimeAgo(entry.startedAt)}</span>
+                    {entry.errorMessage && (
+                      <>
+                        <span>•</span>
+                        <span className="text-red-400">{entry.errorMessage}</span>
+                      </>
+                    )}
+                  </div>
+                </div>
+              </div>
+              {getStatusBadge(entry.status)}
+            </div>
+          ))}
+        </div>
+      )}
+
+      {!isLoading && history.length === 0 && (
+        <div className="flex flex-col items-center justify-center py-8 text-gray-500">
+          <History className="w-8 h-8 mb-2" />
+          <span className="text-sm">No pull history yet</span>
+        </div>
+      )}
     </div>
   );
 }
 
 export function ContainerInventory() {
-  const [activeHost, setActiveHost] = useState<"alpha" | "beta">("alpha");
+  const [activeTab, setActiveTab] = useState<"alpha" | "beta" | "history">("alpha");
+  const utils = trpc.useUtils();
+
+  const handleActionComplete = () => {
+    // Refresh history when an action completes
+    utils.containerHistory.getHistory.invalidate();
+  };
 
   return (
     <Card className="bg-black/40 border-gray-800 backdrop-blur-sm">
@@ -287,8 +556,8 @@ export function ContainerInventory() {
         </div>
       </CardHeader>
       <CardContent>
-        <Tabs value={activeHost} onValueChange={(v) => setActiveHost(v as "alpha" | "beta")}>
-          <TabsList className="grid w-full grid-cols-2 bg-black/50 border border-gray-800 mb-4">
+        <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as "alpha" | "beta" | "history")}>
+          <TabsList className="grid w-full grid-cols-3 bg-black/50 border border-gray-800 mb-4">
             <TabsTrigger
               value="alpha"
               className="data-[state=active]:bg-[#76b900]/20 data-[state=active]:text-[#76b900] data-[state=active]:border-[#76b900]/30"
@@ -303,6 +572,13 @@ export function ContainerInventory() {
               <Server className="w-4 h-4 mr-2" />
               Spark Beta
             </TabsTrigger>
+            <TabsTrigger
+              value="history"
+              className="data-[state=active]:bg-[#76b900]/20 data-[state=active]:text-[#76b900] data-[state=active]:border-[#76b900]/30"
+            >
+              <History className="w-4 h-4 mr-2" />
+              History
+            </TabsTrigger>
           </TabsList>
 
           <TabsContent value="alpha" className="mt-0">
@@ -310,6 +586,7 @@ export function ContainerInventory() {
               hostId="alpha"
               hostName="DGX Spark Alpha"
               hostIp="192.168.50.139"
+              onActionComplete={handleActionComplete}
             />
           </TabsContent>
 
@@ -318,7 +595,12 @@ export function ContainerInventory() {
               hostId="beta"
               hostName="DGX Spark Beta"
               hostIp="192.168.50.110"
+              onActionComplete={handleActionComplete}
             />
+          </TabsContent>
+
+          <TabsContent value="history" className="mt-0">
+            <PullHistory />
           </TabsContent>
         </Tabs>
       </CardContent>

@@ -7,6 +7,7 @@ import { ragRouter } from "./ragRouter";
 import { vllmRouter } from "./vllmRouter";
 import { sshRouter } from "./sshRouter";
 import { dcgmRouter } from "./dcgmRouter";
+import { containerHistoryRouter } from "./containerHistoryRouter";
 
 export const appRouter = router({
     // if you need to use socket.io, read and register route in server/_core/index.ts, all api should start with '/api/' so that the gateway can route correctly
@@ -36,6 +37,9 @@ export const appRouter = router({
 
   // DCGM real-time GPU metrics
   dcgm: dcgmRouter,
+
+  // Container pull history tracking
+  containerHistory: containerHistoryRouter,
 });
 
 export type AppRouter = typeof appRouter;

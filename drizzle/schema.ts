@@ -25,4 +25,21 @@ export const users = mysqlTable("users", {
 export type User = typeof users.$inferSelect;
 export type InsertUser = typeof users.$inferInsert;
 
-// TODO: Add your tables here
+// Container pull history for tracking NGC container operations
+export const containerPullHistory = mysqlTable("container_pull_history", {
+  id: int("id").autoincrement().primaryKey(),
+  hostId: varchar("hostId", { length: 32 }).notNull(), // 'alpha' or 'beta'
+  hostName: varchar("hostName", { length: 128 }).notNull(),
+  hostIp: varchar("hostIp", { length: 45 }).notNull(),
+  imageTag: varchar("imageTag", { length: 512 }).notNull(),
+  action: mysqlEnum("action", ["pull", "update", "remove"]).notNull(),
+  status: mysqlEnum("status", ["started", "completed", "failed"]).notNull(),
+  userId: int("userId").references(() => users.id),
+  userName: varchar("userName", { length: 256 }),
+  errorMessage: text("errorMessage"),
+  startedAt: timestamp("startedAt").defaultNow().notNull(),
+  completedAt: timestamp("completedAt"),
+});
+
+export type ContainerPullHistory = typeof containerPullHistory.$inferSelect;
+export type InsertContainerPullHistory = typeof containerPullHistory.$inferInsert;
