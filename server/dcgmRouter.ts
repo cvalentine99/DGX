@@ -52,6 +52,105 @@ interface HostMetrics {
 const metricsCache: Map<string, { data: HostMetrics; timestamp: number }> = new Map();
 const CACHE_TTL = 5000; // 5 seconds
 
+// Alert thresholds
+const ALERT_THRESHOLDS = {
+  temperatureWarning: 65, // °C
+  temperatureCritical: 70, // °C
+  powerSpikePercent: 90, // % of power limit
+  utilizationHigh: 95, // %
+  memoryHigh: 90, // % of total
+};
+
+// Track last alert times to avoid spam (cooldown in ms)
+const lastAlertTime: Map<string, number> = new Map();
+const ALERT_COOLDOWN = 5 * 60 * 1000; // 5 minutes
+
+// Check metrics against thresholds and create alerts
+async function checkAlertThresholds(hostId: string, hostName: string, metrics: HostMetrics) {
+  const now = Date.now();
+  
+  for (const gpu of metrics.gpus) {
+    // Temperature critical alert
+    if (gpu.temperature >= ALERT_THRESHOLDS.temperatureCritical) {
+      const alertKey = `${hostId}-temp-critical`;
+      const lastAlert = lastAlertTime.get(alertKey) || 0;
+      if (now - lastAlert > ALERT_COOLDOWN) {
+        await createSystemAlert({
+          type: "error",
+          message: `GPU ${gpu.index} on ${hostName} temperature critical: ${gpu.temperature}°C (threshold: ${ALERT_THRESHOLDS.temperatureCritical}°C)`,
+          hostId,
+        });
+        lastAlertTime.set(alertKey, now);
+        console.log(`[Alert] Critical temperature on ${hostName}: ${gpu.temperature}°C`);
+      }
+    }
+    // Temperature warning alert
+    else if (gpu.temperature >= ALERT_THRESHOLDS.temperatureWarning) {
+      const alertKey = `${hostId}-temp-warning`;
+      const lastAlert = lastAlertTime.get(alertKey) || 0;
+      if (now - lastAlert > ALERT_COOLDOWN) {
+        await createSystemAlert({
+          type: "warning",
+          message: `GPU ${gpu.index} on ${hostName} temperature elevated: ${gpu.temperature}°C (threshold: ${ALERT_THRESHOLDS.temperatureWarning}°C)`,
+          hostId,
+        });
+        lastAlertTime.set(alertKey, now);
+        console.log(`[Alert] Warning temperature on ${hostName}: ${gpu.temperature}°C`);
+      }
+    }
+    
+    // Power spike alert
+    if (gpu.powerLimit > 0) {
+      const powerPercent = (gpu.powerDraw / gpu.powerLimit) * 100;
+      if (powerPercent >= ALERT_THRESHOLDS.powerSpikePercent) {
+        const alertKey = `${hostId}-power-spike`;
+        const lastAlert = lastAlertTime.get(alertKey) || 0;
+        if (now - lastAlert > ALERT_COOLDOWN) {
+          await createSystemAlert({
+            type: "warning",
+            message: `GPU ${gpu.index} on ${hostName} power spike: ${gpu.powerDraw.toFixed(1)}W (${powerPercent.toFixed(0)}% of ${gpu.powerLimit}W limit)`,
+            hostId,
+          });
+          lastAlertTime.set(alertKey, now);
+          console.log(`[Alert] Power spike on ${hostName}: ${gpu.powerDraw}W`);
+        }
+      }
+    }
+    
+    // High utilization alert (sustained)
+    if (gpu.utilization >= ALERT_THRESHOLDS.utilizationHigh) {
+      const alertKey = `${hostId}-util-high`;
+      const lastAlert = lastAlertTime.get(alertKey) || 0;
+      if (now - lastAlert > ALERT_COOLDOWN) {
+        await createSystemAlert({
+          type: "info",
+          message: `GPU ${gpu.index} on ${hostName} running at high utilization: ${gpu.utilization}%`,
+          hostId,
+        });
+        lastAlertTime.set(alertKey, now);
+      }
+    }
+  }
+  
+  // System memory alert
+  if (metrics.systemMetrics.memoryTotal > 0) {
+    const memPercent = (metrics.systemMetrics.memoryUsed / metrics.systemMetrics.memoryTotal) * 100;
+    if (memPercent >= ALERT_THRESHOLDS.memoryHigh) {
+      const alertKey = `${hostId}-mem-high`;
+      const lastAlert = lastAlertTime.get(alertKey) || 0;
+      if (now - lastAlert > ALERT_COOLDOWN) {
+        await createSystemAlert({
+          type: "warning",
+          message: `${hostName} unified memory usage high: ${memPercent.toFixed(0)}% (${(metrics.systemMetrics.memoryUsed / 1024).toFixed(1)}GB / ${(metrics.systemMetrics.memoryTotal / 1024).toFixed(1)}GB)`,
+          hostId,
+        });
+        lastAlertTime.set(alertKey, now);
+        console.log(`[Alert] High memory on ${hostName}: ${memPercent.toFixed(0)}%`);
+      }
+    }
+  }
+}
+
 // History storage for time-series charts (in-memory buffer before DB write)
 interface MetricsHistoryPoint {
   timestamp: number;
@@ -274,6 +373,9 @@ async function fetchHostMetrics(host: typeof DGX_HOSTS[0]): Promise<HostMetrics>
     
     // Store in database for history
     addToDbHistory(host.id, metrics);
+    
+    // Check alert thresholds
+    checkAlertThresholds(host.id, host.name, metrics);
     
     return metrics;
   } catch (error) {

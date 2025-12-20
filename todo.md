@@ -253,3 +253,51 @@
 - [x] Fix GPU memory reporting (added unified memory tooltip explanation)
 - [x] Add AI Performance metric panel (1 petaFLOP FP4 capability)
 - [x] Display current inference throughput
+
+# GPU Temperature & Power Alerts
+
+- [x] Create alert thresholds configuration (temp > 70°C, power spike detection)
+- [x] Add automatic alert generation when thresholds exceeded
+- [x] Store alerts in database with timestamp and severity
+- [x] Display alerts in System Alerts panel with notification
+
+# Model Benchmark Panel
+
+- [ ] Create benchmark endpoint to measure inference throughput
+- [ ] Add benchmark UI panel with start/stop controls
+- [ ] Display tokens/second vs theoretical peak performance
+- [ ] Show latency percentiles (p50, p95, p99)
+
+# Storage Monitoring
+
+- [ ] Create SSH endpoint to get disk usage (df command)
+- [ ] Parse /models directory for model storage breakdown
+- [ ] Add StorageMonitoring component to dashboard
+- [ ] Display 1TB NVMe usage with available space
+
+# New Features - December 2024
+
+## GPU Temperature Alerts Configuration UI
+- [x] Create AlertConfigPanel component with threshold sliders
+- [x] Add getAlertConfig and updateAlertConfig endpoints (using existing dcgmRouter)
+- [x] Store alert thresholds in database (using existing systemAlerts table)
+- [x] Display alert history with dismiss functionality
+- [x] Add notification toast for new alerts
+
+## Model Benchmark Panel
+- [x] Create benchmark endpoint in vllmRouter (using existing chatCompletion)
+- [x] Add BenchmarkPanel component with start/stop controls
+- [x] Run standardized inference tests (short, medium, long prompts)
+- [x] Calculate tokens/second and compare to theoretical peak
+- [x] Display latency percentiles (p50, p95, p99)
+- [x] Store benchmark results in component state
+- [x] Show benchmark history chart (throughput and latency)
+
+## Storage Monitoring Panel
+- [x] Create getStorageInfo endpoint in sshRouter
+- [x] Parse df -h output for NVMe SSD usage
+- [x] Get model directory sizes from /models
+- [x] Create StorageMonitoringPanel component
+- [x] Display total/used/available storage
+- [x] Show breakdown by model/container
+- [x] Add storage usage visualization (bar chart)

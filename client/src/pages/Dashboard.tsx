@@ -39,6 +39,9 @@ import { trpc } from "@/lib/trpc";
 import { GpuHistoryChart, GpuHistoryComparisonChart } from "@/components/GpuHistoryChart";
 import { ContainerInventory } from "@/components/ContainerInventory";
 import { ComfyUIPanel } from "@/components/ComfyUIPanel";
+import { AlertConfigPanel } from "@/components/AlertConfigPanel";
+import { BenchmarkPanel } from "@/components/BenchmarkPanel";
+import { StorageMonitoringPanel } from "@/components/StorageMonitoringPanel";
 
 // Model status is now fetched from vLLM API
 // Alerts are now fetched from database via stats.getAlerts
@@ -768,6 +771,15 @@ export default function Dashboard() {
       
       {/* AI Performance */}
       <AIPerformanceCard />
+      
+      {/* Model Benchmark & Storage Monitoring */}
+      <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
+        <BenchmarkPanel />
+        <StorageMonitoringPanel />
+      </div>
+      
+      {/* Alert Configuration */}
+      <AlertConfigPanel />
       
       {/* Quick Stats */}
       <QuickStatsCard />
