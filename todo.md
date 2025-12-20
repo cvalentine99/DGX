@@ -109,3 +109,14 @@
 - [x] Implement authenticated model downloads
 - [x] Test NGC authenticated pulls
 - [x] Test HuggingFace model downloads
+
+# Real-Time Progress Bars for Downloads
+
+- [x] Parse docker pull output for layer progress (downloading, extracting)
+- [x] Calculate overall percentage from layer progress
+- [x] Add download speed and ETA calculation
+- [x] Update PullProgressModal with animated progress bar
+- [x] Add status indicators (connecting, authenticating, downloading, extracting, complete)
+- [x] Implement HuggingFace download progress tracking
+- [x] Add cancel download functionality
+- [x] Test progress tracking with real downloads (UI verified, pending SSH key fix)

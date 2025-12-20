@@ -1,7 +1,8 @@
 /**
  * Pull Progress Modal Component
  * 
- * Shows real-time progress when pulling container images to DGX Spark hosts via SSH.
+ * Shows real-time progress when pulling container images or downloading models
+ * to DGX Spark hosts via SSH with detailed progress tracking.
  */
 
 import { useState, useEffect } from "react";
@@ -15,6 +16,12 @@ import {
   Terminal,
   Clock,
   RefreshCw,
+  Layers,
+  Gauge,
+  HardDrive,
+  Zap,
+  Ban,
+  Shield,
 } from "lucide-react";
 import {
   Dialog,
@@ -29,12 +36,20 @@ import { Progress } from "@/components/ui/progress";
 import { trpc } from "@/lib/trpc";
 import { cn } from "@/lib/utils";
 
+interface LayerProgress {
+  id: string;
+  status: "waiting" | "downloading" | "extracting" | "complete" | "exists";
+  current: number;
+  total: number;
+}
+
 interface PullProgressModalProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   imageTag: string;
   hostId: "alpha" | "beta";
   onComplete?: () => void;
+  type?: "container" | "model";
 }
 
 export default function PullProgressModal({
@@ -43,10 +58,18 @@ export default function PullProgressModal({
   imageTag,
   hostId,
   onComplete,
+  type = "container",
 }: PullProgressModalProps) {
   const [pullId, setPullId] = useState<string | null>(null);
-  const [status, setStatus] = useState<"idle" | "connecting" | "pulling" | "completed" | "failed">("idle");
-  const [progress, setProgress] = useState<string[]>([]);
+  const [status, setStatus] = useState<"idle" | "connecting" | "authenticating" | "pulling" | "extracting" | "completed" | "failed" | "cancelled">("idle");
+  const [phase, setPhase] = useState<string>("Initializing");
+  const [overallPercent, setOverallPercent] = useState(0);
+  const [layers, setLayers] = useState<LayerProgress[]>([]);
+  const [downloadSpeed, setDownloadSpeed] = useState("0 B/s");
+  const [downloadedSize, setDownloadedSize] = useState("0 B");
+  const [totalSize, setTotalSize] = useState("0 B");
+  const [eta, setEta] = useState("calculating...");
+  const [logs, setLogs] = useState<string[]>([]);
   const [duration, setDuration] = useState(0);
   const [error, setError] = useState<string | null>(null);
 
@@ -60,12 +83,22 @@ export default function PullProgressModal({
     onSuccess: (data) => {
       setPullId(data.pullId);
       setStatus("connecting");
-      setProgress([`Initiating pull to ${data.host.name}...`]);
+      setPhase("Connecting");
+      setLogs([`Initiating pull to ${data.host.name}...`]);
     },
     onError: (err) => {
       setStatus("failed");
+      setPhase("Error");
       setError(err.message);
-      setProgress((prev) => [...prev, `Error: ${err.message}`]);
+      setLogs((prev) => [...prev, `✗ Error: ${err.message}`]);
+    },
+  });
+
+  // Cancel mutation
+  const cancelMutation = trpc.ssh.cancelPull.useMutation({
+    onSuccess: () => {
+      setStatus("cancelled");
+      setPhase("Cancelled");
     },
   });
 
@@ -73,8 +106,8 @@ export default function PullProgressModal({
   const statusQuery = trpc.ssh.getPullStatus.useQuery(
     { pullId: pullId || "" },
     {
-      enabled: !!pullId && status !== "completed" && status !== "failed",
-      refetchInterval: 1000,
+      enabled: !!pullId && !["completed", "failed", "cancelled"].includes(status),
+      refetchInterval: 500, // Poll every 500ms for smoother updates
     }
   );
 
@@ -83,7 +116,14 @@ export default function PullProgressModal({
     if (statusQuery.data?.found) {
       const data = statusQuery.data;
       setStatus(data.status as any);
-      setProgress(data.progress || []);
+      setPhase(data.phase || "Processing");
+      setOverallPercent(data.overallPercent || 0);
+      setLayers(data.layers || []);
+      setDownloadSpeed(data.downloadSpeed || "0 B/s");
+      setDownloadedSize(data.downloadedSize || "0 B");
+      setTotalSize(data.totalSize || "0 B");
+      setEta(data.eta || "calculating...");
+      setLogs(data.logs || []);
       setDuration(data.duration || 0);
       
       if (data.error) {
@@ -108,7 +148,14 @@ export default function PullProgressModal({
     if (!open) {
       setPullId(null);
       setStatus("idle");
-      setProgress([]);
+      setPhase("Initializing");
+      setOverallPercent(0);
+      setLayers([]);
+      setDownloadSpeed("0 B/s");
+      setDownloadedSize("0 B");
+      setTotalSize("0 B");
+      setEta("calculating...");
+      setLogs([]);
       setDuration(0);
       setError(null);
     }
@@ -125,32 +172,45 @@ export default function PullProgressModal({
     return `${seconds}s`;
   };
 
-  // Estimate progress percentage
-  const getProgressPercent = () => {
-    if (status === "completed") return 100;
-    if (status === "failed") return 0;
-    if (status === "connecting") return 5;
-    
-    // Estimate based on log messages
-    const pullCompleteCount = progress.filter(p => p.includes("Pull complete")).length;
-    const downloadingCount = progress.filter(p => p.includes("Downloading") || p.includes("Extracting")).length;
-    
-    if (pullCompleteCount > 0) {
-      return Math.min(90, 20 + pullCompleteCount * 10);
+  // Get status icon and color
+  const getStatusDisplay = () => {
+    switch (status) {
+      case "connecting":
+        return { icon: <Loader2 className="w-3 h-3 animate-spin" />, text: "Connecting", color: "border-yellow-500/50 text-yellow-400" };
+      case "authenticating":
+        return { icon: <Shield className="w-3 h-3 animate-pulse" />, text: "Authenticating", color: "border-blue-500/50 text-blue-400" };
+      case "pulling":
+        return { icon: <Download className="w-3 h-3 animate-bounce" />, text: "Downloading", color: "border-primary/50 text-primary" };
+      case "extracting":
+        return { icon: <Layers className="w-3 h-3 animate-pulse" />, text: "Extracting", color: "border-purple-500/50 text-purple-400" };
+      case "completed":
+        return { icon: <CheckCircle2 className="w-3 h-3" />, text: "Completed", color: "border-green-500/50 text-green-400" };
+      case "failed":
+        return { icon: <XCircle className="w-3 h-3" />, text: "Failed", color: "border-red-500/50 text-red-400" };
+      case "cancelled":
+        return { icon: <Ban className="w-3 h-3" />, text: "Cancelled", color: "border-orange-500/50 text-orange-400" };
+      default:
+        return { icon: <Loader2 className="w-3 h-3" />, text: "Initializing", color: "border-muted-foreground/50 text-muted-foreground" };
     }
-    if (downloadingCount > 0) {
-      return Math.min(50, 10 + downloadingCount * 5);
-    }
-    return 10;
+  };
+
+  const statusDisplay = getStatusDisplay();
+
+  // Count layer statuses
+  const layerStats = {
+    downloading: layers.filter(l => l.status === "downloading").length,
+    extracting: layers.filter(l => l.status === "extracting").length,
+    complete: layers.filter(l => l.status === "complete" || l.status === "exists").length,
+    total: layers.length,
   };
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-[600px] bg-card border-border">
+      <DialogContent className="sm:max-w-[700px] bg-card border-border">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2 text-foreground">
             <Download className="w-5 h-5 text-primary" />
-            Pulling Container Image
+            {type === "container" ? "Pulling Container Image" : "Downloading Model"}
           </DialogTitle>
         </DialogHeader>
 
@@ -163,59 +223,111 @@ export default function PullProgressModal({
                 <div className="text-sm font-medium text-foreground">
                   {hostNames[hostId]}
                 </div>
-                <div className="text-xs text-muted-foreground font-mono">
+                <div className="text-xs text-muted-foreground font-mono truncate max-w-[300px]">
                   {imageTag}
                 </div>
               </div>
             </div>
-            <Badge
-              variant="outline"
-              className={cn(
-                "gap-1",
-                status === "completed" && "border-green-500/50 text-green-400",
-                status === "failed" && "border-red-500/50 text-red-400",
-                (status === "connecting" || status === "pulling") && "border-primary/50 text-primary"
-              )}
-            >
-              {status === "connecting" && (
-                <>
-                  <Loader2 className="w-3 h-3 animate-spin" />
-                  Connecting
-                </>
-              )}
-              {status === "pulling" && (
-                <>
-                  <RefreshCw className="w-3 h-3 animate-spin" />
-                  Pulling
-                </>
-              )}
-              {status === "completed" && (
-                <>
-                  <CheckCircle2 className="w-3 h-3" />
-                  Completed
-                </>
-              )}
-              {status === "failed" && (
-                <>
-                  <XCircle className="w-3 h-3" />
-                  Failed
-                </>
-              )}
-              {status === "idle" && "Initializing"}
+            <Badge variant="outline" className={cn("gap-1", statusDisplay.color)}>
+              {statusDisplay.icon}
+              {statusDisplay.text}
             </Badge>
           </div>
 
-          {/* Progress Bar */}
-          <div className="space-y-2">
+          {/* Main Progress Bar */}
+          <div className="space-y-3">
             <div className="flex items-center justify-between text-sm">
-              <span className="text-muted-foreground">Progress</span>
-              <span className="text-foreground font-mono flex items-center gap-2">
-                <Clock className="w-3.5 h-3.5" />
-                {formatDuration(duration)}
+              <span className="text-muted-foreground flex items-center gap-2">
+                <Gauge className="w-4 h-4" />
+                {phase}
+              </span>
+              <span className="text-foreground font-mono font-bold text-lg">
+                {overallPercent}%
               </span>
             </div>
-            <Progress value={getProgressPercent()} className="h-2" />
+            
+            <div className="relative">
+              <Progress value={overallPercent} className="h-3" />
+              {/* Animated glow effect when downloading */}
+              {(status === "pulling" || status === "extracting") && (
+                <motion.div
+                  className="absolute inset-0 h-3 rounded-full bg-gradient-to-r from-transparent via-white/20 to-transparent"
+                  animate={{ x: ["-100%", "100%"] }}
+                  transition={{ duration: 1.5, repeat: Infinity, ease: "linear" }}
+                />
+              )}
+            </div>
+
+            {/* Stats Row */}
+            <div className="grid grid-cols-4 gap-3 text-xs">
+              <div className="flex items-center gap-1.5 text-muted-foreground">
+                <HardDrive className="w-3.5 h-3.5" />
+                <span>{downloadedSize} / {totalSize}</span>
+              </div>
+              <div className="flex items-center gap-1.5 text-muted-foreground">
+                <Zap className="w-3.5 h-3.5 text-yellow-400" />
+                <span className="text-yellow-400 font-medium">{downloadSpeed}</span>
+              </div>
+              <div className="flex items-center gap-1.5 text-muted-foreground">
+                <Clock className="w-3.5 h-3.5" />
+                <span>ETA: {eta}</span>
+              </div>
+              <div className="flex items-center gap-1.5 text-muted-foreground">
+                <RefreshCw className="w-3.5 h-3.5" />
+                <span>{formatDuration(duration)}</span>
+              </div>
+            </div>
           </div>
+
+          {/* Layer Progress */}
+          {layers.length > 0 && (
+            <div className="space-y-2">
+              <div className="flex items-center justify-between text-sm">
+                <span className="text-muted-foreground flex items-center gap-2">
+                  <Layers className="w-4 h-4" />
+                  Layers
+                </span>
+                <span className="text-xs text-muted-foreground">
+                  {layerStats.complete}/{layerStats.total} complete
+                  {layerStats.downloading > 0 && ` • ${layerStats.downloading} downloading`}
+                  {layerStats.extracting > 0 && ` • ${layerStats.extracting} extracting`}
+                </span>
+              </div>
+              
+              <div className="grid grid-cols-6 gap-1">
+                {layers.slice(0, 12).map((layer) => (
+                  <motion.div
+                    key={layer.id}
+                    className={cn(
+                      "h-2 rounded-full transition-colors",
+                      layer.status === "complete" || layer.status === "exists" 
+                        ? "bg-green-500" 
+                        : layer.status === "downloading" 
+                          ? "bg-yellow-500" 
+                          : layer.status === "extracting"
+                            ? "bg-purple-500"
+                            : "bg-muted"
+                    )}
+                    initial={{ scale: 0.8, opacity: 0.5 }}
+                    animate={{ 
+                      scale: layer.status === "downloading" || layer.status === "extracting" ? [1, 1.1, 1] : 1,
+                      opacity: 1 
+                    }}
+                    transition={{ 
+                      duration: 0.5, 
+                      repeat: layer.status === "downloading" || layer.status === "extracting" ? Infinity : 0 
+                    }}
+                    title={`${layer.id}: ${layer.status}`}
+                  />
+                ))}
+                {layers.length > 12 && (
+                  <div className="h-2 flex items-center justify-center text-[8px] text-muted-foreground">
+                    +{layers.length - 12}
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
 
           {/* Log Output */}
           <div className="space-y-2">
@@ -223,21 +335,22 @@ export default function PullProgressModal({
               <Terminal className="w-4 h-4" />
               Output Log
             </div>
-            <ScrollArea className="h-[200px] rounded-lg bg-background/80 border border-border/50 p-3">
+            <ScrollArea className="h-[150px] rounded-lg bg-background/80 border border-border/50 p-3">
               <div className="space-y-1 font-mono text-xs">
                 <AnimatePresence mode="popLayout">
-                  {progress.map((line, index) => (
+                  {logs.map((line, index) => (
                     <motion.div
                       key={index}
                       initial={{ opacity: 0, x: -10 }}
                       animate={{ opacity: 1, x: 0 }}
                       className={cn(
                         "text-muted-foreground",
-                        line.includes("Error") && "text-red-400",
-                        line.includes("Successfully") && "text-green-400",
-                        line.includes("Pull complete") && "text-primary",
+                        line.includes("✗") && "text-red-400",
+                        line.includes("✓") && "text-green-400",
+                        line.includes("⚠") && "text-yellow-400",
+                        line.includes("Pull complete") && "text-green-400",
                         line.includes("Downloading") && "text-yellow-400",
-                        line.includes("Extracting") && "text-blue-400"
+                        line.includes("Extracting") && "text-purple-400"
                       )}
                     >
                       <span className="text-muted-foreground/50 mr-2">
@@ -247,16 +360,16 @@ export default function PullProgressModal({
                     </motion.div>
                   ))}
                 </AnimatePresence>
-                {(status === "connecting" || status === "pulling") && (
+                {["connecting", "authenticating", "pulling", "extracting"].includes(status) && (
                   <motion.div
                     animate={{ opacity: [0.3, 1, 0.3] }}
                     transition={{ duration: 1.5, repeat: Infinity }}
                     className="text-primary"
                   >
                     <span className="text-muted-foreground/50 mr-2">
-                      [{String(progress.length + 1).padStart(2, "0")}]
+                      [{String(logs.length + 1).padStart(2, "0")}]
                     </span>
-                    Waiting for output...
+                    {status === "pulling" ? "Downloading layers..." : "Processing..."}
                   </motion.div>
                 )}
               </div>
@@ -269,7 +382,9 @@ export default function PullProgressModal({
               <div className="flex items-start gap-2">
                 <XCircle className="w-4 h-4 text-red-400 mt-0.5" />
                 <div>
-                  <div className="text-sm font-medium text-red-400">Pull Failed</div>
+                  <div className="text-sm font-medium text-red-400">
+                    {type === "container" ? "Pull Failed" : "Download Failed"}
+                  </div>
                   <div className="text-xs text-red-400/80 mt-1">{error}</div>
                 </div>
               </div>
@@ -277,41 +392,60 @@ export default function PullProgressModal({
           )}
 
           {/* Actions */}
-          <div className="flex justify-end gap-2 pt-2">
-            {status === "completed" && (
-              <Button
-                variant="default"
-                onClick={() => onOpenChange(false)}
-                className="bg-green-600 hover:bg-green-700"
-              >
-                <CheckCircle2 className="w-4 h-4 mr-2" />
-                Done
-              </Button>
-            )}
-            {status === "failed" && (
-              <>
+          <div className="flex justify-between pt-2">
+            <div>
+              {["connecting", "authenticating", "pulling", "extracting"].includes(status) && (
                 <Button
                   variant="outline"
-                  onClick={() => {
-                    setStatus("idle");
-                    setProgress([]);
-                    setError(null);
-                    pullMutation.mutate({ hostId, imageTag });
-                  }}
+                  size="sm"
+                  onClick={() => pullId && cancelMutation.mutate({ pullId })}
+                  className="text-red-400 border-red-500/30 hover:bg-red-500/10"
                 >
-                  <RefreshCw className="w-4 h-4 mr-2" />
-                  Retry
+                  <Ban className="w-4 h-4 mr-2" />
+                  Cancel
                 </Button>
+              )}
+            </div>
+            
+            <div className="flex gap-2">
+              {status === "completed" && (
+                <Button
+                  variant="default"
+                  onClick={() => onOpenChange(false)}
+                  className="bg-green-600 hover:bg-green-700"
+                >
+                  <CheckCircle2 className="w-4 h-4 mr-2" />
+                  Done
+                </Button>
+              )}
+              {(status === "failed" || status === "cancelled") && (
+                <>
+                  <Button
+                    variant="outline"
+                    onClick={() => {
+                      setStatus("idle");
+                      setPhase("Initializing");
+                      setOverallPercent(0);
+                      setLayers([]);
+                      setLogs([]);
+                      setError(null);
+                      pullMutation.mutate({ hostId, imageTag });
+                    }}
+                  >
+                    <RefreshCw className="w-4 h-4 mr-2" />
+                    Retry
+                  </Button>
+                  <Button variant="outline" onClick={() => onOpenChange(false)}>
+                    Close
+                  </Button>
+                </>
+              )}
+              {["connecting", "authenticating", "pulling", "extracting"].includes(status) && (
                 <Button variant="outline" onClick={() => onOpenChange(false)}>
-                  Close
+                  Run in Background
                 </Button>
-              </>
-            )}
-            {(status === "connecting" || status === "pulling") && (
-              <Button variant="outline" onClick={() => onOpenChange(false)}>
-                Run in Background
-              </Button>
-            )}
+              )}
+            </div>
           </div>
         </div>
       </DialogContent>
