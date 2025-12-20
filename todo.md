@@ -25,3 +25,12 @@
 - [x] Create Knowledge Base interface in Command Center
 - [x] Pre-load Nemotron documentation into RAG
 - [x] Integrate RAG context into inference requests
+
+# Holoscan 3.9 Integration
+
+- [x] Research Holoscan 3.9 SDK features and capabilities
+- [x] Create Holoscan page with pipeline management interface
+- [x] Add sensor/camera input visualization
+- [x] Add pipeline graph visualization
+- [x] Add Holoscan to sidebar navigation
+- [x] Test Holoscan tab integration
