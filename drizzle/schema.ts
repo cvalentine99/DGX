@@ -108,6 +108,19 @@ export const systemSettings = mysqlTable("system_settings", {
   powerWarning: int("powerWarning"),
   memoryWarning: int("memoryWarning"),
   alertsEnabled: int("alertsEnabled").default(1), // 1 = enabled
+  // Splunk Enterprise settings
+  splunkHost: varchar("splunkHost", { length: 256 }),
+  splunkPort: int("splunkPort"),
+  splunkToken: varchar("splunkToken", { length: 256 }),
+  splunkIndex: varchar("splunkIndex", { length: 128 }),
+  splunkSourceType: varchar("splunkSourceType", { length: 128 }),
+  splunkSsl: int("splunkSsl").default(1), // 1 = use HTTPS
+  splunkEnabled: int("splunkEnabled").default(0), // 0 = disabled
+  splunkForwardMetrics: int("splunkForwardMetrics").default(1),
+  splunkForwardAlerts: int("splunkForwardAlerts").default(1),
+  splunkForwardContainers: int("splunkForwardContainers").default(0),
+  splunkForwardInference: int("splunkForwardInference").default(0),
+  splunkInterval: int("splunkInterval").default(60), // seconds
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 });

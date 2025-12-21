@@ -2324,4 +2324,457 @@ WantedBy=multi-user.target
         };
       }
     }),
+
+  // ============================================
+  // DOCKER CONTAINER MANAGEMENT ENDPOINTS
+  // ============================================
+
+  // List all containers (running and stopped)
+  listAllContainers: publicProcedure
+    .input(z.object({
+      hostId: z.enum(["alpha", "beta"]),
+    }))
+    .query(async ({ input }: { input: { hostId: HostId } }) => {
+      try {
+        const conn = await createSSHConnection(input.hostId);
+        
+        // Get all containers with details
+        const result = await executeSSHCommand(
+          conn,
+          `docker ps -a --format '{{.ID}}\t{{.Image}}\t{{.Names}}\t{{.Status}}\t{{.Ports}}\t{{.CreatedAt}}\t{{.State}}'`
+        );
+        conn.end();
+        
+        if (result.code !== 0) {
+          return { success: false, error: result.stderr || "Failed to list containers", running: [], stopped: [] };
+        }
+        
+        const running: Array<{id: string; image: string; name: string; status: string; ports: string; createdAt: string}> = [];
+        const stopped: Array<{id: string; image: string; name: string; status: string; ports: string; createdAt: string}> = [];
+        
+        result.stdout
+          .trim()
+          .split("\n")
+          .filter(line => line.trim())
+          .forEach(line => {
+            const [id, image, name, status, ports, createdAt, state] = line.split("\t");
+            const container = {
+              id: id || "",
+              image: image || "",
+              name: name || "",
+              status: status || "",
+              ports: ports || "",
+              createdAt: createdAt || "",
+            };
+            if (state === "running") {
+              running.push(container);
+            } else {
+              stopped.push(container);
+            }
+          });
+        
+        return {
+          success: true,
+          running,
+          stopped,
+          host: DGX_HOSTS[input.hostId],
+        };
+      } catch (error: any) {
+        return {
+          success: false,
+          error: error.message,
+          running: [],
+          stopped: [],
+          host: DGX_HOSTS[input.hostId],
+        };
+      }
+    }),
+
+  // Start a stopped container
+  startContainer: publicProcedure
+    .input(z.object({
+      hostId: z.enum(["alpha", "beta"]),
+      containerId: z.string(),
+    }))
+    .mutation(async ({ input }) => {
+      try {
+        const conn = await createSSHConnection(input.hostId);
+        
+        const result = await executeSSHCommand(
+          conn,
+          `docker start ${input.containerId} 2>&1`
+        );
+        conn.end();
+        
+        if (result.code !== 0) {
+          return { success: false, error: result.stderr || result.stdout || "Failed to start container" };
+        }
+        
+        return {
+          success: true,
+          message: `Container ${input.containerId} started successfully`,
+          host: DGX_HOSTS[input.hostId],
+        };
+      } catch (error: any) {
+        return {
+          success: false,
+          error: error.message,
+          host: DGX_HOSTS[input.hostId],
+        };
+      }
+    }),
+
+  // Stop a running container
+  stopContainer: publicProcedure
+    .input(z.object({
+      hostId: z.enum(["alpha", "beta"]),
+      containerId: z.string(),
+    }))
+    .mutation(async ({ input }) => {
+      try {
+        const conn = await createSSHConnection(input.hostId);
+        
+        const result = await executeSSHCommand(
+          conn,
+          `docker stop ${input.containerId} 2>&1`
+        );
+        conn.end();
+        
+        if (result.code !== 0) {
+          return { success: false, error: result.stderr || result.stdout || "Failed to stop container" };
+        }
+        
+        return {
+          success: true,
+          message: `Container ${input.containerId} stopped successfully`,
+          host: DGX_HOSTS[input.hostId],
+        };
+      } catch (error: any) {
+        return {
+          success: false,
+          error: error.message,
+          host: DGX_HOSTS[input.hostId],
+        };
+      }
+    }),
+
+  // Restart a container
+  restartContainer: publicProcedure
+    .input(z.object({
+      hostId: z.enum(["alpha", "beta"]),
+      containerId: z.string(),
+    }))
+    .mutation(async ({ input }) => {
+      try {
+        const conn = await createSSHConnection(input.hostId);
+        
+        const result = await executeSSHCommand(
+          conn,
+          `docker restart ${input.containerId} 2>&1`
+        );
+        conn.end();
+        
+        if (result.code !== 0) {
+          return { success: false, error: result.stderr || result.stdout || "Failed to restart container" };
+        }
+        
+        return {
+          success: true,
+          message: `Container ${input.containerId} restarted successfully`,
+          host: DGX_HOSTS[input.hostId],
+        };
+      } catch (error: any) {
+        return {
+          success: false,
+          error: error.message,
+          host: DGX_HOSTS[input.hostId],
+        };
+      }
+    }),
+
+  // Remove a container
+  removeContainer: publicProcedure
+    .input(z.object({
+      hostId: z.enum(["alpha", "beta"]),
+      containerId: z.string(),
+      force: z.boolean().optional().default(false),
+    }))
+    .mutation(async ({ input }) => {
+      try {
+        const conn = await createSSHConnection(input.hostId);
+        
+        const forceFlag = input.force ? " -f" : "";
+        const result = await executeSSHCommand(
+          conn,
+          `docker rm${forceFlag} ${input.containerId} 2>&1`
+        );
+        conn.end();
+        
+        if (result.code !== 0) {
+          return { success: false, error: result.stderr || result.stdout || "Failed to remove container" };
+        }
+        
+        return {
+          success: true,
+          message: `Container ${input.containerId} removed successfully`,
+          host: DGX_HOSTS[input.hostId],
+        };
+      } catch (error: any) {
+        return {
+          success: false,
+          error: error.message,
+          host: DGX_HOSTS[input.hostId],
+        };
+      }
+    }),
+
+  // Pull all images from dgx-spark-playbooks repository
+  pullPlaybookImages: publicProcedure
+    .input(z.object({
+      hostId: z.enum(["alpha", "beta"]),
+    }))
+    .mutation(async ({ input }) => {
+      try {
+        const conn = await createSSHConnection(input.hostId);
+        
+        // Clone repo, extract images, and pull them
+        const script = `
+          cd /tmp && \
+          rm -rf dgx-spark-playbooks && \
+          git clone --depth 1 https://github.com/NVIDIA/dgx-spark-playbooks.git 2>&1 && \
+          cd dgx-spark-playbooks && \
+          grep -RhoP '^\\s*image:\\s*\\K\\S+' . 2>/dev/null | sort -u
+        `;
+        
+        const result = await executeSSHCommand(conn, script);
+        
+        if (result.code !== 0) {
+          conn.end();
+          return { 
+            success: false, 
+            error: result.stderr || "Failed to clone repository",
+            images: [],
+            pulled: [],
+            failed: [],
+          };
+        }
+        
+        const images = result.stdout
+          .trim()
+          .split("\n")
+          .filter(img => img.trim() && !img.includes("Cloning") && !img.includes("Resolving"));
+        
+        const pulled: string[] = [];
+        const failed: string[] = [];
+        
+        // Pull each image
+        for (const image of images) {
+          if (!image.trim()) continue;
+          
+          const pullResult = await executeSSHCommand(
+            conn,
+            `docker pull ${image.trim()} 2>&1 | tail -1`
+          );
+          
+          if (pullResult.code === 0) {
+            pulled.push(image.trim());
+          } else {
+            failed.push(image.trim());
+          }
+        }
+        
+        conn.end();
+        
+        return {
+          success: true,
+          message: `Pulled ${pulled.length} images, ${failed.length} failed`,
+          images,
+          pulled,
+          failed,
+          host: DGX_HOSTS[input.hostId],
+        };
+      } catch (error: any) {
+        return {
+          success: false,
+          error: error.message,
+          images: [],
+          pulled: [],
+          failed: [],
+          host: DGX_HOSTS[input.hostId],
+        };
+      }
+    }),
+
+  // ============================================
+  // KUBERNETES ENDPOINTS
+  // ============================================
+
+  // Check if Kubernetes is installed and get cluster status
+  getKubernetesStatus: publicProcedure
+    .input(z.object({
+      hostId: z.enum(["alpha", "beta"]),
+    }))
+    .query(async ({ input }: { input: { hostId: HostId } }) => {
+      try {
+        const conn = await createSSHConnection(input.hostId);
+        
+        // Check if kubectl is available
+        const kubectlCheck = await executeSSHCommand(conn, 'which kubectl 2>/dev/null');
+        
+        if (kubectlCheck.code !== 0 || !kubectlCheck.stdout.trim()) {
+          conn.end();
+          return {
+            success: true,
+            installed: false,
+            connected: false,
+            nodes: 0,
+            pods: 0,
+            services: 0,
+            host: DGX_HOSTS[input.hostId],
+          };
+        }
+        
+        // Check cluster connectivity
+        const clusterCheck = await executeSSHCommand(conn, 'kubectl cluster-info 2>/dev/null');
+        
+        if (clusterCheck.code !== 0) {
+          conn.end();
+          return {
+            success: true,
+            installed: true,
+            connected: false,
+            nodes: 0,
+            pods: 0,
+            services: 0,
+            host: DGX_HOSTS[input.hostId],
+          };
+        }
+        
+        // Get node count
+        const nodesResult = await executeSSHCommand(conn, 'kubectl get nodes --no-headers 2>/dev/null | wc -l');
+        const nodes = parseInt(nodesResult.stdout.trim()) || 0;
+        
+        // Get pod count
+        const podsResult = await executeSSHCommand(conn, 'kubectl get pods --all-namespaces --no-headers 2>/dev/null | wc -l');
+        const pods = parseInt(podsResult.stdout.trim()) || 0;
+        
+        // Get service count
+        const servicesResult = await executeSSHCommand(conn, 'kubectl get services --all-namespaces --no-headers 2>/dev/null | wc -l');
+        const services = parseInt(servicesResult.stdout.trim()) || 0;
+        
+        conn.end();
+        
+        return {
+          success: true,
+          installed: true,
+          connected: true,
+          nodes,
+          pods,
+          services,
+          host: DGX_HOSTS[input.hostId],
+        };
+      } catch (error: any) {
+        return {
+          success: false,
+          installed: false,
+          connected: false,
+          nodes: 0,
+          pods: 0,
+          services: 0,
+          error: error.message,
+          host: DGX_HOSTS[input.hostId],
+        };
+      }
+    }),
+
+  // Get Kubernetes pods
+  getKubernetesPods: publicProcedure
+    .input(z.object({
+      hostId: z.enum(["alpha", "beta"]),
+      namespace: z.string().optional(),
+    }))
+    .query(async ({ input }) => {
+      try {
+        const conn = await createSSHConnection(input.hostId);
+        
+        const nsFlag = input.namespace ? `-n ${input.namespace}` : '--all-namespaces';
+        const result = await executeSSHCommand(
+          conn,
+          `kubectl get pods ${nsFlag} -o json 2>/dev/null`
+        );
+        conn.end();
+        
+        if (result.code !== 0) {
+          return { success: false, error: result.stderr || "Failed to get pods", pods: [] };
+        }
+        
+        try {
+          const data = JSON.parse(result.stdout);
+          const pods = data.items?.map((pod: any) => ({
+            name: pod.metadata?.name || '',
+            namespace: pod.metadata?.namespace || '',
+            status: pod.status?.phase || 'Unknown',
+            ready: pod.status?.containerStatuses?.every((c: any) => c.ready) || false,
+            restarts: pod.status?.containerStatuses?.reduce((sum: number, c: any) => sum + (c.restartCount || 0), 0) || 0,
+            age: pod.metadata?.creationTimestamp || '',
+          })) || [];
+          
+          return { success: true, pods, host: DGX_HOSTS[input.hostId] };
+        } catch {
+          return { success: false, error: "Failed to parse pod data", pods: [] };
+        }
+      } catch (error: any) {
+        return {
+          success: false,
+          error: error.message,
+          pods: [],
+          host: DGX_HOSTS[input.hostId],
+        };
+      }
+    }),
+
+  // Get Kubernetes nodes
+  getKubernetesNodes: publicProcedure
+    .input(z.object({
+      hostId: z.enum(["alpha", "beta"]),
+    }))
+    .query(async ({ input }: { input: { hostId: HostId } }) => {
+      try {
+        const conn = await createSSHConnection(input.hostId);
+        
+        const result = await executeSSHCommand(
+          conn,
+          'kubectl get nodes -o json 2>/dev/null'
+        );
+        conn.end();
+        
+        if (result.code !== 0) {
+          return { success: false, error: result.stderr || "Failed to get nodes", nodes: [] };
+        }
+        
+        try {
+          const data = JSON.parse(result.stdout);
+          const nodes = data.items?.map((node: any) => ({
+            name: node.metadata?.name || '',
+            status: node.status?.conditions?.find((c: any) => c.type === 'Ready')?.status === 'True' ? 'Ready' : 'NotReady',
+            roles: Object.keys(node.metadata?.labels || {})
+              .filter(l => l.startsWith('node-role.kubernetes.io/'))
+              .map(l => l.replace('node-role.kubernetes.io/', '')) || ['worker'],
+            version: node.status?.nodeInfo?.kubeletVersion || '',
+            os: node.status?.nodeInfo?.osImage || '',
+          })) || [];
+          
+          return { success: true, nodes, host: DGX_HOSTS[input.hostId] };
+        } catch {
+          return { success: false, error: "Failed to parse node data", nodes: [] };
+        }
+      } catch (error: any) {
+        return {
+          success: false,
+          error: error.message,
+          nodes: [],
+          host: DGX_HOSTS[input.hostId],
+        };
+      }
+    }),
 });

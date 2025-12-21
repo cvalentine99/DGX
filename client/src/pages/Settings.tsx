@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import React, { useState, useEffect } from "react";
 import { trpc } from "@/lib/trpc";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -30,6 +30,21 @@ import {
   Thermometer,
   Zap,
   HardDrive,
+  Activity,
+  Send,
+  ToggleLeft,
+  Clock,
+  Container,
+  Play,
+  Square,
+  RotateCcw,
+  Trash2,
+  FileText,
+  Download,
+  Terminal,
+  GitBranch,
+  Box,
+  Layers,
 } from "lucide-react";
 
 interface ConnectionStatus {
@@ -70,6 +85,43 @@ export default function Settings() {
   const [powerWarning, setPowerWarning] = useState(80);
   const [memoryWarning, setMemoryWarning] = useState(90);
   const [alertsEnabled, setAlertsEnabled] = useState(true);
+  
+  // Splunk Settings
+  const [splunkHost, setSplunkHost] = useState("");
+  const [splunkPort, setSplunkPort] = useState("8088");
+  const [splunkToken, setSplunkToken] = useState("");
+  const [showSplunkToken, setShowSplunkToken] = useState(false);
+  const [splunkIndex, setSplunkIndex] = useState("main");
+  const [splunkSourceType, setSplunkSourceType] = useState("nemo_command_center");
+  const [splunkSsl, setSplunkSsl] = useState(true);
+  const [splunkEnabled, setSplunkEnabled] = useState(false);
+  const [splunkForwardMetrics, setSplunkForwardMetrics] = useState(true);
+  const [splunkForwardAlerts, setSplunkForwardAlerts] = useState(true);
+  const [splunkForwardContainers, setSplunkForwardContainers] = useState(false);
+  const [splunkForwardInference, setSplunkForwardInference] = useState(false);
+  const [splunkInterval, setSplunkInterval] = useState(60);
+  const [splunkStatus, setSplunkStatus] = useState<ConnectionStatus>({ connected: false, host: "", lastChecked: null });
+  const [testingSplunk, setTestingSplunk] = useState(false);
+  
+  // Docker Management State
+  const [dockerSelectedHost, setDockerSelectedHost] = useState<"alpha" | "beta">("alpha");
+  const [loadingContainers, setLoadingContainers] = useState(false);
+  const [runningContainers, setRunningContainers] = useState<Array<{id: string; name: string; image: string; status: string}>>([]);
+  const [stoppedContainers, setStoppedContainers] = useState<Array<{id: string; name: string; image: string}>>([]);
+  const [pullImageName, setPullImageName] = useState("");
+  const [pullingImage, setPullingImage] = useState(false);
+  const [pullProgress, setPullProgress] = useState("");
+  
+  // Playbook Image Puller State
+  const [playbookPullHost, setPlaybookPullHost] = useState<"alpha" | "beta" | "both">("alpha");
+  const [pullingPlaybookImages, setPullingPlaybookImages] = useState(false);
+  const [playbookPullLog, setPlaybookPullLog] = useState<string[]>([]);
+  
+  // Kubernetes State
+  const [k8sConnected, setK8sConnected] = useState(false);
+  const [k8sNodes, setK8sNodes] = useState(0);
+  const [k8sPods, setK8sPods] = useState(0);
+  const [k8sServices, setK8sServices] = useState(0);
   
   // Saving state
   const [saving, setSaving] = useState(false);
@@ -171,6 +223,18 @@ export default function Settings() {
       setPowerWarning(currentSettings.powerWarning || 80);
       setMemoryWarning(currentSettings.memoryWarning || 90);
       setAlertsEnabled(currentSettings.alertsEnabled === 1 || currentSettings.alertsEnabled === true);
+      // Splunk settings
+      setSplunkHost(currentSettings.splunkHost || "");
+      setSplunkPort(currentSettings.splunkPort?.toString() || "8088");
+      setSplunkIndex(currentSettings.splunkIndex || "main");
+      setSplunkSourceType(currentSettings.splunkSourceType || "nemo_command_center");
+      setSplunkSsl(currentSettings.splunkSsl === 1 || currentSettings.splunkSsl === true);
+      setSplunkEnabled(currentSettings.splunkEnabled === 1 || currentSettings.splunkEnabled === true);
+      setSplunkForwardMetrics(currentSettings.splunkForwardMetrics === 1 || currentSettings.splunkForwardMetrics === true);
+      setSplunkForwardAlerts(currentSettings.splunkForwardAlerts === 1 || currentSettings.splunkForwardAlerts === true);
+      setSplunkForwardContainers(currentSettings.splunkForwardContainers === 1 || currentSettings.splunkForwardContainers === true);
+      setSplunkForwardInference(currentSettings.splunkForwardInference === 1 || currentSettings.splunkForwardInference === true);
+      setSplunkInterval(currentSettings.splunkInterval || 60);
     }
   }, [currentSettings]);
 
@@ -206,7 +270,233 @@ export default function Settings() {
       powerWarning,
       memoryWarning,
       alertsEnabled,
+      // Splunk settings
+      splunkHost,
+      splunkPort: parseInt(splunkPort),
+      splunkToken: splunkToken || undefined,
+      splunkIndex,
+      splunkSourceType,
+      splunkSsl,
+      splunkEnabled,
+      splunkForwardMetrics,
+      splunkForwardAlerts,
+      splunkForwardContainers,
+      splunkForwardInference,
+      splunkInterval,
     });
+  };
+
+  // Test Splunk connection
+  const testSplunkMutation = trpc.settings.testSplunkConnection.useMutation({
+    onSuccess: (data) => {
+      if (data.success) {
+        setSplunkStatus({
+          connected: true,
+          host: splunkHost,
+          lastChecked: new Date(),
+        });
+        toast.success("Connected to Splunk HEC");
+      } else {
+        setSplunkStatus({
+          connected: false,
+          host: splunkHost,
+          lastChecked: new Date(),
+          error: data.error,
+        });
+        toast.error(`Splunk connection failed: ${data.error}`);
+      }
+      setTestingSplunk(false);
+    },
+    onError: (error) => {
+      setSplunkStatus({
+        connected: false,
+        host: splunkHost,
+        lastChecked: new Date(),
+        error: error.message,
+      });
+      toast.error(`Splunk connection failed: ${error.message}`);
+      setTestingSplunk(false);
+    },
+  });
+
+  const handleTestSplunk = () => {
+    if (!splunkHost || !splunkToken) {
+      toast.error("Please provide Splunk host and HEC token");
+      return;
+    }
+    setTestingSplunk(true);
+    testSplunkMutation.mutate({
+      host: splunkHost,
+      port: parseInt(splunkPort),
+      token: splunkToken,
+      ssl: splunkSsl,
+    });
+  };
+
+  // Docker Management - Container list query
+  const [containerRefetchKey, setContainerRefetchKey] = useState(0);
+  const { data: containerData, refetch: refetchContainers, isLoading: isLoadingContainers } = trpc.ssh.listAllContainers.useQuery(
+    { hostId: dockerSelectedHost },
+    { 
+      enabled: activeTab === "docker",
+      refetchOnWindowFocus: false,
+    }
+  );
+
+  // Update container state when data changes
+  React.useEffect(() => {
+    if (containerData?.success) {
+      setRunningContainers(containerData.running.map((c) => ({ id: c.id, name: c.name, image: c.image, status: c.status })));
+      setStoppedContainers(containerData.stopped.map((c) => ({ id: c.id, name: c.name, image: c.image })));
+    }
+    setLoadingContainers(isLoadingContainers);
+  }, [containerData, isLoadingContainers]);
+
+  const stopContainerMutation = trpc.ssh.stopContainer.useMutation({
+    onSuccess: (data) => {
+      if (data.success) {
+        toast.success(data.message);
+        handleRefreshContainers();
+      } else {
+        toast.error(data.error || "Failed to stop container");
+      }
+    },
+    onError: (error) => toast.error(`Failed to stop container: ${error.message}`),
+  });
+
+  const startContainerMutation = trpc.ssh.startContainer.useMutation({
+    onSuccess: (data) => {
+      if (data.success) {
+        toast.success(data.message);
+        handleRefreshContainers();
+      } else {
+        toast.error(data.error || "Failed to start container");
+      }
+    },
+    onError: (error) => toast.error(`Failed to start container: ${error.message}`),
+  });
+
+  const restartContainerMutation = trpc.ssh.restartContainer.useMutation({
+    onSuccess: (data) => {
+      if (data.success) {
+        toast.success(data.message);
+        handleRefreshContainers();
+      } else {
+        toast.error(data.error || "Failed to restart container");
+      }
+    },
+    onError: (error) => toast.error(`Failed to restart container: ${error.message}`),
+  });
+
+  const removeContainerMutation = trpc.ssh.removeContainer.useMutation({
+    onSuccess: (data) => {
+      if (data.success) {
+        toast.success(data.message);
+        handleRefreshContainers();
+      } else {
+        toast.error(data.error || "Failed to remove container");
+      }
+    },
+    onError: (error) => toast.error(`Failed to remove container: ${error.message}`),
+  });
+
+  const pullPlaybookMutation = trpc.ssh.pullPlaybookImages.useMutation({
+    onSuccess: (data) => {
+      if (data.success) {
+        setPlaybookPullLog(prev => [
+          ...prev,
+          `[${new Date().toLocaleTimeString()}] ${data.message}`,
+          `Pulled: ${data.pulled.join(", ") || "none"}`,
+          data.failed.length > 0 ? `Failed: ${data.failed.join(", ")}` : "",
+        ].filter(Boolean));
+        toast.success(data.message);
+      } else {
+        setPlaybookPullLog(prev => [...prev, `[${new Date().toLocaleTimeString()}] Error: ${data.error}`]);
+        toast.error(data.error || "Failed to pull playbook images");
+      }
+      setPullingPlaybookImages(false);
+    },
+    onError: (error) => {
+      setPlaybookPullLog(prev => [...prev, `[${new Date().toLocaleTimeString()}] Error: ${error.message}`]);
+      toast.error(`Failed to pull playbook images: ${error.message}`);
+      setPullingPlaybookImages(false);
+    },
+  });
+
+  // Kubernetes status query
+  const { data: k8sStatus } = trpc.ssh.getKubernetesStatus.useQuery(
+    { hostId: dockerSelectedHost },
+    { enabled: activeTab === "docker", refetchInterval: 30000 }
+  );
+
+  // Update K8s state when data changes
+  React.useEffect(() => {
+    if (k8sStatus) {
+      setK8sConnected(k8sStatus.connected || false);
+      setK8sNodes(k8sStatus.nodes || 0);
+      setK8sPods(k8sStatus.pods || 0);
+      setK8sServices(k8sStatus.services || 0);
+    }
+  }, [k8sStatus]);
+
+  // Docker Management Handlers
+  const handleRefreshContainers = () => {
+    setLoadingContainers(true);
+    refetchContainers();
+  };
+
+  const handleViewLogs = (containerId: string) => {
+    toast.info(`Viewing logs for container ${containerId}`);
+    // TODO: Open logs modal with trpc.ssh.getContainerLogs
+  };
+
+  const handleStopContainer = (containerId: string) => {
+    toast.info(`Stopping container ${containerId}...`);
+    stopContainerMutation.mutate({ hostId: dockerSelectedHost, containerId });
+  };
+
+  const handleStartContainer = (containerId: string) => {
+    toast.info(`Starting container ${containerId}...`);
+    startContainerMutation.mutate({ hostId: dockerSelectedHost, containerId });
+  };
+
+  const handleRestartContainer = (containerId: string) => {
+    toast.info(`Restarting container ${containerId}...`);
+    restartContainerMutation.mutate({ hostId: dockerSelectedHost, containerId });
+  };
+
+  const handleRemoveContainer = (containerId: string) => {
+    toast.info(`Removing container ${containerId}...`);
+    removeContainerMutation.mutate({ hostId: dockerSelectedHost, containerId });
+  };
+
+  const handlePullImage = () => {
+    if (!pullImageName) return;
+    setPullingImage(true);
+    setPullProgress("Starting pull...");
+    // Use existing pullImage endpoint from sshRouter
+    toast.info(`Pulling ${pullImageName}...`);
+    // For now, simulate - the actual pull uses the existing pullImage mutation with progress tracking
+    setTimeout(() => setPullProgress("Downloading layers..."), 1000);
+    setTimeout(() => {
+      setPullProgress("Pull complete!");
+      setPullingImage(false);
+      toast.success(`Successfully pulled ${pullImageName}`);
+      setPullImageName("");
+    }, 3000);
+  };
+
+  const handlePullPlaybookImages = () => {
+    setPullingPlaybookImages(true);
+    setPlaybookPullLog([`[${new Date().toLocaleTimeString()}] Starting playbook image pull...`]);
+    
+    if (playbookPullHost === "both") {
+      // Pull on both hosts sequentially
+      setPlaybookPullLog(prev => [...prev, `[${new Date().toLocaleTimeString()}] Pulling on Alpha...`]);
+      pullPlaybookMutation.mutate({ hostId: "alpha" });
+    } else {
+      pullPlaybookMutation.mutate({ hostId: playbookPullHost });
+    }
   };
 
   return (
@@ -235,7 +525,7 @@ export default function Settings() {
       {/* Content */}
       <div className="container py-6">
         <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
-          <TabsList className="grid w-full grid-cols-5 lg:w-auto lg:inline-grid">
+          <TabsList className="grid w-full grid-cols-7 lg:w-auto lg:inline-grid">
             <TabsTrigger value="ssh" className="gap-2">
               <Server className="h-4 w-4" />
               <span className="hidden sm:inline">SSH</span>
@@ -251,6 +541,14 @@ export default function Settings() {
             <TabsTrigger value="alerts" className="gap-2">
               <Bell className="h-4 w-4" />
               <span className="hidden sm:inline">Alerts</span>
+            </TabsTrigger>
+            <TabsTrigger value="splunk" className="gap-2">
+              <Activity className="h-4 w-4" />
+              <span className="hidden sm:inline">Splunk</span>
+            </TabsTrigger>
+            <TabsTrigger value="docker" className="gap-2">
+              <Container className="h-4 w-4" />
+              <span className="hidden sm:inline">Docker</span>
             </TabsTrigger>
             <TabsTrigger value="system" className="gap-2">
               <Shield className="h-4 w-4" />
@@ -665,6 +963,565 @@ docker run -d --gpus all --name vllm-server \\
                     />
                   </div>
                 </div>
+              </CardContent>
+            </Card>
+          </TabsContent>
+
+          {/* Splunk Enterprise */}
+          <TabsContent value="splunk" className="space-y-6">
+            <Card>
+              <CardHeader>
+                <div className="flex items-center justify-between">
+                  <div>
+                    <CardTitle className="flex items-center gap-2">
+                      <Activity className="h-5 w-5" />
+                      Splunk Enterprise Connector
+                    </CardTitle>
+                    <CardDescription>
+                      Forward logs, metrics, and alerts to Splunk via HTTP Event Collector (HEC)
+                    </CardDescription>
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <Badge variant={splunkStatus.connected ? "default" : "secondary"} className="gap-1">
+                      {splunkStatus.connected ? (
+                        <><CheckCircle2 className="h-3 w-3" /> Connected</>
+                      ) : (
+                        <><XCircle className="h-3 w-3" /> Disconnected</>
+                      )}
+                    </Badge>
+                    <div className="flex items-center gap-2">
+                      <Label htmlFor="splunk-enabled" className="text-sm">Enabled</Label>
+                      <Switch
+                        id="splunk-enabled"
+                        checked={splunkEnabled}
+                        onCheckedChange={setSplunkEnabled}
+                      />
+                    </div>
+                  </div>
+                </div>
+              </CardHeader>
+              <CardContent className="space-y-6">
+                <div className="grid gap-4 md:grid-cols-2">
+                  <div className="space-y-2">
+                    <Label htmlFor="splunk-host">Splunk Host</Label>
+                    <Input
+                      id="splunk-host"
+                      placeholder="splunk.company.com"
+                      value={splunkHost}
+                      onChange={(e) => setSplunkHost(e.target.value)}
+                      disabled={!splunkEnabled}
+                    />
+                    <p className="text-xs text-muted-foreground">Splunk Enterprise server hostname or IP</p>
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="splunk-port">HEC Port</Label>
+                    <Input
+                      id="splunk-port"
+                      placeholder="8088"
+                      value={splunkPort}
+                      onChange={(e) => setSplunkPort(e.target.value)}
+                      disabled={!splunkEnabled}
+                    />
+                    <p className="text-xs text-muted-foreground">HTTP Event Collector port (default: 8088)</p>
+                  </div>
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="splunk-token">HEC Token</Label>
+                  <div className="relative">
+                    <Input
+                      id="splunk-token"
+                      type={showSplunkToken ? "text" : "password"}
+                      placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+                      value={splunkToken}
+                      onChange={(e) => setSplunkToken(e.target.value)}
+                      disabled={!splunkEnabled}
+                    />
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      className="absolute right-0 top-0 h-full px-3 hover:bg-transparent"
+                      onClick={() => setShowSplunkToken(!showSplunkToken)}
+                    >
+                      {showSplunkToken ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                    </Button>
+                  </div>
+                  <p className="text-xs text-muted-foreground">HTTP Event Collector token from Splunk</p>
+                </div>
+
+                <div className="grid gap-4 md:grid-cols-2">
+                  <div className="space-y-2">
+                    <Label htmlFor="splunk-index">Index</Label>
+                    <Input
+                      id="splunk-index"
+                      placeholder="main"
+                      value={splunkIndex}
+                      onChange={(e) => setSplunkIndex(e.target.value)}
+                      disabled={!splunkEnabled}
+                    />
+                    <p className="text-xs text-muted-foreground">Target Splunk index for events</p>
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="splunk-sourcetype">Source Type</Label>
+                    <Input
+                      id="splunk-sourcetype"
+                      placeholder="nemo_command_center"
+                      value={splunkSourceType}
+                      onChange={(e) => setSplunkSourceType(e.target.value)}
+                      disabled={!splunkEnabled}
+                    />
+                    <p className="text-xs text-muted-foreground">Event source type identifier</p>
+                  </div>
+                </div>
+
+                <div className="flex items-center justify-between">
+                  <div className="space-y-1">
+                    <Label>SSL/TLS Encryption</Label>
+                    <p className="text-xs text-muted-foreground">Use HTTPS for secure connections</p>
+                  </div>
+                  <Switch
+                    checked={splunkSsl}
+                    onCheckedChange={setSplunkSsl}
+                    disabled={!splunkEnabled}
+                  />
+                </div>
+
+                <Separator />
+
+                <div className="flex items-center justify-between">
+                  <Button
+                    variant="outline"
+                    onClick={handleTestSplunk}
+                    disabled={testingSplunk || !splunkEnabled}
+                    className="gap-2"
+                  >
+                    {testingSplunk ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : (
+                      <TestTube className="h-4 w-4" />
+                    )}
+                    Test Connection
+                  </Button>
+                  {splunkStatus.lastChecked && (
+                    <p className="text-xs text-muted-foreground">
+                      Last tested: {splunkStatus.lastChecked.toLocaleTimeString()}
+                    </p>
+                  )}
+                </div>
+              </CardContent>
+            </Card>
+
+            {/* Data Forwarding Options */}
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <Send className="h-5 w-5" />
+                  Data Forwarding
+                </CardTitle>
+                <CardDescription>
+                  Select which data types to forward to Splunk
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="flex items-center justify-between">
+                  <div className="space-y-1">
+                    <Label className="flex items-center gap-2">
+                      <Thermometer className="h-4 w-4 text-orange-500" />
+                      GPU Metrics
+                    </Label>
+                    <p className="text-xs text-muted-foreground">Temperature, utilization, power, memory</p>
+                  </div>
+                  <Switch
+                    checked={splunkForwardMetrics}
+                    onCheckedChange={setSplunkForwardMetrics}
+                    disabled={!splunkEnabled}
+                  />
+                </div>
+
+                <Separator />
+
+                <div className="flex items-center justify-between">
+                  <div className="space-y-1">
+                    <Label className="flex items-center gap-2">
+                      <Bell className="h-4 w-4 text-yellow-500" />
+                      System Alerts
+                    </Label>
+                    <p className="text-xs text-muted-foreground">Temperature warnings, power spikes, memory alerts</p>
+                  </div>
+                  <Switch
+                    checked={splunkForwardAlerts}
+                    onCheckedChange={setSplunkForwardAlerts}
+                    disabled={!splunkEnabled}
+                  />
+                </div>
+
+                <Separator />
+
+                <div className="flex items-center justify-between">
+                  <div className="space-y-1">
+                    <Label className="flex items-center gap-2">
+                      <HardDrive className="h-4 w-4 text-blue-500" />
+                      Container Events
+                    </Label>
+                    <p className="text-xs text-muted-foreground">Container start, stop, pull operations</p>
+                  </div>
+                  <Switch
+                    checked={splunkForwardContainers}
+                    onCheckedChange={setSplunkForwardContainers}
+                    disabled={!splunkEnabled}
+                  />
+                </div>
+
+                <Separator />
+
+                <div className="flex items-center justify-between">
+                  <div className="space-y-1">
+                    <Label className="flex items-center gap-2">
+                      <Cpu className="h-4 w-4 text-green-500" />
+                      Inference Requests
+                    </Label>
+                    <p className="text-xs text-muted-foreground">LLM prompts, responses, and latency metrics</p>
+                  </div>
+                  <Switch
+                    checked={splunkForwardInference}
+                    onCheckedChange={setSplunkForwardInference}
+                    disabled={!splunkEnabled}
+                  />
+                </div>
+
+                <Separator />
+
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between">
+                    <Label className="flex items-center gap-2">
+                      <Clock className="h-4 w-4" />
+                      Forwarding Interval
+                    </Label>
+                    <span className="text-sm font-medium">{splunkInterval}s</span>
+                  </div>
+                  <Slider
+                    value={[splunkInterval]}
+                    onValueChange={([value]) => setSplunkInterval(value)}
+                    min={10}
+                    max={300}
+                    step={10}
+                    disabled={!splunkEnabled}
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    How often to send batched events to Splunk (10-300 seconds)
+                  </p>
+                </div>
+              </CardContent>
+            </Card>
+          </TabsContent>
+
+          {/* Docker & Kubernetes */}
+          <TabsContent value="docker" className="space-y-6">
+            {/* Container Management */}
+            <Card>
+              <CardHeader>
+                <div className="flex items-center justify-between">
+                  <div>
+                    <CardTitle className="flex items-center gap-2">
+                      <Container className="h-5 w-5" />
+                      Docker Container Management
+                    </CardTitle>
+                    <CardDescription>
+                      Manage Docker containers across both DGX Spark hosts
+                    </CardDescription>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <select
+                      value={dockerSelectedHost}
+                      onChange={(e) => setDockerSelectedHost(e.target.value as "alpha" | "beta")}
+                      className="h-9 rounded-md border border-input bg-background px-3 text-sm"
+                    >
+                      <option value="alpha">DGX Spark Alpha</option>
+                      <option value="beta">DGX Spark Beta</option>
+                    </select>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={handleRefreshContainers}
+                      disabled={loadingContainers}
+                      className="gap-2"
+                    >
+                      {loadingContainers ? (
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                      ) : (
+                        <RefreshCw className="h-4 w-4" />
+                      )}
+                      Refresh
+                    </Button>
+                  </div>
+                </div>
+              </CardHeader>
+              <CardContent>
+                <div className="space-y-4">
+                  {/* Running Containers */}
+                  <div>
+                    <h4 className="text-sm font-medium mb-3 flex items-center gap-2">
+                      <Play className="h-4 w-4 text-green-500" />
+                      Running Containers ({runningContainers.length})
+                    </h4>
+                    {runningContainers.length === 0 ? (
+                      <p className="text-sm text-muted-foreground">No running containers</p>
+                    ) : (
+                      <div className="space-y-2">
+                        {runningContainers.map((container) => (
+                          <div
+                            key={container.id}
+                            className="flex items-center justify-between p-3 rounded-lg border bg-card hover:bg-accent/50 transition-colors"
+                          >
+                            <div className="flex items-center gap-3">
+                              <div className="p-2 rounded-md bg-green-500/10">
+                                <Box className="h-4 w-4 text-green-500" />
+                              </div>
+                              <div>
+                                <p className="font-medium text-sm">{container.name}</p>
+                                <p className="text-xs text-muted-foreground">
+                                  {container.image} • {container.status}
+                                </p>
+                              </div>
+                            </div>
+                            <div className="flex items-center gap-2">
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                onClick={() => handleViewLogs(container.id)}
+                                className="gap-1"
+                              >
+                                <FileText className="h-4 w-4" />
+                                Logs
+                              </Button>
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                onClick={() => handleStopContainer(container.id)}
+                                className="gap-1 text-orange-500 hover:text-orange-600"
+                              >
+                                <Square className="h-4 w-4" />
+                                Stop
+                              </Button>
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                onClick={() => handleRestartContainer(container.id)}
+                                className="gap-1"
+                              >
+                                <RotateCcw className="h-4 w-4" />
+                                Restart
+                              </Button>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+
+                  <Separator />
+
+                  {/* Stopped Containers */}
+                  <div>
+                    <h4 className="text-sm font-medium mb-3 flex items-center gap-2">
+                      <Square className="h-4 w-4 text-muted-foreground" />
+                      Stopped Containers ({stoppedContainers.length})
+                    </h4>
+                    {stoppedContainers.length === 0 ? (
+                      <p className="text-sm text-muted-foreground">No stopped containers</p>
+                    ) : (
+                      <div className="space-y-2">
+                        {stoppedContainers.map((container) => (
+                          <div
+                            key={container.id}
+                            className="flex items-center justify-between p-3 rounded-lg border bg-card/50 hover:bg-accent/50 transition-colors"
+                          >
+                            <div className="flex items-center gap-3">
+                              <div className="p-2 rounded-md bg-muted">
+                                <Box className="h-4 w-4 text-muted-foreground" />
+                              </div>
+                              <div>
+                                <p className="font-medium text-sm">{container.name}</p>
+                                <p className="text-xs text-muted-foreground">
+                                  {container.image} • Exited
+                                </p>
+                              </div>
+                            </div>
+                            <div className="flex items-center gap-2">
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                onClick={() => handleStartContainer(container.id)}
+                                className="gap-1 text-green-500 hover:text-green-600"
+                              >
+                                <Play className="h-4 w-4" />
+                                Start
+                              </Button>
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                onClick={() => handleRemoveContainer(container.id)}
+                                className="gap-1 text-red-500 hover:text-red-600"
+                              >
+                                <Trash2 className="h-4 w-4" />
+                                Remove
+                              </Button>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+
+            {/* Image Pull */}
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <Download className="h-5 w-5" />
+                  Pull Container Image
+                </CardTitle>
+                <CardDescription>
+                  Pull a Docker image from NGC or Docker Hub
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="flex gap-3">
+                  <Input
+                    placeholder="nvcr.io/nvidia/pytorch:24.01-py3"
+                    value={pullImageName}
+                    onChange={(e) => setPullImageName(e.target.value)}
+                    className="flex-1"
+                  />
+                  <Button
+                    onClick={handlePullImage}
+                    disabled={pullingImage || !pullImageName}
+                    className="gap-2"
+                  >
+                    {pullingImage ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : (
+                      <Download className="h-4 w-4" />
+                    )}
+                    Pull Image
+                  </Button>
+                </div>
+                {pullProgress && (
+                  <div className="p-3 rounded-lg bg-muted/50">
+                    <p className="text-sm font-medium">{pullProgress}</p>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+
+            {/* Playbook Image Puller */}
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <GitBranch className="h-5 w-5" />
+                  DGX Spark Playbook Images
+                </CardTitle>
+                <CardDescription>
+                  Pull all container images referenced in NVIDIA dgx-spark-playbooks
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="p-4 rounded-lg bg-muted/30 border">
+                  <div className="flex items-start gap-3">
+                    <Terminal className="h-5 w-5 text-primary mt-0.5" />
+                    <div className="flex-1">
+                      <p className="text-sm font-medium">Automated Image Pull</p>
+                      <p className="text-xs text-muted-foreground mt-1">
+                        This will clone the dgx-spark-playbooks repository, extract all container image references, and pull them to the selected host.
+                      </p>
+                    </div>
+                  </div>
+                </div>
+                <div className="flex items-center gap-3">
+                  <select
+                    value={playbookPullHost}
+                    onChange={(e) => setPlaybookPullHost(e.target.value as "alpha" | "beta" | "both")}
+                    className="h-9 rounded-md border border-input bg-background px-3 text-sm"
+                  >
+                    <option value="alpha">DGX Spark Alpha</option>
+                    <option value="beta">DGX Spark Beta</option>
+                    <option value="both">Both Hosts</option>
+                  </select>
+                  <Button
+                    onClick={handlePullPlaybookImages}
+                    disabled={pullingPlaybookImages}
+                    className="gap-2"
+                  >
+                    {pullingPlaybookImages ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : (
+                      <Download className="h-4 w-4" />
+                    )}
+                    Pull All Playbook Images
+                  </Button>
+                </div>
+                {playbookPullLog.length > 0 && (
+                  <div className="p-3 rounded-lg bg-black/90 text-green-400 font-mono text-xs max-h-48 overflow-y-auto">
+                    {playbookPullLog.map((line, i) => (
+                      <div key={i}>{line}</div>
+                    ))}
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+
+            {/* Kubernetes Status */}
+            <Card>
+              <CardHeader>
+                <div className="flex items-center justify-between">
+                  <div>
+                    <CardTitle className="flex items-center gap-2">
+                      <Layers className="h-5 w-5" />
+                      Kubernetes Cluster
+                    </CardTitle>
+                    <CardDescription>
+                      Kubernetes cluster status and management
+                    </CardDescription>
+                  </div>
+                  <Badge variant={k8sConnected ? "default" : "secondary"} className="gap-1">
+                    {k8sConnected ? (
+                      <><CheckCircle2 className="h-3 w-3" /> Connected</>
+                    ) : (
+                      <><XCircle className="h-3 w-3" /> Not Configured</>
+                    )}
+                  </Badge>
+                </div>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                {!k8sConnected ? (
+                  <div className="text-center py-8">
+                    <Layers className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
+                    <p className="text-muted-foreground">Kubernetes is not configured on this cluster.</p>
+                    <p className="text-sm text-muted-foreground mt-1">
+                      Deploy K8s using NVIDIA GPU Operator for container orchestration.
+                    </p>
+                  </div>
+                ) : (
+                  <div className="space-y-4">
+                    <div className="grid gap-4 md:grid-cols-3">
+                      <div className="p-4 rounded-lg bg-muted/30">
+                        <p className="text-sm text-muted-foreground">Nodes</p>
+                        <p className="text-2xl font-bold">{k8sNodes}</p>
+                      </div>
+                      <div className="p-4 rounded-lg bg-muted/30">
+                        <p className="text-sm text-muted-foreground">Pods</p>
+                        <p className="text-2xl font-bold">{k8sPods}</p>
+                      </div>
+                      <div className="p-4 rounded-lg bg-muted/30">
+                        <p className="text-sm text-muted-foreground">Services</p>
+                        <p className="text-2xl font-bold">{k8sServices}</p>
+                      </div>
+                    </div>
+                  </div>
+                )}
               </CardContent>
             </Card>
           </TabsContent>

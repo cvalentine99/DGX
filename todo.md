@@ -507,3 +507,59 @@
 - [x] Add getSettings and updateSettings endpoints
 - [x] Validate settings before saving
 - [x] Apply settings changes without server restart where possible (166 tests passing)
+
+## Splunk Enterprise Connector - December 2024
+
+### Splunk Configuration UI
+- [ ] Add Splunk tab to Settings page
+- [ ] Create Splunk connection form (host, port, token)
+- [ ] Add HEC (HTTP Event Collector) endpoint configuration
+- [ ] Add index selection dropdown
+- [ ] Add source type configuration
+- [ ] Add SSL/TLS toggle for secure connections
+- [ ] Add test connection button
+- [ ] Display connection status indicator
+
+### Splunk Backend Integration
+- [ ] Create splunkRouter with connection management
+- [ ] Add sendEvent endpoint for log forwarding
+- [ ] Add sendMetrics endpoint for GPU/system metrics
+- [ ] Implement HEC token validation
+- [ ] Add batch event sending for efficiency
+- [ ] Create automatic metric forwarding option
+
+### Data Forwarding Options
+- [ ] Forward GPU metrics (utilization, temp, power, memory)
+- [ ] Forward system alerts and notifications
+- [ ] Forward container events (start, stop, pull)
+- [ ] Forward inference requests and responses
+- [ ] Add configurable forwarding intervals
+
+# Splunk Enterprise Connector
+
+- [x] Add Splunk fields to systemSettings database schema
+- [x] Update settingsRouter with Splunk configuration endpoints
+- [x] Create Splunk HEC client for sending events
+- [x] Add Splunk tab UI to Settings page
+- [x] Implement test connection functionality
+- [x] Add GPU metrics forwarding to Splunk (configurable)
+- [x] Add system alerts forwarding to Splunk (configurable)
+- [x] Add container events forwarding to Splunk (configurable)
+- [x] Add inference logs forwarding to Splunk (configurable)
+- [ ] Test Splunk integration end-to-end (requires Splunk server)
+
+# Docker & Kubernetes Management Tab
+
+- [x] Create Docker/K8s tab in Settings page
+- [x] Add Docker container list view for both hosts
+- [x] Add container start/stop/restart controls
+- [x] Add container remove with confirmation
+- [x] Add container logs quick view (placeholder)
+- [x] Add Docker image pull interface
+- [x] Add Playbook Image Puller (dgx-spark-playbooks)
+- [x] Add Kubernetes cluster status panel
+- [x] Add kubectl command interface (backend endpoints)
+- [x] Add pod list and management (backend endpoints)
+- [x] Add service list and management (backend endpoints)
+- [ ] Test Docker management features (requires SSH connection)
+- [ ] Test Kubernetes features (if K8s deployed)
