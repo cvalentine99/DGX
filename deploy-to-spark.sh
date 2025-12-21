@@ -273,21 +273,47 @@ collect_database_config() {
 }
 
 collect_dgx_config() {
-    print_section "DGX Spark SSH Configuration"
+    print_section "Remote DGX Spark Management"
     
-    echo -e "  ${DIM}Configure SSH access to manage DGX Spark hosts${NC}"
-    echo -e "  ${DIM}(Leave blank if this IS the DGX Spark you want to manage)${NC}"
+    LOCAL_IP=$(hostname -I | awk '{print $1}')
+    
+    echo -e "  ${CYAN}┌─────────────────────────────────────────────────────────────────┐${NC}"
+    echo -e "  ${CYAN}│${NC}  ${BOLD}Installation Host (this machine):${NC} ${GREEN}${LOCAL_IP}${NC}"
+    echo -e "  ${CYAN}│${NC}  ${DIM}The Command Center will be installed and run HERE${NC}"
+    echo -e "  ${CYAN}└─────────────────────────────────────────────────────────────────┘${NC}"
+    echo ""
+    echo -e "  ${DIM}Do you want to manage ANOTHER DGX Spark host via SSH?${NC}"
+    echo -e "  ${DIM}Example: Install on Beta (192.168.50.110), manage Alpha (192.168.50.139)${NC}"
     echo ""
     
-    prompt_yes_no "CONFIGURE_SSH" "Configure remote DGX SSH access" "n"
+    prompt_yes_no "CONFIGURE_SSH" "Configure remote DGX host to manage" "y"
     
     if [[ "${CONFIG[CONFIGURE_SSH]}" == "true" ]]; then
-        prompt "DGX_SSH_HOST" "DGX Spark IP address" "192.168.50.139"
+        echo ""
+        echo -e "  ${CYAN}┌─────────────────────────────────────────────────────────────────┐${NC}"
+        echo -e "  ${CYAN}│${NC}  ${BOLD}Remote Host Configuration${NC}"
+        echo -e "  ${CYAN}│${NC}  ${DIM}Enter the IP of the DGX Spark you want to MANAGE remotely${NC}"
+        echo -e "  ${CYAN}└─────────────────────────────────────────────────────────────────┘${NC}"
+        echo ""
+        
+        # Default to Alpha if installing on Beta, or Beta if installing on Alpha
+        if [[ "$LOCAL_IP" == "192.168.50.110" ]]; then
+            DEFAULT_REMOTE="192.168.50.139"
+            echo -e "  ${DIM}Detected: Installing on Beta → defaulting to Alpha${NC}"
+        elif [[ "$LOCAL_IP" == "192.168.50.139" ]]; then
+            DEFAULT_REMOTE="192.168.50.110"
+            echo -e "  ${DIM}Detected: Installing on Alpha → defaulting to Beta${NC}"
+        else
+            DEFAULT_REMOTE="192.168.50.139"
+        fi
+        echo ""
+        
+        prompt "DGX_SSH_HOST" "Remote DGX Spark IP to manage" "$DEFAULT_REMOTE"
         prompt "DGX_SSH_PORT" "SSH port" "22"
-        prompt "DGX_SSH_USERNAME" "SSH username" "$(whoami)"
+        prompt "DGX_SSH_USERNAME" "SSH username on remote host" "$(whoami)"
         
         echo ""
-        echo -e "  ${DIM}Choose authentication method:${NC}"
+        echo -e "  ${DIM}Choose authentication method for remote host:${NC}"
         echo -e "    ${BOLD}1)${NC} Password"
         echo -e "    ${BOLD}2)${NC} SSH Private Key"
         echo -e -n "  ${BOLD}Select [1/2]:${NC} "
@@ -298,9 +324,11 @@ collect_dgx_config() {
             prompt "DGX_SSH_KEY_PATH" "Path to SSH private key" "~/.ssh/id_rsa"
         else
             CONFIG[SSH_AUTH_METHOD]="password"
-            prompt "DGX_SSH_PASSWORD" "SSH password" "" "true"
+            prompt "DGX_SSH_PASSWORD" "SSH password for remote host" "" "true"
         fi
     else
+        echo ""
+        echo -e "  ${YELLOW}Note:${NC} Managing localhost only. You can add remote hosts later in Settings."
         CONFIG[DGX_SSH_HOST]="localhost"
         CONFIG[DGX_SSH_PORT]="22"
         CONFIG[DGX_SSH_USERNAME]="$(whoami)"

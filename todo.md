@@ -1026,3 +1026,8 @@
 
 ## Installation Fix
 - [x] Remove patchedDependencies from package.json (missing patch file)
+
+## Installer Clarification
+- [x] Update DGX SSH config section to clarify it's for REMOTE host management
+- [x] Auto-detect local IP and smart-default to the other DGX Spark
+- [x] Added visual box showing "Installation Host (this machine)" vs "Remote Host to manage"
