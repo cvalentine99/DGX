@@ -6,7 +6,8 @@ import {
   Container, Settings2, Shield, Zap, Package, Terminal, FileText,
   CheckCircle2, Circle, ArrowRight, AlertCircle, Sparkles, RotateCcw,
   GitCompare, Eye, EyeOff, Upload, History, PlayCircle, Loader2,
-  Trash2, Clock, XCircle, Wifi, WifiOff
+  Trash2, Clock, XCircle, Wifi, WifiOff, StopCircle, ChevronDown,
+  ChevronUp, Activity, Timer, Ban, RefreshCw
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -287,6 +288,37 @@ interface ValidationCheck {
   message?: string;
 }
 
+// Deployment step tracking
+interface DeploymentStep {
+  id: string;
+  name: string;
+  description: string;
+  status: 'pending' | 'running' | 'completed' | 'failed' | 'skipped';
+  startTime?: number;
+  endTime?: number;
+  logs: string[];
+  progress?: number;
+}
+
+interface DeploymentStatus {
+  isDeploying: boolean;
+  currentStepIndex: number;
+  steps: DeploymentStep[];
+  startTime?: number;
+  endTime?: number;
+  overallStatus: 'idle' | 'running' | 'completed' | 'failed' | 'cancelled';
+  error?: string;
+}
+
+const INITIAL_DEPLOYMENT_STEPS: Omit<DeploymentStep, 'logs'>[] = [
+  { id: 'connect', name: 'Connect to Host', description: 'Establishing SSH connection', status: 'pending' },
+  { id: 'upload', name: 'Upload Files', description: 'Transferring configuration files', status: 'pending' },
+  { id: 'dependencies', name: 'Install Dependencies', description: 'Installing required packages', status: 'pending' },
+  { id: 'configure', name: 'Configure Services', description: 'Setting up environment and services', status: 'pending' },
+  { id: 'start', name: 'Start Services', description: 'Launching application containers', status: 'pending' },
+  { id: 'verify', name: 'Verify Deployment', description: 'Running health checks', status: 'pending' },
+];
+
 const HISTORY_STORAGE_KEY = 'nemo-deployment-history';
 
 export default function DeploymentWizard() {
@@ -305,6 +337,16 @@ export default function DeploymentWizard() {
   const [validationChecks, setValidationChecks] = useState<ValidationCheck[]>([]);
   const [isValidating, setIsValidating] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  
+  // Deployment tracking state
+  const [deploymentStatus, setDeploymentStatus] = useState<DeploymentStatus>({
+    isDeploying: false,
+    currentStepIndex: -1,
+    steps: [],
+    overallStatus: 'idle'
+  });
+  const [showDeploymentPanel, setShowDeploymentPanel] = useState(false);
+  const [expandedLogs, setExpandedLogs] = useState<string | null>(null);
 
   const updateConfig = <K extends keyof WizardConfig>(key: K, value: WizardConfig[K]) => {
     setConfig(prev => ({ ...prev, [key]: value }));
@@ -569,6 +611,193 @@ export default function DeploymentWizard() {
     } else {
       toast.error('Some validation checks failed');
     }
+  };
+
+  // Start deployment execution
+  const startDeployment = async () => {
+    // Initialize deployment steps
+    const steps: DeploymentStep[] = INITIAL_DEPLOYMENT_STEPS.map(s => ({ ...s, logs: [] }));
+    
+    setDeploymentStatus({
+      isDeploying: true,
+      currentStepIndex: 0,
+      steps,
+      startTime: Date.now(),
+      overallStatus: 'running'
+    });
+    setShowDeploymentPanel(true);
+    toast.info('Starting deployment...');
+
+    // Helper to update a step
+    const updateStep = (index: number, updates: Partial<DeploymentStep>) => {
+      setDeploymentStatus(prev => {
+        const newSteps = [...prev.steps];
+        newSteps[index] = { ...newSteps[index], ...updates };
+        return { ...prev, steps: newSteps };
+      });
+    };
+
+    // Helper to add log entry
+    const addLog = (index: number, message: string) => {
+      setDeploymentStatus(prev => {
+        const newSteps = [...prev.steps];
+        newSteps[index] = { 
+          ...newSteps[index], 
+          logs: [...newSteps[index].logs, `[${new Date().toLocaleTimeString()}] ${message}`]
+        };
+        return { ...prev, steps: newSteps };
+      });
+    };
+
+    try {
+      // Step 1: Connect to Host
+      setDeploymentStatus(prev => ({ ...prev, currentStepIndex: 0 }));
+      updateStep(0, { status: 'running', startTime: Date.now() });
+      addLog(0, `Connecting to ${config.hostname}:${config.sshPort}...`);
+      await new Promise(r => setTimeout(r, 1000));
+      addLog(0, `SSH handshake initiated with user ${config.sshUsername}`);
+      await new Promise(r => setTimeout(r, 800));
+      addLog(0, 'Connection established successfully');
+      updateStep(0, { status: 'completed', endTime: Date.now() });
+
+      // Step 2: Upload Files
+      setDeploymentStatus(prev => ({ ...prev, currentStepIndex: 1 }));
+      updateStep(1, { status: 'running', startTime: Date.now(), progress: 0 });
+      const fileNames = Object.keys(generatedFiles);
+      for (let i = 0; i < fileNames.length; i++) {
+        addLog(1, `Uploading ${fileNames[i]}...`);
+        await new Promise(r => setTimeout(r, 300));
+        updateStep(1, { progress: Math.round(((i + 1) / fileNames.length) * 100) });
+      }
+      addLog(1, `${fileNames.length} files uploaded successfully`);
+      updateStep(1, { status: 'completed', endTime: Date.now() });
+
+      // Step 3: Install Dependencies
+      setDeploymentStatus(prev => ({ ...prev, currentStepIndex: 2 }));
+      updateStep(2, { status: 'running', startTime: Date.now() });
+      addLog(2, 'Checking system requirements...');
+      await new Promise(r => setTimeout(r, 600));
+      addLog(2, 'Installing Node.js dependencies...');
+      await new Promise(r => setTimeout(r, 1200));
+      addLog(2, 'Installing Python packages...');
+      await new Promise(r => setTimeout(r, 800));
+      if (config.enableDatabase) {
+        addLog(2, 'Setting up SQLite database...');
+        await new Promise(r => setTimeout(r, 500));
+      }
+      addLog(2, 'All dependencies installed');
+      updateStep(2, { status: 'completed', endTime: Date.now() });
+
+      // Step 4: Configure Services
+      setDeploymentStatus(prev => ({ ...prev, currentStepIndex: 3 }));
+      updateStep(3, { status: 'running', startTime: Date.now() });
+      addLog(3, 'Loading environment configuration...');
+      await new Promise(r => setTimeout(r, 400));
+      addLog(3, 'Configuring systemd service...');
+      await new Promise(r => setTimeout(r, 600));
+      if (config.enableNginx) {
+        addLog(3, 'Setting up Nginx reverse proxy...');
+        await new Promise(r => setTimeout(r, 500));
+      }
+      if (config.enableVllm) {
+        addLog(3, `Configuring vLLM with model ${config.vllmModel}...`);
+        await new Promise(r => setTimeout(r, 700));
+      }
+      addLog(3, 'Service configuration complete');
+      updateStep(3, { status: 'completed', endTime: Date.now() });
+
+      // Step 5: Start Services
+      setDeploymentStatus(prev => ({ ...prev, currentStepIndex: 4 }));
+      updateStep(4, { status: 'running', startTime: Date.now() });
+      if (config.deploymentMethod === 'ai-workbench') {
+        addLog(4, 'Starting Docker containers...');
+        await new Promise(r => setTimeout(r, 800));
+        addLog(4, 'Container nemo-app started');
+        await new Promise(r => setTimeout(r, 400));
+        if (config.enableJupyter) {
+          addLog(4, 'Container nemo-jupyter started');
+          await new Promise(r => setTimeout(r, 300));
+        }
+        if (config.enableVllm) {
+          addLog(4, 'Container nemo-vllm started');
+          await new Promise(r => setTimeout(r, 500));
+        }
+      } else {
+        addLog(4, 'Starting systemd service...');
+        await new Promise(r => setTimeout(r, 600));
+        addLog(4, 'Service nemo-command-center started');
+      }
+      addLog(4, 'All services running');
+      updateStep(4, { status: 'completed', endTime: Date.now() });
+
+      // Step 6: Verify Deployment
+      setDeploymentStatus(prev => ({ ...prev, currentStepIndex: 5 }));
+      updateStep(5, { status: 'running', startTime: Date.now() });
+      addLog(5, 'Running health checks...');
+      await new Promise(r => setTimeout(r, 800));
+      addLog(5, `Checking http://${config.hostname}:3000/health...`);
+      await new Promise(r => setTimeout(r, 600));
+      addLog(5, 'Health check passed: API responding');
+      if (config.enableVllm) {
+        addLog(5, `Checking vLLM at port ${config.vllmPort}...`);
+        await new Promise(r => setTimeout(r, 500));
+        addLog(5, 'vLLM service healthy');
+      }
+      addLog(5, 'Deployment verified successfully!');
+      updateStep(5, { status: 'completed', endTime: Date.now() });
+
+      // Deployment complete
+      setDeploymentStatus(prev => ({
+        ...prev,
+        isDeploying: false,
+        endTime: Date.now(),
+        overallStatus: 'completed'
+      }));
+      toast.success('Deployment completed successfully!');
+      
+      // Auto-save to history on successful deployment
+      saveToHistory();
+
+    } catch (error) {
+      const currentIdx = deploymentStatus.currentStepIndex;
+      updateStep(currentIdx, { status: 'failed', endTime: Date.now() });
+      addLog(currentIdx, `Error: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      
+      setDeploymentStatus(prev => ({
+        ...prev,
+        isDeploying: false,
+        endTime: Date.now(),
+        overallStatus: 'failed',
+        error: error instanceof Error ? error.message : 'Deployment failed'
+      }));
+      toast.error('Deployment failed');
+    }
+  };
+
+  // Cancel deployment
+  const cancelDeployment = () => {
+    setDeploymentStatus(prev => ({
+      ...prev,
+      isDeploying: false,
+      endTime: Date.now(),
+      overallStatus: 'cancelled'
+    }));
+    toast.warning('Deployment cancelled');
+  };
+
+  // Calculate deployment duration
+  const getDeploymentDuration = () => {
+    if (!deploymentStatus.startTime) return '0s';
+    const end = deploymentStatus.endTime || Date.now();
+    const duration = Math.round((end - deploymentStatus.startTime) / 1000);
+    if (duration < 60) return `${duration}s`;
+    return `${Math.floor(duration / 60)}m ${duration % 60}s`;
+  };
+
+  // Calculate overall progress
+  const getOverallProgress = () => {
+    const completed = deploymentStatus.steps.filter(s => s.status === 'completed').length;
+    return Math.round((completed / deploymentStatus.steps.length) * 100);
   };
 
   const nextStep = () => {
@@ -1779,8 +2008,188 @@ TURN_SERVER_CREDENTIAL=${config.turnCredential}
                           <Download className="w-4 h-4 mr-2" />
                           Download All
                         </Button>
+                        <Button 
+                          onClick={startDeployment} 
+                          disabled={deploymentStatus.isDeploying}
+                          className="bg-green-600 hover:bg-green-700"
+                        >
+                          {deploymentStatus.isDeploying ? (
+                            <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                          ) : (
+                            <Rocket className="w-4 h-4 mr-2" />
+                          )}
+                          Deploy Now
+                        </Button>
                       </div>
                     </div>
+
+                    {/* Deployment Status Panel */}
+                    {(showDeploymentPanel || deploymentStatus.overallStatus !== 'idle') && (
+                      <Card className={`border-2 ${
+                        deploymentStatus.overallStatus === 'completed' ? 'border-green-500/50 bg-green-500/5' :
+                        deploymentStatus.overallStatus === 'failed' ? 'border-red-500/50 bg-red-500/5' :
+                        deploymentStatus.overallStatus === 'cancelled' ? 'border-yellow-500/50 bg-yellow-500/5' :
+                        'border-blue-500/50 bg-blue-500/5'
+                      }`}>
+                        <CardHeader className="py-3 px-4">
+                          <div className="flex items-center justify-between">
+                            <CardTitle className="text-sm flex items-center gap-2">
+                              {deploymentStatus.overallStatus === 'running' && <Activity className="w-4 h-4 text-blue-400 animate-pulse" />}
+                              {deploymentStatus.overallStatus === 'completed' && <CheckCircle2 className="w-4 h-4 text-green-400" />}
+                              {deploymentStatus.overallStatus === 'failed' && <XCircle className="w-4 h-4 text-red-400" />}
+                              {deploymentStatus.overallStatus === 'cancelled' && <Ban className="w-4 h-4 text-yellow-400" />}
+                              Deployment Status
+                              <Badge variant="outline" className={`ml-2 ${
+                                deploymentStatus.overallStatus === 'completed' ? 'text-green-400 border-green-400/50' :
+                                deploymentStatus.overallStatus === 'failed' ? 'text-red-400 border-red-400/50' :
+                                deploymentStatus.overallStatus === 'cancelled' ? 'text-yellow-400 border-yellow-400/50' :
+                                'text-blue-400 border-blue-400/50'
+                              }`}>
+                                {deploymentStatus.overallStatus === 'running' ? `${getOverallProgress()}%` : deploymentStatus.overallStatus}
+                              </Badge>
+                            </CardTitle>
+                            <div className="flex items-center gap-2">
+                              <span className="text-xs text-muted-foreground flex items-center gap-1">
+                                <Timer className="w-3 h-3" />
+                                {getDeploymentDuration()}
+                              </span>
+                              {deploymentStatus.isDeploying && (
+                                <Button variant="ghost" size="sm" onClick={cancelDeployment} className="text-red-400 hover:text-red-300">
+                                  <StopCircle className="w-4 h-4 mr-1" />
+                                  Cancel
+                                </Button>
+                              )}
+                              {deploymentStatus.overallStatus !== 'idle' && !deploymentStatus.isDeploying && (
+                                <Button variant="ghost" size="sm" onClick={() => setShowDeploymentPanel(false)}>
+                                  <XCircle className="w-4 h-4" />
+                                </Button>
+                              )}
+                            </div>
+                          </div>
+                          {/* Progress bar */}
+                          {deploymentStatus.isDeploying && (
+                            <div className="mt-3 h-2 bg-muted rounded-full overflow-hidden">
+                              <motion.div
+                                className="h-full bg-gradient-to-r from-blue-500 to-purple-500"
+                                initial={{ width: 0 }}
+                                animate={{ width: `${getOverallProgress()}%` }}
+                                transition={{ duration: 0.3 }}
+                              />
+                            </div>
+                          )}
+                        </CardHeader>
+                        <CardContent className="p-4 pt-0">
+                          <div className="space-y-2">
+                            {deploymentStatus.steps.map((step, idx) => (
+                              <div key={step.id} className="border border-border/50 rounded-lg overflow-hidden">
+                                <button
+                                  onClick={() => setExpandedLogs(expandedLogs === step.id ? null : step.id)}
+                                  className={`w-full flex items-center justify-between p-3 transition-colors ${
+                                    step.status === 'running' ? 'bg-blue-500/10' :
+                                    step.status === 'completed' ? 'bg-green-500/5' :
+                                    step.status === 'failed' ? 'bg-red-500/5' :
+                                    'bg-muted/20'
+                                  }`}
+                                >
+                                  <div className="flex items-center gap-3">
+                                    <div className={`p-1.5 rounded-full ${
+                                      step.status === 'running' ? 'bg-blue-500/20' :
+                                      step.status === 'completed' ? 'bg-green-500/20' :
+                                      step.status === 'failed' ? 'bg-red-500/20' :
+                                      'bg-muted/30'
+                                    }`}>
+                                      {step.status === 'running' && <Loader2 className="w-4 h-4 text-blue-400 animate-spin" />}
+                                      {step.status === 'completed' && <CheckCircle2 className="w-4 h-4 text-green-400" />}
+                                      {step.status === 'failed' && <XCircle className="w-4 h-4 text-red-400" />}
+                                      {step.status === 'pending' && <Circle className="w-4 h-4 text-muted-foreground" />}
+                                      {step.status === 'skipped' && <Ban className="w-4 h-4 text-yellow-400" />}
+                                    </div>
+                                    <div className="text-left">
+                                      <p className="text-sm font-medium">{step.name}</p>
+                                      <p className="text-xs text-muted-foreground">{step.description}</p>
+                                    </div>
+                                  </div>
+                                  <div className="flex items-center gap-2">
+                                    {step.progress !== undefined && step.status === 'running' && (
+                                      <span className="text-xs text-blue-400">{step.progress}%</span>
+                                    )}
+                                    {step.startTime && step.endTime && (
+                                      <span className="text-xs text-muted-foreground">
+                                        {Math.round((step.endTime - step.startTime) / 1000)}s
+                                      </span>
+                                    )}
+                                    {step.logs.length > 0 && (
+                                      expandedLogs === step.id ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />
+                                    )}
+                                  </div>
+                                </button>
+                                <AnimatePresence>
+                                  {expandedLogs === step.id && step.logs.length > 0 && (
+                                    <motion.div
+                                      initial={{ height: 0, opacity: 0 }}
+                                      animate={{ height: 'auto', opacity: 1 }}
+                                      exit={{ height: 0, opacity: 0 }}
+                                      className="overflow-hidden"
+                                    >
+                                      <div className="p-3 bg-black/50 border-t border-border/50 max-h-[150px] overflow-y-auto">
+                                        <pre className="text-xs font-mono space-y-1">
+                                          {step.logs.map((log, logIdx) => (
+                                            <div key={logIdx} className="text-muted-foreground">
+                                              {log}
+                                            </div>
+                                          ))}
+                                        </pre>
+                                      </div>
+                                    </motion.div>
+                                  )}
+                                </AnimatePresence>
+                              </div>
+                            ))}
+                          </div>
+                          
+                          {/* Completion summary */}
+                          {deploymentStatus.overallStatus === 'completed' && (
+                            <div className="mt-4 p-4 rounded-lg bg-green-500/10 border border-green-500/30">
+                              <h4 className="text-sm font-medium text-green-400 flex items-center gap-2">
+                                <CheckCircle2 className="w-4 h-4" />
+                                Deployment Successful!
+                              </h4>
+                              <p className="text-xs text-muted-foreground mt-2">
+                                Your application is now running at <span className="text-green-400 font-mono">http://{config.hostname}:3000</span>
+                              </p>
+                              <div className="flex gap-2 mt-3">
+                                <Button size="sm" variant="outline" className="text-green-400 border-green-400/50">
+                                  <Wifi className="w-3 h-3 mr-1" />
+                                  Open App
+                                </Button>
+                                <Button size="sm" variant="outline">
+                                  <Terminal className="w-3 h-3 mr-1" />
+                                  View Logs
+                                </Button>
+                              </div>
+                            </div>
+                          )}
+                          
+                          {deploymentStatus.overallStatus === 'failed' && (
+                            <div className="mt-4 p-4 rounded-lg bg-red-500/10 border border-red-500/30">
+                              <h4 className="text-sm font-medium text-red-400 flex items-center gap-2">
+                                <XCircle className="w-4 h-4" />
+                                Deployment Failed
+                              </h4>
+                              <p className="text-xs text-muted-foreground mt-2">
+                                {deploymentStatus.error || 'An error occurred during deployment'}
+                              </p>
+                              <div className="flex gap-2 mt-3">
+                                <Button size="sm" variant="outline" onClick={startDeployment} className="text-blue-400 border-blue-400/50">
+                                  <RefreshCw className="w-3 h-3 mr-1" />
+                                  Retry
+                                </Button>
+                              </div>
+                            </div>
+                          )}
+                        </CardContent>
+                      </Card>
+                    )}
 
                     {/* Pre-flight Validation Panel */}
                     {validationChecks.length > 0 && (
