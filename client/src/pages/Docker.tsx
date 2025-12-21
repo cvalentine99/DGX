@@ -32,6 +32,12 @@ import {
   Terminal,
   Send,
   ScrollText,
+  Plus,
+  HardDrive,
+  Link,
+  Unlink,
+  Info,
+  Settings,
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -567,6 +573,14 @@ export default function Docker() {
             <Upload className="h-4 w-4" />
             Compose
           </TabsTrigger>
+          <TabsTrigger value="networks" className="gap-2">
+            <GitBranch className="h-4 w-4" />
+            Networks
+          </TabsTrigger>
+          <TabsTrigger value="volumes" className="gap-2">
+            <Server className="h-4 w-4" />
+            Volumes
+          </TabsTrigger>
           <TabsTrigger value="kubernetes" className="gap-2">
             <Network className="h-4 w-4" />
             Kubernetes
@@ -1023,6 +1037,16 @@ export default function Docker() {
           </Card>
         </TabsContent>
 
+        {/* Networks Tab */}
+        <TabsContent value="networks" className="space-y-6">
+          <NetworksTab selectedHost={selectedHost} />
+        </TabsContent>
+
+        {/* Volumes Tab */}
+        <TabsContent value="volumes" className="space-y-6">
+          <VolumesTab selectedHost={selectedHost} />
+        </TabsContent>
+
         {/* Kubernetes Tab */}
         <TabsContent value="kubernetes" className="space-y-6">
           <Card className="bg-black/40 border-gray-800">
@@ -1392,6 +1416,632 @@ export default function Docker() {
               <p className="text-gray-500">No logs available</p>
             )}
             <div ref={composeLogsEndRef} />
+          </div>
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
+}
+
+// Networks Tab Component
+function NetworksTab({ selectedHost }: { selectedHost: "alpha" | "beta" }) {
+  const [createNetworkOpen, setCreateNetworkOpen] = useState(false);
+  const [newNetworkName, setNewNetworkName] = useState("");
+  const [newNetworkDriver, setNewNetworkDriver] = useState<"bridge" | "host" | "overlay" | "macvlan" | "none">("bridge");
+  const [newNetworkSubnet, setNewNetworkSubnet] = useState("");
+  const [newNetworkGateway, setNewNetworkGateway] = useState("");
+  const [selectedNetwork, setSelectedNetwork] = useState<string | null>(null);
+  const [connectContainerOpen, setConnectContainerOpen] = useState(false);
+  const [connectContainerId, setConnectContainerId] = useState("");
+
+  const { data: networksData, refetch: refetchNetworks, isLoading } = trpc.ssh.listNetworks.useQuery(
+    { hostId: selectedHost },
+    { refetchInterval: 30000 }
+  );
+
+  const { data: networkDetails, isLoading: isLoadingDetails } = trpc.ssh.getNetworkDetails.useQuery(
+    { hostId: selectedHost, networkId: selectedNetwork || "" },
+    { enabled: !!selectedNetwork }
+  );
+
+  const { data: containersData } = trpc.ssh.listAllContainers.useQuery(
+    { hostId: selectedHost }
+  );
+
+  const createNetworkMutation = trpc.ssh.createNetwork.useMutation({
+    onSuccess: (data) => {
+      if (data.success) {
+        toast.success(`Network ${newNetworkName} created`);
+        setCreateNetworkOpen(false);
+        setNewNetworkName("");
+        setNewNetworkSubnet("");
+        setNewNetworkGateway("");
+        refetchNetworks();
+      } else {
+        toast.error(data.error || "Failed to create network");
+      }
+    },
+    onError: (err) => toast.error(err.message),
+  });
+
+  const deleteNetworkMutation = trpc.ssh.deleteNetwork.useMutation({
+    onSuccess: (data) => {
+      if (data.success) {
+        toast.success("Network deleted");
+        setSelectedNetwork(null);
+        refetchNetworks();
+      } else {
+        toast.error(data.error || "Failed to delete network");
+      }
+    },
+    onError: (err) => toast.error(err.message),
+  });
+
+  const connectMutation = trpc.ssh.connectContainerToNetwork.useMutation({
+    onSuccess: (data) => {
+      if (data.success) {
+        toast.success("Container connected to network");
+        setConnectContainerOpen(false);
+        setConnectContainerId("");
+      } else {
+        toast.error(data.error || "Failed to connect container");
+      }
+    },
+    onError: (err) => toast.error(err.message),
+  });
+
+  const disconnectMutation = trpc.ssh.disconnectContainerFromNetwork.useMutation({
+    onSuccess: (data) => {
+      if (data.success) {
+        toast.success("Container disconnected from network");
+      } else {
+        toast.error(data.error || "Failed to disconnect container");
+      }
+    },
+    onError: (err) => toast.error(err.message),
+  });
+
+  const networks = networksData?.networks || [];
+
+  return (
+    <div className="space-y-6">
+      {/* Create Network */}
+      <Card className="bg-black/40 border-gray-800">
+        <CardHeader>
+          <div className="flex items-center justify-between">
+            <div>
+              <CardTitle className="flex items-center gap-2">
+                <GitBranch className="h-5 w-5 text-[#76b900]" />
+                Docker Networks
+                <Badge variant="outline" className="ml-2">{networks.length}</Badge>
+              </CardTitle>
+              <CardDescription>Manage Docker networks on {selectedHost === 'alpha' ? 'DGX Spark Alpha' : 'DGX Spark Beta'}</CardDescription>
+            </div>
+            <div className="flex items-center gap-2">
+              <Button variant="outline" size="sm" onClick={() => refetchNetworks()}>
+                <RefreshCw className={`h-4 w-4 ${isLoading ? 'animate-spin' : ''}`} />
+              </Button>
+              <Button className="bg-[#76b900] hover:bg-[#76b900]/90" onClick={() => setCreateNetworkOpen(true)}>
+                <Plus className="h-4 w-4 mr-2" />
+                Create Network
+              </Button>
+            </div>
+          </div>
+        </CardHeader>
+        <CardContent>
+          {isLoading ? (
+            <div className="flex items-center justify-center py-8">
+              <Loader2 className="h-6 w-6 animate-spin text-[#76b900]" />
+            </div>
+          ) : networks.length === 0 ? (
+            <div className="text-center py-8 text-gray-500">
+              <GitBranch className="h-12 w-12 mx-auto mb-3 opacity-50" />
+              <p>No custom networks found</p>
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+              {networks.map((network) => (
+                <div
+                  key={network.id}
+                  className={`p-4 rounded-lg border cursor-pointer transition-all ${
+                    selectedNetwork === network.id
+                      ? 'border-[#76b900] bg-[#76b900]/10'
+                      : 'border-gray-800 bg-black/30 hover:border-gray-700'
+                  }`}
+                  onClick={() => setSelectedNetwork(selectedNetwork === network.id ? null : network.id)}
+                >
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="font-medium text-white">{network.name}</span>
+                    <Badge variant="outline" className="text-xs">{network.driver}</Badge>
+                  </div>
+                  <div className="text-xs text-gray-500">
+                    <span>Scope: {network.scope}</span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* Network Details */}
+      {selectedNetwork && (
+        <Card className="bg-black/40 border-gray-800">
+          <CardHeader>
+            <div className="flex items-center justify-between">
+              <div>
+                <CardTitle className="flex items-center gap-2">
+                  <Info className="h-5 w-5 text-cyan-500" />
+                  Network Details
+                </CardTitle>
+                <CardDescription>{networkDetails?.network?.name}</CardDescription>
+              </div>
+              <div className="flex items-center gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setConnectContainerOpen(true)}
+                >
+                  <Link className="h-4 w-4 mr-2" />
+                  Connect Container
+                </Button>
+                {!['bridge', 'host', 'none'].includes(networkDetails?.network?.name || '') && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="text-red-500 hover:text-red-400"
+                    onClick={() => {
+                      if (confirm(`Delete network ${networkDetails?.network?.name}?`)) {
+                        deleteNetworkMutation.mutate({ hostId: selectedHost, networkId: selectedNetwork });
+                      }
+                    }}
+                  >
+                    <Trash2 className="h-4 w-4" />
+                  </Button>
+                )}
+              </div>
+            </div>
+          </CardHeader>
+          <CardContent>
+            {isLoadingDetails ? (
+              <div className="flex items-center justify-center py-8">
+                <Loader2 className="h-6 w-6 animate-spin text-[#76b900]" />
+              </div>
+            ) : networkDetails?.network ? (
+              <div className="space-y-4">
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                  <div className="p-3 rounded-lg bg-black/30 border border-gray-800">
+                    <div className="text-xs text-gray-500 mb-1">Driver</div>
+                    <div className="font-medium">{networkDetails.network.driver}</div>
+                  </div>
+                  <div className="p-3 rounded-lg bg-black/30 border border-gray-800">
+                    <div className="text-xs text-gray-500 mb-1">Subnet</div>
+                    <div className="font-medium font-mono text-sm">{networkDetails.network.subnet || 'N/A'}</div>
+                  </div>
+                  <div className="p-3 rounded-lg bg-black/30 border border-gray-800">
+                    <div className="text-xs text-gray-500 mb-1">Gateway</div>
+                    <div className="font-medium font-mono text-sm">{networkDetails.network.gateway || 'N/A'}</div>
+                  </div>
+                  <div className="p-3 rounded-lg bg-black/30 border border-gray-800">
+                    <div className="text-xs text-gray-500 mb-1">Scope</div>
+                    <div className="font-medium">{networkDetails.network.scope}</div>
+                  </div>
+                </div>
+
+                {/* Connected Containers */}
+                <div>
+                  <h4 className="text-sm font-medium text-gray-400 mb-2">Connected Containers ({networkDetails.network.containers?.length || 0})</h4>
+                  {networkDetails.network.containers && networkDetails.network.containers.length > 0 ? (
+                    <div className="space-y-2">
+                      {networkDetails.network.containers.map((container: any) => (
+                        <div key={container.id} className="flex items-center justify-between p-3 rounded-lg bg-black/30 border border-gray-800">
+                          <div>
+                            <span className="font-medium">{container.name}</span>
+                            <span className="text-xs text-gray-500 ml-2 font-mono">{container.ipv4}</span>
+                          </div>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="text-red-500 hover:text-red-400"
+                            onClick={() => {
+                              if (confirm(`Disconnect ${container.name} from this network?`)) {
+                                disconnectMutation.mutate({
+                                  hostId: selectedHost,
+                                  networkId: selectedNetwork,
+                                  containerId: container.id,
+                                });
+                              }
+                            }}
+                          >
+                            <Unlink className="h-4 w-4" />
+                          </Button>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="text-gray-500 text-sm">No containers connected</p>
+                  )}
+                </div>
+              </div>
+            ) : (
+              <p className="text-gray-500">Failed to load network details</p>
+            )}
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Create Network Dialog */}
+      <Dialog open={createNetworkOpen} onOpenChange={setCreateNetworkOpen}>
+        <DialogContent className="bg-black/95 border-gray-800">
+          <DialogHeader>
+            <DialogTitle>Create Docker Network</DialogTitle>
+            <DialogDescription>Create a new Docker network for container communication</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div>
+              <label className="text-sm text-gray-400">Network Name</label>
+              <Input
+                value={newNetworkName}
+                onChange={(e) => setNewNetworkName(e.target.value)}
+                placeholder="my-network"
+                className="bg-black/30 border-gray-700"
+              />
+            </div>
+            <div>
+              <label className="text-sm text-gray-400">Driver</label>
+              <select
+                value={newNetworkDriver}
+                onChange={(e) => setNewNetworkDriver(e.target.value as any)}
+                className="w-full h-10 rounded-md border border-gray-700 bg-black/30 px-3 text-sm"
+              >
+                <option value="bridge">Bridge (default)</option>
+                <option value="host">Host</option>
+                <option value="overlay">Overlay</option>
+                <option value="macvlan">Macvlan</option>
+                <option value="none">None</option>
+              </select>
+            </div>
+            <div>
+              <label className="text-sm text-gray-400">Subnet (optional)</label>
+              <Input
+                value={newNetworkSubnet}
+                onChange={(e) => setNewNetworkSubnet(e.target.value)}
+                placeholder="172.20.0.0/16"
+                className="bg-black/30 border-gray-700"
+              />
+            </div>
+            <div>
+              <label className="text-sm text-gray-400">Gateway (optional)</label>
+              <Input
+                value={newNetworkGateway}
+                onChange={(e) => setNewNetworkGateway(e.target.value)}
+                placeholder="172.20.0.1"
+                className="bg-black/30 border-gray-700"
+              />
+            </div>
+            <div className="flex justify-end gap-2">
+              <Button variant="outline" onClick={() => setCreateNetworkOpen(false)}>Cancel</Button>
+              <Button
+                className="bg-[#76b900] hover:bg-[#76b900]/90"
+                onClick={() => {
+                  createNetworkMutation.mutate({
+                    hostId: selectedHost,
+                    name: newNetworkName,
+                    driver: newNetworkDriver,
+                    subnet: newNetworkSubnet || undefined,
+                    gateway: newNetworkGateway || undefined,
+                  });
+                }}
+                disabled={!newNetworkName || createNetworkMutation.isPending}
+              >
+                {createNetworkMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Create'}
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Connect Container Dialog */}
+      <Dialog open={connectContainerOpen} onOpenChange={setConnectContainerOpen}>
+        <DialogContent className="bg-black/95 border-gray-800">
+          <DialogHeader>
+            <DialogTitle>Connect Container to Network</DialogTitle>
+            <DialogDescription>Select a container to connect to {networkDetails?.network?.name}</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <select
+              value={connectContainerId}
+              onChange={(e) => setConnectContainerId(e.target.value)}
+              className="w-full h-10 rounded-md border border-gray-700 bg-black/30 px-3 text-sm"
+            >
+              <option value="">Select a container...</option>
+              {[...(containersData?.running || []), ...(containersData?.stopped || [])].map((c: any) => (
+                <option key={c.id} value={c.id}>{c.name} ({c.image})</option>
+              ))}
+            </select>
+            <div className="flex justify-end gap-2">
+              <Button variant="outline" onClick={() => setConnectContainerOpen(false)}>Cancel</Button>
+              <Button
+                className="bg-[#76b900] hover:bg-[#76b900]/90"
+                onClick={() => {
+                  if (selectedNetwork && connectContainerId) {
+                    connectMutation.mutate({
+                      hostId: selectedHost,
+                      networkId: selectedNetwork,
+                      containerId: connectContainerId,
+                    });
+                  }
+                }}
+                disabled={!connectContainerId || connectMutation.isPending}
+              >
+                {connectMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Connect'}
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
+}
+
+// Volumes Tab Component
+function VolumesTab({ selectedHost }: { selectedHost: "alpha" | "beta" }) {
+  const [createVolumeOpen, setCreateVolumeOpen] = useState(false);
+  const [newVolumeName, setNewVolumeName] = useState("");
+  const [selectedVolume, setSelectedVolume] = useState<string | null>(null);
+
+  const { data: volumesData, refetch: refetchVolumes, isLoading } = trpc.ssh.listVolumes.useQuery(
+    { hostId: selectedHost },
+    { refetchInterval: 30000 }
+  );
+
+  const { data: volumeDetails, isLoading: isLoadingDetails } = trpc.ssh.getVolumeDetails.useQuery(
+    { hostId: selectedHost, volumeName: selectedVolume || "" },
+    { enabled: !!selectedVolume }
+  );
+
+  const { data: volumeContainers } = trpc.ssh.getVolumeContainers.useQuery(
+    { hostId: selectedHost, volumeName: selectedVolume || "" },
+    { enabled: !!selectedVolume }
+  );
+
+  const createVolumeMutation = trpc.ssh.createVolume.useMutation({
+    onSuccess: (data) => {
+      if (data.success) {
+        toast.success(`Volume ${newVolumeName} created`);
+        setCreateVolumeOpen(false);
+        setNewVolumeName("");
+        refetchVolumes();
+      } else {
+        toast.error(data.error || "Failed to create volume");
+      }
+    },
+    onError: (err) => toast.error(err.message),
+  });
+
+  const deleteVolumeMutation = trpc.ssh.deleteVolume.useMutation({
+    onSuccess: (data) => {
+      if (data.success) {
+        toast.success("Volume deleted");
+        setSelectedVolume(null);
+        refetchVolumes();
+      } else {
+        toast.error(data.error || "Failed to delete volume");
+      }
+    },
+    onError: (err) => toast.error(err.message),
+  });
+
+  const pruneVolumesMutation = trpc.ssh.pruneVolumes.useMutation({
+    onSuccess: (data) => {
+      if (data.success) {
+        toast.success(`Pruned unused volumes. Reclaimed: ${data.spaceReclaimed}`);
+        refetchVolumes();
+      } else {
+        toast.error(data.error || "Failed to prune volumes");
+      }
+    },
+    onError: (err) => toast.error(err.message),
+  });
+
+  const volumes = volumesData?.volumes || [];
+
+  return (
+    <div className="space-y-6">
+      {/* Volumes List */}
+      <Card className="bg-black/40 border-gray-800">
+        <CardHeader>
+          <div className="flex items-center justify-between">
+            <div>
+              <CardTitle className="flex items-center gap-2">
+                <HardDrive className="h-5 w-5 text-[#76b900]" />
+                Docker Volumes
+                <Badge variant="outline" className="ml-2">{volumes.length}</Badge>
+              </CardTitle>
+              <CardDescription>Persistent storage volumes on {selectedHost === 'alpha' ? 'DGX Spark Alpha' : 'DGX Spark Beta'}</CardDescription>
+            </div>
+            <div className="flex items-center gap-2">
+              <Button variant="outline" size="sm" onClick={() => refetchVolumes()}>
+                <RefreshCw className={`h-4 w-4 ${isLoading ? 'animate-spin' : ''}`} />
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                className="text-orange-500 hover:text-orange-400"
+                onClick={() => {
+                  if (confirm('Prune all unused volumes? This cannot be undone.')) {
+                    pruneVolumesMutation.mutate({ hostId: selectedHost });
+                  }
+                }}
+                disabled={pruneVolumesMutation.isPending}
+              >
+                {pruneVolumesMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4 mr-2" />}
+                Prune Unused
+              </Button>
+              <Button className="bg-[#76b900] hover:bg-[#76b900]/90" onClick={() => setCreateVolumeOpen(true)}>
+                <Plus className="h-4 w-4 mr-2" />
+                Create Volume
+              </Button>
+            </div>
+          </div>
+        </CardHeader>
+        <CardContent>
+          {isLoading ? (
+            <div className="flex items-center justify-center py-8">
+              <Loader2 className="h-6 w-6 animate-spin text-[#76b900]" />
+            </div>
+          ) : volumes.length === 0 ? (
+            <div className="text-center py-8 text-gray-500">
+              <HardDrive className="h-12 w-12 mx-auto mb-3 opacity-50" />
+              <p>No volumes found</p>
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+              {volumes.map((volume) => (
+                <div
+                  key={volume.name}
+                  className={`p-4 rounded-lg border cursor-pointer transition-all ${
+                    selectedVolume === volume.name
+                      ? 'border-[#76b900] bg-[#76b900]/10'
+                      : 'border-gray-800 bg-black/30 hover:border-gray-700'
+                  }`}
+                  onClick={() => setSelectedVolume(selectedVolume === volume.name ? null : volume.name)}
+                >
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="font-medium text-white truncate" title={volume.name}>
+                      {volume.name.length > 20 ? volume.name.substring(0, 20) + '...' : volume.name}
+                    </span>
+                    <Badge variant="outline" className="text-xs">{volume.driver}</Badge>
+                  </div>
+                  <div className="text-xs text-gray-500">
+                    <span>Scope: {volume.scope}</span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* Volume Details */}
+      {selectedVolume && (
+        <Card className="bg-black/40 border-gray-800">
+          <CardHeader>
+            <div className="flex items-center justify-between">
+              <div>
+                <CardTitle className="flex items-center gap-2">
+                  <Info className="h-5 w-5 text-cyan-500" />
+                  Volume Details
+                </CardTitle>
+                <CardDescription className="font-mono text-xs">{selectedVolume}</CardDescription>
+              </div>
+              <Button
+                variant="outline"
+                size="sm"
+                className="text-red-500 hover:text-red-400"
+                onClick={() => {
+                  if (confirm(`Delete volume ${selectedVolume}? This cannot be undone.`)) {
+                    deleteVolumeMutation.mutate({ hostId: selectedHost, volumeName: selectedVolume });
+                  }
+                }}
+                disabled={deleteVolumeMutation.isPending}
+              >
+                {deleteVolumeMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
+              </Button>
+            </div>
+          </CardHeader>
+          <CardContent>
+            {isLoadingDetails ? (
+              <div className="flex items-center justify-center py-8">
+                <Loader2 className="h-6 w-6 animate-spin text-[#76b900]" />
+              </div>
+            ) : volumeDetails?.volume ? (
+              <div className="space-y-4">
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                  <div className="p-3 rounded-lg bg-black/30 border border-gray-800">
+                    <div className="text-xs text-gray-500 mb-1">Driver</div>
+                    <div className="font-medium">{volumeDetails.volume.driver}</div>
+                  </div>
+                  <div className="p-3 rounded-lg bg-black/30 border border-gray-800">
+                    <div className="text-xs text-gray-500 mb-1">Size</div>
+                    <div className="font-medium">{volumeDetails.volume.size}</div>
+                  </div>
+                  <div className="p-3 rounded-lg bg-black/30 border border-gray-800">
+                    <div className="text-xs text-gray-500 mb-1">Scope</div>
+                    <div className="font-medium">{volumeDetails.volume.scope}</div>
+                  </div>
+                  <div className="p-3 rounded-lg bg-black/30 border border-gray-800">
+                    <div className="text-xs text-gray-500 mb-1">Created</div>
+                    <div className="font-medium text-xs">{volumeDetails.volume.createdAt ? new Date(volumeDetails.volume.createdAt).toLocaleDateString() : 'N/A'}</div>
+                  </div>
+                </div>
+
+                <div className="p-3 rounded-lg bg-black/30 border border-gray-800">
+                  <div className="text-xs text-gray-500 mb-1">Mount Point</div>
+                  <div className="font-mono text-sm text-gray-300 break-all">{volumeDetails.volume.mountpoint}</div>
+                </div>
+
+                {/* Containers using this volume */}
+                <div>
+                  <h4 className="text-sm font-medium text-gray-400 mb-2">Containers Using This Volume ({volumeContainers?.containers?.length || 0})</h4>
+                  {volumeContainers?.containers && volumeContainers.containers.length > 0 ? (
+                    <div className="space-y-2">
+                      {volumeContainers.containers.map((container: any) => (
+                        <div key={container.id} className="flex items-center justify-between p-3 rounded-lg bg-black/30 border border-gray-800">
+                          <div>
+                            <span className="font-medium">{container.name}</span>
+                            <span className="text-xs text-gray-500 ml-2">{container.image}</span>
+                          </div>
+                          <Badge variant="outline" className={container.status.includes('Up') ? 'border-green-500 text-green-500' : 'border-gray-500 text-gray-500'}>
+                            {container.status.includes('Up') ? 'Running' : 'Stopped'}
+                          </Badge>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="text-gray-500 text-sm">No containers using this volume</p>
+                  )}
+                </div>
+              </div>
+            ) : (
+              <p className="text-gray-500">Failed to load volume details</p>
+            )}
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Create Volume Dialog */}
+      <Dialog open={createVolumeOpen} onOpenChange={setCreateVolumeOpen}>
+        <DialogContent className="bg-black/95 border-gray-800">
+          <DialogHeader>
+            <DialogTitle>Create Docker Volume</DialogTitle>
+            <DialogDescription>Create a new persistent storage volume</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div>
+              <label className="text-sm text-gray-400">Volume Name</label>
+              <Input
+                value={newVolumeName}
+                onChange={(e) => setNewVolumeName(e.target.value)}
+                placeholder="my-volume"
+                className="bg-black/30 border-gray-700"
+              />
+            </div>
+            <div className="flex justify-end gap-2">
+              <Button variant="outline" onClick={() => setCreateVolumeOpen(false)}>Cancel</Button>
+              <Button
+                className="bg-[#76b900] hover:bg-[#76b900]/90"
+                onClick={() => {
+                  createVolumeMutation.mutate({
+                    hostId: selectedHost,
+                    name: newVolumeName,
+                  });
+                }}
+                disabled={!newVolumeName || createVolumeMutation.isPending}
+              >
+                {createVolumeMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Create'}
+              </Button>
+            </div>
           </div>
         </DialogContent>
       </Dialog>

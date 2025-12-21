@@ -3446,4 +3446,666 @@ ENV_EOF`);
         };
       }
     }),
+
+  // ============================================
+  // CONTAINER RESOURCE LIMITS
+  // ============================================
+
+  // Start container with resource limits
+  startContainerWithLimits: publicProcedure
+    .input(z.object({
+      hostId: z.enum(["alpha", "beta"]),
+      image: z.string(),
+      name: z.string().optional(),
+      cpuLimit: z.number().optional(), // Number of CPUs (e.g., 2.5)
+      memoryLimit: z.string().optional(), // e.g., "4g", "512m"
+      gpuCount: z.number().optional(), // Number of GPUs to allocate
+      ports: z.array(z.object({
+        host: z.number(),
+        container: z.number(),
+      })).optional(),
+      volumes: z.array(z.object({
+        host: z.string(),
+        container: z.string(),
+        readOnly: z.boolean().optional(),
+      })).optional(),
+      envVars: z.record(z.string(), z.string()).optional(),
+      network: z.string().optional(),
+      restart: z.enum(["no", "always", "unless-stopped", "on-failure"]).optional(),
+      detach: z.boolean().optional().default(true),
+    }))
+    .mutation(async ({ input }) => {
+      try {
+        const conn = await createSSHConnection(input.hostId);
+        
+        let cmd = 'docker run';
+        
+        if (input.detach) cmd += ' -d';
+        if (input.name) cmd += ` --name ${input.name}`;
+        if (input.cpuLimit) cmd += ` --cpus=${input.cpuLimit}`;
+        if (input.memoryLimit) cmd += ` --memory=${input.memoryLimit}`;
+        if (input.gpuCount) cmd += ` --gpus ${input.gpuCount === -1 ? 'all' : input.gpuCount}`;
+        if (input.restart) cmd += ` --restart=${input.restart}`;
+        if (input.network) cmd += ` --network=${input.network}`;
+        
+        if (input.ports) {
+          input.ports.forEach(p => {
+            cmd += ` -p ${p.host}:${p.container}`;
+          });
+        }
+        
+        if (input.volumes) {
+          input.volumes.forEach(v => {
+            cmd += ` -v ${v.host}:${v.container}${v.readOnly ? ':ro' : ''}`;
+          });
+        }
+        
+        if (input.envVars) {
+          Object.entries(input.envVars).forEach(([key, value]) => {
+            cmd += ` -e ${key}="${value}"`;
+          });
+        }
+        
+        cmd += ` ${input.image}`;
+        
+        const result = await executeSSHCommand(conn, cmd);
+        conn.end();
+        
+        return {
+          success: result.code === 0,
+          containerId: result.stdout.trim(),
+          error: result.code !== 0 ? result.stderr : undefined,
+          host: DGX_HOSTS[input.hostId],
+        };
+      } catch (error: any) {
+        return {
+          success: false,
+          error: error.message,
+          host: DGX_HOSTS[input.hostId],
+        };
+      }
+    }),
+
+  // Update container resource limits (requires container restart)
+  updateContainerLimits: publicProcedure
+    .input(z.object({
+      hostId: z.enum(["alpha", "beta"]),
+      containerId: z.string(),
+      cpuLimit: z.number().optional(),
+      memoryLimit: z.string().optional(),
+    }))
+    .mutation(async ({ input }) => {
+      try {
+        const conn = await createSSHConnection(input.hostId);
+        
+        let cmd = `docker update`;
+        if (input.cpuLimit) cmd += ` --cpus=${input.cpuLimit}`;
+        if (input.memoryLimit) cmd += ` --memory=${input.memoryLimit}`;
+        cmd += ` ${input.containerId}`;
+        
+        const result = await executeSSHCommand(conn, cmd);
+        conn.end();
+        
+        return {
+          success: result.code === 0,
+          error: result.code !== 0 ? result.stderr : undefined,
+          host: DGX_HOSTS[input.hostId],
+        };
+      } catch (error: any) {
+        return {
+          success: false,
+          error: error.message,
+          host: DGX_HOSTS[input.hostId],
+        };
+      }
+    }),
+
+  // Get container resource usage stats
+  getContainerStats: publicProcedure
+    .input(z.object({
+      hostId: z.enum(["alpha", "beta"]),
+      containerId: z.string(),
+    }))
+    .query(async ({ input }) => {
+      try {
+        const conn = await createSSHConnection(input.hostId);
+        
+        const result = await executeSSHCommand(
+          conn,
+          `docker stats ${input.containerId} --no-stream --format "{{json .}}"`
+        );
+        conn.end();
+        
+        if (result.code !== 0) {
+          return {
+            success: false,
+            error: result.stderr,
+            host: DGX_HOSTS[input.hostId],
+          };
+        }
+        
+        const stats = JSON.parse(result.stdout.trim());
+        return {
+          success: true,
+          stats: {
+            cpuPercent: stats.CPUPerc,
+            memoryUsage: stats.MemUsage,
+            memoryPercent: stats.MemPerc,
+            netIO: stats.NetIO,
+            blockIO: stats.BlockIO,
+            pids: stats.PIDs,
+          },
+          host: DGX_HOSTS[input.hostId],
+        };
+      } catch (error: any) {
+        return {
+          success: false,
+          error: error.message,
+          host: DGX_HOSTS[input.hostId],
+        };
+      }
+    }),
+
+  // ============================================
+  // DOCKER NETWORK MANAGEMENT
+  // ============================================
+
+  // List all Docker networks
+  listNetworks: publicProcedure
+    .input(z.object({
+      hostId: z.enum(["alpha", "beta"]),
+    }))
+    .query(async ({ input }) => {
+      try {
+        const conn = await createSSHConnection(input.hostId);
+        
+        const result = await executeSSHCommand(
+          conn,
+          `docker network ls --format "{{.ID}}|{{.Name}}|{{.Driver}}|{{.Scope}}"`
+        );
+        conn.end();
+        
+        if (result.code !== 0) {
+          return {
+            success: false,
+            error: result.stderr,
+            networks: [],
+            host: DGX_HOSTS[input.hostId],
+          };
+        }
+        
+        const networks = result.stdout.trim().split('\n').filter(Boolean).map(line => {
+          const [id, name, driver, scope] = line.split('|');
+          return { id, name, driver, scope };
+        });
+        
+        return {
+          success: true,
+          networks,
+          host: DGX_HOSTS[input.hostId],
+        };
+      } catch (error: any) {
+        return {
+          success: false,
+          error: error.message,
+          networks: [],
+          host: DGX_HOSTS[input.hostId],
+        };
+      }
+    }),
+
+  // Get network details including connected containers
+  getNetworkDetails: publicProcedure
+    .input(z.object({
+      hostId: z.enum(["alpha", "beta"]),
+      networkId: z.string(),
+    }))
+    .query(async ({ input }) => {
+      try {
+        const conn = await createSSHConnection(input.hostId);
+        
+        const result = await executeSSHCommand(
+          conn,
+          `docker network inspect ${input.networkId} --format '{{json .}}'`
+        );
+        conn.end();
+        
+        if (result.code !== 0) {
+          return {
+            success: false,
+            error: result.stderr,
+            host: DGX_HOSTS[input.hostId],
+          };
+        }
+        
+        const network = JSON.parse(result.stdout.trim());
+        const containers = Object.entries(network.Containers || {}).map(([id, info]: [string, any]) => ({
+          id,
+          name: info.Name,
+          ipv4: info.IPv4Address,
+          ipv6: info.IPv6Address,
+          macAddress: info.MacAddress,
+        }));
+        
+        return {
+          success: true,
+          network: {
+            id: network.Id,
+            name: network.Name,
+            driver: network.Driver,
+            scope: network.Scope,
+            subnet: network.IPAM?.Config?.[0]?.Subnet,
+            gateway: network.IPAM?.Config?.[0]?.Gateway,
+            internal: network.Internal,
+            attachable: network.Attachable,
+            containers,
+          },
+          host: DGX_HOSTS[input.hostId],
+        };
+      } catch (error: any) {
+        return {
+          success: false,
+          error: error.message,
+          host: DGX_HOSTS[input.hostId],
+        };
+      }
+    }),
+
+  // Create a new Docker network
+  createNetwork: publicProcedure
+    .input(z.object({
+      hostId: z.enum(["alpha", "beta"]),
+      name: z.string(),
+      driver: z.enum(["bridge", "host", "overlay", "macvlan", "none"]).optional().default("bridge"),
+      subnet: z.string().optional(),
+      gateway: z.string().optional(),
+      internal: z.boolean().optional(),
+      attachable: z.boolean().optional(),
+    }))
+    .mutation(async ({ input }) => {
+      try {
+        const conn = await createSSHConnection(input.hostId);
+        
+        let cmd = `docker network create --driver ${input.driver}`;
+        if (input.subnet) cmd += ` --subnet=${input.subnet}`;
+        if (input.gateway) cmd += ` --gateway=${input.gateway}`;
+        if (input.internal) cmd += ' --internal';
+        if (input.attachable) cmd += ' --attachable';
+        cmd += ` ${input.name}`;
+        
+        const result = await executeSSHCommand(conn, cmd);
+        conn.end();
+        
+        return {
+          success: result.code === 0,
+          networkId: result.stdout.trim(),
+          error: result.code !== 0 ? result.stderr : undefined,
+          host: DGX_HOSTS[input.hostId],
+        };
+      } catch (error: any) {
+        return {
+          success: false,
+          error: error.message,
+          host: DGX_HOSTS[input.hostId],
+        };
+      }
+    }),
+
+  // Delete a Docker network
+  deleteNetwork: publicProcedure
+    .input(z.object({
+      hostId: z.enum(["alpha", "beta"]),
+      networkId: z.string(),
+    }))
+    .mutation(async ({ input }) => {
+      try {
+        const conn = await createSSHConnection(input.hostId);
+        
+        const result = await executeSSHCommand(
+          conn,
+          `docker network rm ${input.networkId}`
+        );
+        conn.end();
+        
+        return {
+          success: result.code === 0,
+          error: result.code !== 0 ? result.stderr : undefined,
+          host: DGX_HOSTS[input.hostId],
+        };
+      } catch (error: any) {
+        return {
+          success: false,
+          error: error.message,
+          host: DGX_HOSTS[input.hostId],
+        };
+      }
+    }),
+
+  // Connect a container to a network
+  connectContainerToNetwork: publicProcedure
+    .input(z.object({
+      hostId: z.enum(["alpha", "beta"]),
+      networkId: z.string(),
+      containerId: z.string(),
+      ipAddress: z.string().optional(),
+      alias: z.string().optional(),
+    }))
+    .mutation(async ({ input }) => {
+      try {
+        const conn = await createSSHConnection(input.hostId);
+        
+        let cmd = `docker network connect`;
+        if (input.ipAddress) cmd += ` --ip ${input.ipAddress}`;
+        if (input.alias) cmd += ` --alias ${input.alias}`;
+        cmd += ` ${input.networkId} ${input.containerId}`;
+        
+        const result = await executeSSHCommand(conn, cmd);
+        conn.end();
+        
+        return {
+          success: result.code === 0,
+          error: result.code !== 0 ? result.stderr : undefined,
+          host: DGX_HOSTS[input.hostId],
+        };
+      } catch (error: any) {
+        return {
+          success: false,
+          error: error.message,
+          host: DGX_HOSTS[input.hostId],
+        };
+      }
+    }),
+
+  // Disconnect a container from a network
+  disconnectContainerFromNetwork: publicProcedure
+    .input(z.object({
+      hostId: z.enum(["alpha", "beta"]),
+      networkId: z.string(),
+      containerId: z.string(),
+      force: z.boolean().optional(),
+    }))
+    .mutation(async ({ input }) => {
+      try {
+        const conn = await createSSHConnection(input.hostId);
+        
+        let cmd = `docker network disconnect`;
+        if (input.force) cmd += ' -f';
+        cmd += ` ${input.networkId} ${input.containerId}`;
+        
+        const result = await executeSSHCommand(conn, cmd);
+        conn.end();
+        
+        return {
+          success: result.code === 0,
+          error: result.code !== 0 ? result.stderr : undefined,
+          host: DGX_HOSTS[input.hostId],
+        };
+      } catch (error: any) {
+        return {
+          success: false,
+          error: error.message,
+          host: DGX_HOSTS[input.hostId],
+        };
+      }
+    }),
+
+  // ============================================
+  // DOCKER VOLUME MANAGEMENT
+  // ============================================
+
+  // List all Docker volumes
+  listVolumes: publicProcedure
+    .input(z.object({
+      hostId: z.enum(["alpha", "beta"]),
+    }))
+    .query(async ({ input }) => {
+      try {
+        const conn = await createSSHConnection(input.hostId);
+        
+        const result = await executeSSHCommand(
+          conn,
+          `docker volume ls --format "{{.Name}}|{{.Driver}}|{{.Scope}}"`
+        );
+        conn.end();
+        
+        if (result.code !== 0) {
+          return {
+            success: false,
+            error: result.stderr,
+            volumes: [],
+            host: DGX_HOSTS[input.hostId],
+          };
+        }
+        
+        const volumes = result.stdout.trim().split('\n').filter(Boolean).map(line => {
+          const [name, driver, scope] = line.split('|');
+          return { name, driver, scope };
+        });
+        
+        return {
+          success: true,
+          volumes,
+          host: DGX_HOSTS[input.hostId],
+        };
+      } catch (error: any) {
+        return {
+          success: false,
+          error: error.message,
+          volumes: [],
+          host: DGX_HOSTS[input.hostId],
+        };
+      }
+    }),
+
+  // Get volume details including size and mount point
+  getVolumeDetails: publicProcedure
+    .input(z.object({
+      hostId: z.enum(["alpha", "beta"]),
+      volumeName: z.string(),
+    }))
+    .query(async ({ input }) => {
+      try {
+        const conn = await createSSHConnection(input.hostId);
+        
+        const result = await executeSSHCommand(
+          conn,
+          `docker volume inspect ${input.volumeName} --format '{{json .}}'`
+        );
+        
+        // Also get size using du
+        const sizeResult = await executeSSHCommand(
+          conn,
+          `sudo du -sh $(docker volume inspect ${input.volumeName} --format '{{.Mountpoint}}') 2>/dev/null | cut -f1`
+        );
+        conn.end();
+        
+        if (result.code !== 0) {
+          return {
+            success: false,
+            error: result.stderr,
+            host: DGX_HOSTS[input.hostId],
+          };
+        }
+        
+        const volume = JSON.parse(result.stdout.trim());
+        
+        return {
+          success: true,
+          volume: {
+            name: volume.Name,
+            driver: volume.Driver,
+            mountpoint: volume.Mountpoint,
+            scope: volume.Scope,
+            createdAt: volume.CreatedAt,
+            labels: volume.Labels || {},
+            options: volume.Options || {},
+            size: sizeResult.stdout.trim() || 'Unknown',
+          },
+          host: DGX_HOSTS[input.hostId],
+        };
+      } catch (error: any) {
+        return {
+          success: false,
+          error: error.message,
+          host: DGX_HOSTS[input.hostId],
+        };
+      }
+    }),
+
+  // Create a new Docker volume
+  createVolume: publicProcedure
+    .input(z.object({
+      hostId: z.enum(["alpha", "beta"]),
+      name: z.string(),
+      driver: z.string().optional().default("local"),
+      labels: z.record(z.string(), z.string()).optional(),
+      driverOpts: z.record(z.string(), z.string()).optional(),
+    }))
+    .mutation(async ({ input }) => {
+      try {
+        const conn = await createSSHConnection(input.hostId);
+        
+        let cmd = `docker volume create --driver ${input.driver}`;
+        
+        if (input.labels) {
+          Object.entries(input.labels).forEach(([key, value]) => {
+            cmd += ` --label ${key}="${value}"`;
+          });
+        }
+        
+        if (input.driverOpts) {
+          Object.entries(input.driverOpts).forEach(([key, value]) => {
+            cmd += ` --opt ${key}="${value}"`;
+          });
+        }
+        
+        cmd += ` ${input.name}`;
+        
+        const result = await executeSSHCommand(conn, cmd);
+        conn.end();
+        
+        return {
+          success: result.code === 0,
+          volumeName: result.stdout.trim(),
+          error: result.code !== 0 ? result.stderr : undefined,
+          host: DGX_HOSTS[input.hostId],
+        };
+      } catch (error: any) {
+        return {
+          success: false,
+          error: error.message,
+          host: DGX_HOSTS[input.hostId],
+        };
+      }
+    }),
+
+  // Delete a Docker volume
+  deleteVolume: publicProcedure
+    .input(z.object({
+      hostId: z.enum(["alpha", "beta"]),
+      volumeName: z.string(),
+      force: z.boolean().optional(),
+    }))
+    .mutation(async ({ input }) => {
+      try {
+        const conn = await createSSHConnection(input.hostId);
+        
+        let cmd = `docker volume rm`;
+        if (input.force) cmd += ' -f';
+        cmd += ` ${input.volumeName}`;
+        
+        const result = await executeSSHCommand(conn, cmd);
+        conn.end();
+        
+        return {
+          success: result.code === 0,
+          error: result.code !== 0 ? result.stderr : undefined,
+          host: DGX_HOSTS[input.hostId],
+        };
+      } catch (error: any) {
+        return {
+          success: false,
+          error: error.message,
+          host: DGX_HOSTS[input.hostId],
+        };
+      }
+    }),
+
+  // Prune unused volumes
+  pruneVolumes: publicProcedure
+    .input(z.object({
+      hostId: z.enum(["alpha", "beta"]),
+    }))
+    .mutation(async ({ input }) => {
+      try {
+        const conn = await createSSHConnection(input.hostId);
+        
+        const result = await executeSSHCommand(
+          conn,
+          `docker volume prune -f --filter "label!=keep"`
+        );
+        conn.end();
+        
+        // Parse space reclaimed from output
+        const spaceMatch = result.stdout.match(/Total reclaimed space: (.+)/i);
+        
+        return {
+          success: result.code === 0,
+          spaceReclaimed: spaceMatch ? spaceMatch[1] : '0B',
+          error: result.code !== 0 ? result.stderr : undefined,
+          host: DGX_HOSTS[input.hostId],
+        };
+      } catch (error: any) {
+        return {
+          success: false,
+          error: error.message,
+          host: DGX_HOSTS[input.hostId],
+        };
+      }
+    }),
+
+  // List containers using a specific volume
+  getVolumeContainers: publicProcedure
+    .input(z.object({
+      hostId: z.enum(["alpha", "beta"]),
+      volumeName: z.string(),
+    }))
+    .query(async ({ input }) => {
+      try {
+        const conn = await createSSHConnection(input.hostId);
+        
+        const result = await executeSSHCommand(
+          conn,
+          `docker ps -a --filter volume=${input.volumeName} --format "{{.ID}}|{{.Names}}|{{.Status}}|{{.Image}}"`
+        );
+        conn.end();
+        
+        if (result.code !== 0) {
+          return {
+            success: false,
+            error: result.stderr,
+            containers: [],
+            host: DGX_HOSTS[input.hostId],
+          };
+        }
+        
+        const containers = result.stdout.trim().split('\n').filter(Boolean).map(line => {
+          const [id, name, status, image] = line.split('|');
+          return { id, name, status, image };
+        });
+        
+        return {
+          success: true,
+          containers,
+          host: DGX_HOSTS[input.hostId],
+        };
+      } catch (error: any) {
+        return {
+          success: false,
+          error: error.message,
+          containers: [],
+          host: DGX_HOSTS[input.hostId],
+        };
+      }
+    }),
 });

@@ -584,3 +584,9 @@
 - [x] Add image pull progress indicator with real-time download progress
 - [x] Add container exec terminal - interactive shell access from UI
 - [x] Add compose stack logs aggregation - combined logs from all services
+
+# Docker Resource & Infrastructure Management
+
+- [x] Add container resource limits UI - CPU/memory/GPU limits when starting containers
+- [x] Add Docker network management - create/delete networks, connect containers (9 networks found)
+- [x] Add volume management panel - list, create, mount Docker volumes (61 volumes found)
