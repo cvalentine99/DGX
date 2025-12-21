@@ -921,3 +921,16 @@
 - [x] Create environment configuration template
 - [x] Create uninstall.sh cleanup script
 - [x] Add deployment documentation with troubleshooting
+
+## Deployment Wizard UI
+- [x] Create DeploymentWizard page component
+- [x] Add multi-step wizard with progress indicator
+- [x] Step 1: Choose deployment method (AI Workbench / Bare Metal)
+- [x] Step 2: Configure infrastructure (hosts, GPU, resources)
+- [x] Step 3: Configure services (database, vLLM, JupyterLab)
+- [x] Step 4: Configure secrets and environment variables
+- [x] Step 5: Review and generate configuration files
+- [x] Add config file preview with syntax highlighting
+- [x] Add download button for generated configs (text archive)
+- [x] Add copy-to-clipboard for individual files
+- [x] Add navigation link to sidebar

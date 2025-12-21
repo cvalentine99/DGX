@@ -29,6 +29,7 @@ import {
   AlertCircle,
   Settings,
   Container,
+  Rocket,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
@@ -57,6 +58,7 @@ const NAV_ITEMS = [
   { path: "/cuda", icon: Cpu, label: "CUDA", description: "Toolkit & Versions" },
   { path: "/docker", icon: Container, label: "Docker & K8s", description: "Container Management" },
   { path: "/settings", icon: Settings, label: "Settings", description: "System Configuration" },
+  { path: "/deploy", icon: Rocket, label: "Deploy", description: "Deployment Wizard" },
 ];
 
 interface HostMetrics {

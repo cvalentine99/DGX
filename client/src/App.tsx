@@ -15,6 +15,7 @@ import Holoscan from "./pages/Holoscan";
 import CudaToolkit from "./pages/CudaToolkit";
 import Settings from "./pages/Settings";
 import Docker from "./pages/Docker";
+import DeploymentWizard from "./pages/DeploymentWizard";
 import DashboardLayout from "./components/DashboardLayout";
 function Router() {
   // make sure to consider if you need authentication for certain routes
@@ -32,6 +33,7 @@ function Router() {
         <Route path="/cuda" component={CudaToolkit} />
         <Route path="/docker" component={Docker} />
         <Route path="/settings" component={Settings} />
+        <Route path="/deploy" component={DeploymentWizard} />
         <Route path="/404" component={NotFound} />
         <Route component={NotFound} />
       </Switch>
