@@ -619,3 +619,15 @@
 
 - [x] Move Docker tab content from Settings page to Docker & K8s page (already exists in sidebar)
 - [x] Remove Docker tab from Settings page (duplicate removed)
+
+# Quick Launch Presets
+
+- [x] Create quick-launch section with one-click deployment buttons
+- [x] Add Jupyter Lab launcher (NGC PyTorch/TensorFlow containers with Jupyter)
+- [x] Add TensorBoard launcher for training visualization
+- [x] Add NeMo Framework launcher for model training
+- [x] Add vLLM inference server launcher
+- [x] Add Triton Inference Server launcher
+- [x] Add VS Code Server, MLflow, Gradio, Ollama launchers
+- [x] Add host selection for deployment target
+- [x] Add port configuration and container naming

@@ -38,6 +38,10 @@ import {
   Unlink,
   Info,
   Settings,
+  MessageSquare,
+  Beaker,
+  Cpu,
+  BarChart3,
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -585,6 +589,10 @@ export default function Docker() {
             <Network className="h-4 w-4" />
             Kubernetes
           </TabsTrigger>
+          <TabsTrigger value="quicklaunch" className="gap-2">
+            <Rocket className="h-4 w-4" />
+            Quick Launch
+          </TabsTrigger>
         </TabsList>
 
         {/* Containers Tab */}
@@ -1124,6 +1132,11 @@ export default function Docker() {
               )}
             </CardContent>
           </Card>
+        </TabsContent>
+
+        {/* Quick Launch Tab */}
+        <TabsContent value="quicklaunch" className="space-y-6">
+          <QuickLaunchTab selectedHost={selectedHost} />
         </TabsContent>
       </Tabs>
 
@@ -2042,6 +2055,199 @@ function VolumesTab({ selectedHost }: { selectedHost: "alpha" | "beta" }) {
                 {createVolumeMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Create'}
               </Button>
             </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
+}
+
+
+// Quick Launch Tab Component
+function QuickLaunchTab({ selectedHost }: { selectedHost: "alpha" | "beta" }) {
+  const [customPort, setCustomPort] = useState<string>("");
+  const [customName, setCustomName] = useState<string>("");
+  const [launchModalOpen, setLaunchModalOpen] = useState(false);
+  const [launchingPreset, setLaunchingPreset] = useState<any>(null);
+
+  const { data: presetsData } = trpc.ssh.getQuickLaunchPresets.useQuery();
+  const presets = presetsData?.presets || [];
+
+  const launchMutation = trpc.ssh.launchQuickPreset.useMutation({
+    onSuccess: (data) => {
+      if (data.success) {
+        toast.success(
+          <div>
+            <p className="font-medium">Container launched successfully!</p>
+            <p className="text-sm text-gray-400">Access at: {data.accessUrl}</p>
+          </div>
+        );
+        setLaunchModalOpen(false);
+        setCustomPort("");
+        setCustomName("");
+      } else {
+        toast.error(data.error || "Failed to launch container");
+      }
+    },
+    onError: (err) => toast.error(err.message),
+  });
+
+  const handleLaunch = (preset: any) => {
+    setLaunchingPreset(preset);
+    setCustomPort(preset.defaultPort.toString());
+    setCustomName(`${preset.id}-${Date.now().toString().slice(-6)}`);
+    setLaunchModalOpen(true);
+  };
+
+  const handleConfirmLaunch = () => {
+    if (!launchingPreset) return;
+    launchMutation.mutate({
+      hostId: selectedHost,
+      presetId: launchingPreset.id,
+      containerName: customName || undefined,
+      port: customPort ? parseInt(customPort) : undefined,
+    });
+  };
+
+  const presetIcons: Record<string, React.ReactNode> = {
+    notebook: <FileText className="h-6 w-6" />,
+    chart: <BarChart3 className="h-6 w-6" />,
+    brain: <Sparkles className="h-6 w-6" />,
+    server: <Server className="h-6 w-6" />,
+    message: <MessageSquare className="h-6 w-6" />,
+    code: <Terminal className="h-6 w-6" />,
+    flask: <Beaker className="h-6 w-6" />,
+    layout: <Layers className="h-6 w-6" />,
+  };
+
+  const categories = Array.from(new Set(presets.map((p: any) => p.category)));
+
+  return (
+    <div className="space-y-6">
+      {/* Header */}
+      <Card className="bg-gradient-to-r from-[#3b82f6]/20 to-purple-500/20 border-[#3b82f6]/30">
+        <CardContent className="py-6">
+          <div className="flex items-center gap-4">
+            <div className="p-3 rounded-xl bg-[#3b82f6]/20 border border-[#3b82f6]/30">
+              <Rocket className="h-8 w-8 text-[#3b82f6]" />
+            </div>
+            <div>
+              <h2 className="text-xl font-bold text-white">Quick Launch</h2>
+              <p className="text-gray-400">One-click deployment of common AI/ML applications</p>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Presets by Category */}
+      {categories.map((category: string) => (
+        <div key={category} className="space-y-4">
+          <div className="flex items-center gap-2 text-gray-400">
+            <Zap className="h-5 w-5" />
+            <h3 className="text-lg font-semibold">{category}</h3>
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            {presets.filter((p: any) => p.category === category).map((preset: any) => (
+              <Card
+                key={preset.id}
+                className="bg-black/40 border-gray-800 hover:border-[#3b82f6]/50 transition-all cursor-pointer group"
+              >
+                <CardContent className="p-4">
+                  <div className="flex items-start justify-between mb-3">
+                    <div className="p-2 rounded-lg bg-[#3b82f6]/10 text-[#3b82f6] group-hover:bg-[#3b82f6]/20 transition-colors">
+                      {presetIcons[preset.icon] || <Box className="h-6 w-6" />}
+                    </div>
+                    {preset.gpuRequired && (
+                      <Badge variant="outline" className="text-xs border-yellow-500/50 text-yellow-500">
+                        <Cpu className="h-3 w-3 mr-1" />
+                        GPU
+                      </Badge>
+                    )}
+                  </div>
+                  <h4 className="font-semibold text-white mb-1">{preset.name}</h4>
+                  <p className="text-sm text-gray-400 mb-3 line-clamp-2">{preset.description}</p>
+                  <div className="flex items-center justify-between">
+                    <div className="text-xs text-gray-500">
+                      Port: {preset.defaultPort}
+                    </div>
+                    <Button
+                      size="sm"
+                      className="bg-[#3b82f6] hover:bg-[#3b82f6]/90"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleLaunch(preset);
+                      }}
+                    >
+                      <Play className="h-3 w-3 mr-1" />
+                      Launch
+                    </Button>
+                  </div>
+                </CardContent>
+              </Card>
+            ))}
+          </div>
+        </div>
+      ))}
+
+      {/* Launch Configuration Modal */}
+      <Dialog open={launchModalOpen} onOpenChange={setLaunchModalOpen}>
+        <DialogContent className="max-w-md bg-black/95 border-gray-800">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Rocket className="h-5 w-5 text-[#3b82f6]" />
+              Launch {launchingPreset?.name}
+            </DialogTitle>
+            <DialogDescription>
+              Configure and deploy to {selectedHost === 'alpha' ? 'DGX Spark Alpha' : 'DGX Spark Beta'}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <div className="space-y-2">
+              <label className="text-sm font-medium text-gray-300">Container Name</label>
+              <Input
+                value={customName}
+                onChange={(e) => setCustomName(e.target.value)}
+                placeholder="my-container"
+                className="bg-black/50 border-gray-700"
+              />
+            </div>
+            <div className="space-y-2">
+              <label className="text-sm font-medium text-gray-300">Port</label>
+              <Input
+                type="number"
+                value={customPort}
+                onChange={(e) => setCustomPort(e.target.value)}
+                placeholder={launchingPreset?.defaultPort?.toString()}
+                className="bg-black/50 border-gray-700"
+              />
+            </div>
+            <div className="p-3 rounded-lg bg-gray-900/50 border border-gray-800">
+              <div className="text-xs text-gray-500 mb-2">Image</div>
+              <code className="text-sm text-[#3b82f6]">{launchingPreset?.image}</code>
+            </div>
+            {launchingPreset?.gpuRequired && (
+              <div className="flex items-center gap-2 text-yellow-500 text-sm">
+                <AlertCircle className="h-4 w-4" />
+                This container requires GPU access
+              </div>
+            )}
+          </div>
+          <div className="flex justify-end gap-2">
+            <Button variant="outline" onClick={() => setLaunchModalOpen(false)}>
+              Cancel
+            </Button>
+            <Button
+              className="bg-[#3b82f6] hover:bg-[#3b82f6]/90"
+              onClick={handleConfirmLaunch}
+              disabled={launchMutation.isPending}
+            >
+              {launchMutation.isPending ? (
+                <Loader2 className="h-4 w-4 animate-spin mr-2" />
+              ) : (
+                <Rocket className="h-4 w-4 mr-2" />
+              )}
+              Launch Container
+            </Button>
           </div>
         </DialogContent>
       </Dialog>

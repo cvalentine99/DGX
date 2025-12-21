@@ -4108,4 +4108,386 @@ ENV_EOF`);
         };
       }
     }),
+
+  // ============================================
+  // QUICK LAUNCH PRESETS
+  // ============================================
+
+  // Get available quick launch presets
+  getQuickLaunchPresets: publicProcedure
+    .query(() => {
+      return {
+        presets: [
+          {
+            id: 'jupyter-pytorch',
+            name: 'Jupyter Lab (PyTorch)',
+            description: 'NGC PyTorch container with JupyterLab for interactive development',
+            image: 'nvcr.io/nvidia/pytorch:24.01-py3',
+            icon: 'notebook',
+            category: 'Development',
+            defaultPort: 8888,
+            command: 'jupyter lab --ip=0.0.0.0 --port=8888 --no-browser --allow-root --NotebookApp.token=""',
+            volumes: ['/home/ubuntu/workspace:/workspace'],
+            gpuRequired: true,
+          },
+          {
+            id: 'jupyter-tensorflow',
+            name: 'Jupyter Lab (TensorFlow)',
+            description: 'NGC TensorFlow container with JupyterLab',
+            image: 'nvcr.io/nvidia/tensorflow:24.01-tf2-py3',
+            icon: 'notebook',
+            category: 'Development',
+            defaultPort: 8888,
+            command: 'jupyter lab --ip=0.0.0.0 --port=8888 --no-browser --allow-root --NotebookApp.token=""',
+            volumes: ['/home/ubuntu/workspace:/workspace'],
+            gpuRequired: true,
+          },
+          {
+            id: 'tensorboard',
+            name: 'TensorBoard',
+            description: 'Visualization toolkit for training metrics and model graphs',
+            image: 'tensorflow/tensorflow:latest',
+            icon: 'chart',
+            category: 'Monitoring',
+            defaultPort: 6006,
+            command: 'tensorboard --logdir=/logs --host=0.0.0.0 --port=6006',
+            volumes: ['/home/ubuntu/logs:/logs'],
+            gpuRequired: false,
+          },
+          {
+            id: 'nemo-framework',
+            name: 'NeMo Framework',
+            description: 'NVIDIA NeMo for building and training AI models',
+            image: 'nvcr.io/nvidia/nemo:24.01.framework',
+            icon: 'brain',
+            category: 'Training',
+            defaultPort: 8888,
+            command: 'jupyter lab --ip=0.0.0.0 --port=8888 --no-browser --allow-root',
+            volumes: ['/home/ubuntu/nemo-experiments:/nemo-experiments'],
+            gpuRequired: true,
+          },
+          {
+            id: 'vllm-server',
+            name: 'vLLM Inference Server',
+            description: 'High-throughput LLM serving with PagedAttention',
+            image: 'vllm/vllm-openai:latest',
+            icon: 'server',
+            category: 'Inference',
+            defaultPort: 8000,
+            command: '--model meta-llama/Llama-2-7b-chat-hf --host 0.0.0.0 --port 8000',
+            volumes: ['/home/ubuntu/.cache/huggingface:/root/.cache/huggingface'],
+            gpuRequired: true,
+            envVars: { HUGGING_FACE_HUB_TOKEN: '${HUGGINGFACE_TOKEN}' },
+          },
+          {
+            id: 'triton-server',
+            name: 'Triton Inference Server',
+            description: 'NVIDIA Triton for multi-framework model serving',
+            image: 'nvcr.io/nvidia/tritonserver:24.01-py3',
+            icon: 'server',
+            category: 'Inference',
+            defaultPort: 8000,
+            command: 'tritonserver --model-repository=/models --http-port=8000 --grpc-port=8001 --metrics-port=8002',
+            volumes: ['/home/ubuntu/triton-models:/models'],
+            gpuRequired: true,
+          },
+          {
+            id: 'ollama',
+            name: 'Ollama',
+            description: 'Run open-source LLMs locally with simple API',
+            image: 'ollama/ollama:latest',
+            icon: 'message',
+            category: 'Inference',
+            defaultPort: 11434,
+            command: '',
+            volumes: ['/home/ubuntu/.ollama:/root/.ollama'],
+            gpuRequired: true,
+          },
+          {
+            id: 'code-server',
+            name: 'VS Code Server',
+            description: 'VS Code in the browser for remote development',
+            image: 'codercom/code-server:latest',
+            icon: 'code',
+            category: 'Development',
+            defaultPort: 8080,
+            command: '--bind-addr 0.0.0.0:8080 --auth none /workspace',
+            volumes: ['/home/ubuntu/workspace:/workspace'],
+            gpuRequired: false,
+          },
+          {
+            id: 'mlflow',
+            name: 'MLflow Tracking Server',
+            description: 'ML experiment tracking and model registry',
+            image: 'ghcr.io/mlflow/mlflow:latest',
+            icon: 'flask',
+            category: 'Monitoring',
+            defaultPort: 5000,
+            command: 'mlflow server --host 0.0.0.0 --port 5000 --backend-store-uri sqlite:///mlflow.db --default-artifact-root /mlflow-artifacts',
+            volumes: ['/home/ubuntu/mlflow:/mlflow-artifacts'],
+            gpuRequired: false,
+          },
+          {
+            id: 'gradio',
+            name: 'Gradio Demo Server',
+            description: 'Quick ML model demos with Gradio UI',
+            image: 'python:3.11-slim',
+            icon: 'layout',
+            category: 'Development',
+            defaultPort: 7860,
+            command: 'pip install gradio && python -c "import gradio as gr; gr.Interface(fn=lambda x: x, inputs=\'text\', outputs=\'text\').launch(server_name=\'0.0.0.0\', server_port=7860)"',
+            volumes: ['/home/ubuntu/gradio-apps:/app'],
+            gpuRequired: false,
+          },
+        ],
+      };
+    }),
+
+  // Launch a quick preset container
+  launchQuickPreset: publicProcedure
+    .input(z.object({
+      hostId: z.enum(["alpha", "beta"]),
+      presetId: z.string(),
+      containerName: z.string().optional(),
+      port: z.number().optional(),
+      customVolumes: z.array(z.string()).optional(),
+      customEnvVars: z.record(z.string(), z.string()).optional(),
+    }))
+    .mutation(async ({ input }) => {
+      const presets: Record<string, any> = {
+        'jupyter-pytorch': {
+          image: 'nvcr.io/nvidia/pytorch:24.01-py3',
+          defaultPort: 8888,
+          command: 'jupyter lab --ip=0.0.0.0 --port=8888 --no-browser --allow-root --NotebookApp.token=""',
+          volumes: ['/home/ubuntu/workspace:/workspace'],
+          gpuRequired: true,
+        },
+        'jupyter-tensorflow': {
+          image: 'nvcr.io/nvidia/tensorflow:24.01-tf2-py3',
+          defaultPort: 8888,
+          command: 'jupyter lab --ip=0.0.0.0 --port=8888 --no-browser --allow-root --NotebookApp.token=""',
+          volumes: ['/home/ubuntu/workspace:/workspace'],
+          gpuRequired: true,
+        },
+        'tensorboard': {
+          image: 'tensorflow/tensorflow:latest',
+          defaultPort: 6006,
+          command: 'tensorboard --logdir=/logs --host=0.0.0.0 --port=6006',
+          volumes: ['/home/ubuntu/logs:/logs'],
+          gpuRequired: false,
+        },
+        'nemo-framework': {
+          image: 'nvcr.io/nvidia/nemo:24.01.framework',
+          defaultPort: 8888,
+          command: 'jupyter lab --ip=0.0.0.0 --port=8888 --no-browser --allow-root',
+          volumes: ['/home/ubuntu/nemo-experiments:/nemo-experiments'],
+          gpuRequired: true,
+        },
+        'vllm-server': {
+          image: 'vllm/vllm-openai:latest',
+          defaultPort: 8000,
+          command: '--model meta-llama/Llama-2-7b-chat-hf --host 0.0.0.0 --port 8000',
+          volumes: ['/home/ubuntu/.cache/huggingface:/root/.cache/huggingface'],
+          gpuRequired: true,
+          envVars: { HUGGING_FACE_HUB_TOKEN: process.env.HUGGINGFACE_TOKEN || '' },
+        },
+        'triton-server': {
+          image: 'nvcr.io/nvidia/tritonserver:24.01-py3',
+          defaultPort: 8000,
+          command: 'tritonserver --model-repository=/models --http-port=8000 --grpc-port=8001 --metrics-port=8002',
+          volumes: ['/home/ubuntu/triton-models:/models'],
+          gpuRequired: true,
+        },
+        'ollama': {
+          image: 'ollama/ollama:latest',
+          defaultPort: 11434,
+          command: '',
+          volumes: ['/home/ubuntu/.ollama:/root/.ollama'],
+          gpuRequired: true,
+        },
+        'code-server': {
+          image: 'codercom/code-server:latest',
+          defaultPort: 8080,
+          command: '--bind-addr 0.0.0.0:8080 --auth none /workspace',
+          volumes: ['/home/ubuntu/workspace:/workspace'],
+          gpuRequired: false,
+        },
+        'mlflow': {
+          image: 'ghcr.io/mlflow/mlflow:latest',
+          defaultPort: 5000,
+          command: 'mlflow server --host 0.0.0.0 --port 5000 --backend-store-uri sqlite:///mlflow.db --default-artifact-root /mlflow-artifacts',
+          volumes: ['/home/ubuntu/mlflow:/mlflow-artifacts'],
+          gpuRequired: false,
+        },
+        'gradio': {
+          image: 'python:3.11-slim',
+          defaultPort: 7860,
+          command: 'pip install gradio && python -c "import gradio as gr; gr.Interface(fn=lambda x: x, inputs=\'text\', outputs=\'text\').launch(server_name=\'0.0.0.0\', server_port=7860)"',
+          volumes: ['/home/ubuntu/gradio-apps:/app'],
+          gpuRequired: false,
+        },
+      };
+
+      const preset = presets[input.presetId];
+      if (!preset) {
+        return {
+          success: false,
+          error: `Unknown preset: ${input.presetId}`,
+          host: DGX_HOSTS[input.hostId],
+        };
+      }
+
+      try {
+        const conn = await createSSHConnection(input.hostId);
+        
+        const containerName = input.containerName || `quick-${input.presetId}-${Date.now()}`;
+        const port = input.port || preset.defaultPort;
+        const volumes = input.customVolumes || preset.volumes;
+        const envVars = { ...preset.envVars, ...input.customEnvVars };
+        
+        // Build docker run command
+        let dockerCmd = `docker run -d --name ${containerName}`;
+        
+        // Add GPU support if required
+        if (preset.gpuRequired) {
+          dockerCmd += ' --gpus all';
+        }
+        
+        // Add port mapping
+        dockerCmd += ` -p ${port}:${preset.defaultPort}`;
+        
+        // Add volumes
+        for (const vol of volumes) {
+          dockerCmd += ` -v ${vol}`;
+        }
+        
+        // Add environment variables
+        for (const [key, value] of Object.entries(envVars)) {
+          if (value) {
+            dockerCmd += ` -e ${key}="${value}"`;
+          }
+        }
+        
+        // Add image and command
+        dockerCmd += ` ${preset.image}`;
+        if (preset.command) {
+          dockerCmd += ` ${preset.command}`;
+        }
+        
+        // Create volume directories first
+        for (const vol of volumes) {
+          const hostPath = vol.split(':')[0];
+          await executeSSHCommand(conn, `mkdir -p ${hostPath}`);
+        }
+        
+        // Run the container
+        const result = await executeSSHCommand(conn, dockerCmd);
+        conn.end();
+        
+        if (result.code !== 0) {
+          return {
+            success: false,
+            error: result.stderr || 'Failed to start container',
+            host: DGX_HOSTS[input.hostId],
+          };
+        }
+        
+        const containerId = result.stdout.trim().substring(0, 12);
+        
+        return {
+          success: true,
+          containerId,
+          containerName,
+          port,
+          accessUrl: `http://${DGX_HOSTS[input.hostId].localIp}:${port}`,
+          host: DGX_HOSTS[input.hostId],
+        };
+      } catch (error: any) {
+        return {
+          success: false,
+          error: error.message,
+          host: DGX_HOSTS[input.hostId],
+        };
+      }
+    }),
+
+  // Check if a port is available on a host
+  checkPortAvailable: publicProcedure
+    .input(z.object({
+      hostId: z.enum(["alpha", "beta"]),
+      port: z.number(),
+    }))
+    .query(async ({ input }) => {
+      try {
+        const conn = await createSSHConnection(input.hostId);
+        
+        const result = await executeSSHCommand(
+          conn,
+          `ss -tlnp | grep -q ":${input.port} " && echo "in_use" || echo "available"`
+        );
+        conn.end();
+        
+        return {
+          success: true,
+          available: result.stdout.trim() === 'available',
+          port: input.port,
+          host: DGX_HOSTS[input.hostId],
+        };
+      } catch (error: any) {
+        return {
+          success: false,
+          error: error.message,
+          available: false,
+          port: input.port,
+          host: DGX_HOSTS[input.hostId],
+        };
+      }
+    }),
+
+  // Find next available port in a range
+  findAvailablePort: publicProcedure
+    .input(z.object({
+      hostId: z.enum(["alpha", "beta"]),
+      startPort: z.number().default(8000),
+      endPort: z.number().default(9000),
+    }))
+    .query(async ({ input }) => {
+      try {
+        const conn = await createSSHConnection(input.hostId);
+        
+        const result = await executeSSHCommand(
+          conn,
+          `ss -tlnp | grep -oP ':\\K[0-9]+(?= )' | sort -n | uniq`
+        );
+        conn.end();
+        
+        const usedPorts = new Set(
+          result.stdout.trim().split('\n').filter(Boolean).map(Number)
+        );
+        
+        for (let port = input.startPort; port <= input.endPort; port++) {
+          if (!usedPorts.has(port)) {
+            return {
+              success: true,
+              port,
+              host: DGX_HOSTS[input.hostId],
+            };
+          }
+        }
+        
+        return {
+          success: false,
+          error: `No available ports in range ${input.startPort}-${input.endPort}`,
+          port: null,
+          host: DGX_HOSTS[input.hostId],
+        };
+      } catch (error: any) {
+        return {
+          success: false,
+          error: error.message,
+          port: null,
+          host: DGX_HOSTS[input.hostId],
+        };
+      }
+    }),
 });
