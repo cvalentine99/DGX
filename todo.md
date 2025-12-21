@@ -600,3 +600,7 @@
 - [x] Display all network interfaces with IPs and link speeds (Wireless/Ethernet icons)
 - [x] Add storage topology visualization (NVMe SSD in specs panel)
 - [x] Show data flow animation on active connections (animated packets)
+
+# Branding Update
+
+- [x] Replace NEMO title with Valentine RF in header

@@ -159,7 +159,7 @@ function Sidebar({ expanded, onToggle }: { expanded: boolean; onToggle: () => vo
                 transition={{ duration: 0.15 }}
                 className="flex flex-col"
               >
-                <span className="font-display text-sm font-bold text-foreground tracking-wider">NEMO</span>
+                <span className="font-display text-sm font-bold text-foreground tracking-wider">VALENTINE RF</span>
                 <span className="text-[10px] text-muted-foreground tracking-wide">COMMAND CENTER</span>
               </motion.div>
             )}
