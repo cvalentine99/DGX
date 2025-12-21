@@ -604,3 +604,9 @@
 # Branding Update
 
 - [x] Replace NEMO title with Valentine RF in header
+
+# Color Theme Update
+
+- [x] Change nvidia-green to vibrant blue throughout dashboard
+- [x] Update CSS color variables in index.css
+- [x] Update all hardcoded green values in components

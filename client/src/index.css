@@ -46,9 +46,9 @@
   --color-sidebar-border: var(--sidebar-border);
   --color-sidebar-ring: var(--sidebar-ring);
   
-  /* Custom NVIDIA Colors */
-  --color-nvidia-green: oklch(0.72 0.19 128);
-  --color-nvidia-teal: oklch(0.58 0.12 185);
+  /* Custom Valentine RF Colors */
+  --color-nvidia-green: oklch(0.65 0.22 250);
+  --color-nvidia-teal: oklch(0.55 0.18 270);
   --color-nvidia-warning: oklch(0.75 0.18 55);
   --color-nvidia-critical: oklch(0.58 0.22 25);
   --color-nvidia-success: oklch(0.55 0.15 145);
@@ -72,9 +72,9 @@
   --popover: oklch(0.14 0.02 260);
   --popover-foreground: oklch(0.92 0.01 260);
   
-  /* NVIDIA Green as Primary */
-  --primary: oklch(0.72 0.19 128);
-  --primary-foreground: oklch(0.1 0.02 128);
+  /* Vibrant Blue as Primary */
+  --primary: oklch(0.65 0.22 250);
+  --primary-foreground: oklch(0.98 0.01 250);
   
   /* Teal as Secondary */
   --secondary: oklch(0.2 0.03 260);
@@ -93,10 +93,10 @@
   
   --border: oklch(0.25 0.02 260);
   --input: oklch(0.2 0.02 260);
-  --ring: oklch(0.72 0.19 128);
+  --ring: oklch(0.65 0.22 250);
   
   /* Chart Colors - NVIDIA Palette */
-  --chart-1: oklch(0.72 0.19 128);
+  --chart-1: oklch(0.65 0.22 250);
   --chart-2: oklch(0.58 0.12 185);
   --chart-3: oklch(0.75 0.18 55);
   --chart-4: oklch(0.55 0.15 145);
@@ -105,12 +105,12 @@
   /* Sidebar */
   --sidebar: oklch(0.1 0.015 260);
   --sidebar-foreground: oklch(0.85 0.02 260);
-  --sidebar-primary: oklch(0.72 0.19 128);
-  --sidebar-primary-foreground: oklch(0.1 0.02 128);
+  --sidebar-primary: oklch(0.65 0.22 250);
+  --sidebar-primary-foreground: oklch(0.98 0.01 250);
   --sidebar-accent: oklch(0.58 0.12 185);
   --sidebar-accent-foreground: oklch(0.98 0.01 185);
   --sidebar-border: oklch(0.2 0.02 260);
-  --sidebar-ring: oklch(0.72 0.19 128);
+  --sidebar-ring: oklch(0.65 0.22 250);
 }
 
 /* Dark mode is default - light mode override if needed */
@@ -121,8 +121,8 @@
   --card-foreground: oklch(0.15 0.02 260);
   --popover: oklch(1 0 0);
   --popover-foreground: oklch(0.15 0.02 260);
-  --primary: oklch(0.55 0.18 128);
-  --primary-foreground: oklch(0.98 0.01 128);
+  --primary: oklch(0.55 0.22 250);
+  --primary-foreground: oklch(0.98 0.01 250);
   --secondary: oklch(0.95 0.01 260);
   --secondary-foreground: oklch(0.25 0.02 260);
   --muted: oklch(0.95 0.01 260);
@@ -133,7 +133,7 @@
   --destructive-foreground: oklch(0.98 0.01 25);
   --border: oklch(0.9 0.01 260);
   --input: oklch(0.9 0.01 260);
-  --ring: oklch(0.55 0.18 128);
+  --ring: oklch(0.55 0.22 250);
 }
 
 @layer base {
@@ -219,8 +219,8 @@
   border: 1px solid var(--border);
   background: linear-gradient(135deg, oklch(0.12 0.015 260) 0%, oklch(0.1 0.02 260) 100%);
   box-shadow: 
-    0 0 0 1px oklch(0.72 0.19 128 / 0.3),
-    0 0 20px oklch(0.72 0.19 128 / 0.1),
+    0 0 0 1px oklch(0.65 0.22 250 / 0.3),
+    0 0 20px oklch(0.65 0.22 250 / 0.1),
     0 4px 24px oklch(0 0 0 / 0.4),
     inset 0 1px 0 oklch(1 0 0 / 0.03);
 }
@@ -260,8 +260,8 @@
   width: 24px;
   height: 28px;
   clip-path: polygon(50% 0%, 100% 25%, 100% 75%, 50% 100%, 0% 75%, 0% 25%);
-  background: oklch(0.72 0.19 128);
-  box-shadow: 0 0 10px oklch(0.72 0.19 128 / 0.5);
+  background: oklch(0.65 0.22 250);
+  box-shadow: 0 0 10px oklch(0.65 0.22 250 / 0.5);
 }
 
 .hex-status-warning {
@@ -316,7 +316,7 @@
   inset: -1px;
   border-radius: inherit;
   padding: 1px;
-  background: linear-gradient(135deg, oklch(0.72 0.19 128 / 0.5), oklch(0.58 0.12 185 / 0.3), transparent);
+  background: linear-gradient(135deg, oklch(0.65 0.22 250 / 0.5), oklch(0.55 0.18 270 / 0.3), transparent);
   -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
   mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
   -webkit-mask-composite: xor;
@@ -347,8 +347,8 @@
 
 .metric-card:hover {
   box-shadow: 
-    0 0 0 1px oklch(0.72 0.19 128 / 0.3),
-    0 0 20px oklch(0.72 0.19 128 / 0.1),
+    0 0 0 1px oklch(0.65 0.22 250 / 0.3),
+    0 0 20px oklch(0.65 0.22 250 / 0.1),
     0 4px 24px oklch(0 0 0 / 0.4),
     inset 0 1px 0 oklch(1 0 0 / 0.03);
   transition: box-shadow 0.2s ease-out;
@@ -367,17 +367,17 @@
   height: 100%;
   border-radius: 9999px;
   transition: all 0.3s;
-  background: linear-gradient(90deg, oklch(0.72 0.19 128), oklch(0.58 0.12 185));
-  box-shadow: 0 0 10px oklch(0.72 0.19 128 / 0.5);
+  background: linear-gradient(90deg, oklch(0.65 0.22 250), oklch(0.55 0.18 270));
+  box-shadow: 0 0 10px oklch(0.65 0.22 250 / 0.5);
 }
 
 /* NVIDIA Color Utilities */
 .text-nvidia-green {
-  color: oklch(0.72 0.19 128);
+  color: oklch(0.65 0.22 250);
 }
 
 .text-nvidia-teal {
-  color: oklch(0.58 0.12 185);
+  color: oklch(0.55 0.18 270);
 }
 
 .text-nvidia-warning {
@@ -389,20 +389,20 @@
 }
 
 .bg-nvidia-green {
-  background-color: oklch(0.72 0.19 128);
+  background-color: oklch(0.65 0.22 250);
 }
 
 .bg-nvidia-teal {
-  background-color: oklch(0.58 0.12 185);
+  background-color: oklch(0.55 0.18 270);
 }
 
 /* Glow Effects */
 .glow-green {
-  box-shadow: 0 0 20px oklch(0.72 0.19 128 / 0.3);
+  box-shadow: 0 0 20px oklch(0.65 0.22 250 / 0.3);
 }
 
 .glow-teal {
-  box-shadow: 0 0 20px oklch(0.58 0.12 185 / 0.3);
+  box-shadow: 0 0 20px oklch(0.55 0.18 270 / 0.3);
 }
 
 /* Animation Utilities */
@@ -416,9 +416,9 @@
 
 @keyframes glow {
   from {
-    box-shadow: 0 0 10px oklch(0.72 0.19 128 / 0.2);
+    box-shadow: 0 0 10px oklch(0.65 0.22 250 / 0.2);
   }
   to {
-    box-shadow: 0 0 20px oklch(0.72 0.19 128 / 0.4);
+    box-shadow: 0 0 20px oklch(0.65 0.22 250 / 0.4);
   }
 }
