@@ -1023,3 +1023,6 @@
 - [x] Changed default nginx port to 87
 - [x] Added gzip compression for static assets
 - [x] Added separate location blocks for /api/, /trpc/, /socket.io/
+
+## Installation Fix
+- [x] Remove patchedDependencies from package.json (missing patch file)
