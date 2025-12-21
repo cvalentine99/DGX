@@ -610,3 +610,5 @@
 - [x] Change nvidia-green to vibrant blue throughout dashboard
 - [x] Update CSS color variables in index.css
 - [x] Update all hardcoded green values in components
+
+- [x] Update browser tab title to Valentine RF Command Center
