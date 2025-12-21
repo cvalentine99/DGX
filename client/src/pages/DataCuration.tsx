@@ -36,6 +36,8 @@ import {
   Shield,
   CheckSquare,
   Square,
+  Archive,
+  Package,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -395,6 +397,18 @@ function FileBrowserCard() {
   // Permissions state
   const [showPermissions, setShowPermissions] = useState(false);
   const [permissionsFile, setPermissionsFile] = useState<string | null>(null);
+  
+  // Drag and drop state
+  const [draggedFiles, setDraggedFiles] = useState<string[]>([]);
+  const [dropTargetFolder, setDropTargetFolder] = useState<string | null>(null);
+  const [isDragging, setIsDragging] = useState(false);
+  
+  // Archive state
+  const [showCreateArchive, setShowCreateArchive] = useState(false);
+  const [archiveName, setArchiveName] = useState("");
+  const [showExtractArchive, setShowExtractArchive] = useState(false);
+  const [archiveToExtract, setArchiveToExtract] = useState<string | null>(null);
+  const [extractSubfolder, setExtractSubfolder] = useState(true);
 
   const { data: dirData, isLoading, refetch } = trpc.ssh.listDirectory.useQuery(
     { hostId, path: currentPath },
@@ -552,6 +566,53 @@ function FileBrowserCard() {
     },
   });
 
+  // Disk usage query
+  const { data: diskUsageData } = trpc.ssh.getDiskUsage.useQuery(
+    { hostId, path: currentPath },
+    { refetchOnWindowFocus: false, refetchInterval: 30000 }
+  );
+
+  // Create archive mutation
+  const createArchiveMutation = trpc.ssh.createArchive.useMutation({
+    onSuccess: (data) => {
+      if (data.success) {
+        toast.success("Archive created", { 
+          description: `${data.archiveSizeFormatted} - ${data.filesIncluded} files` 
+        });
+        refetch();
+        setSelectedFiles(new Set());
+      } else {
+        toast.error("Failed to create archive", { description: data.error });
+      }
+      setShowCreateArchive(false);
+      setArchiveName("");
+    },
+    onError: (error) => {
+      toast.error("Failed to create archive", { description: error.message });
+      setShowCreateArchive(false);
+    },
+  });
+
+  // Extract archive mutation
+  const extractArchiveMutation = trpc.ssh.extractArchive.useMutation({
+    onSuccess: (data) => {
+      if (data.success) {
+        toast.success("Archive extracted", { 
+          description: `${data.filesExtracted} files to ${data.extractDir}` 
+        });
+        refetch();
+      } else {
+        toast.error("Failed to extract archive", { description: data.error });
+      }
+      setShowExtractArchive(false);
+      setArchiveToExtract(null);
+    },
+    onError: (error) => {
+      toast.error("Failed to extract archive", { description: error.message });
+      setShowExtractArchive(false);
+    },
+  });
+
   // Multi-select handlers
   const toggleFileSelection = (path: string) => {
     setSelectedFiles(prev => {
@@ -605,6 +666,100 @@ function FileBrowserCard() {
   const handleViewPermissions = (path: string) => {
     setPermissionsFile(path);
     setShowPermissions(true);
+  };
+
+  // Drag and drop handlers for file moving
+  const handleFileDragStart = (e: React.DragEvent, filePath: string) => {
+    // If the file is selected, drag all selected files
+    // Otherwise, just drag this file
+    const filesToDrag = selectedFiles.has(filePath) 
+      ? Array.from(selectedFiles) 
+      : [filePath];
+    
+    setDraggedFiles(filesToDrag);
+    setIsDragging(true);
+    e.dataTransfer.effectAllowed = "move";
+    e.dataTransfer.setData("text/plain", JSON.stringify(filesToDrag));
+  };
+
+  const handleFileDragEnd = () => {
+    setDraggedFiles([]);
+    setDropTargetFolder(null);
+    setIsDragging(false);
+  };
+
+  const handleFolderDragOver = (e: React.DragEvent, folderPath: string) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (isDragging && !draggedFiles.includes(folderPath)) {
+      setDropTargetFolder(folderPath);
+      e.dataTransfer.dropEffect = "move";
+    }
+  };
+
+  const handleFolderDragLeave = (e: React.DragEvent) => {
+    e.preventDefault();
+    setDropTargetFolder(null);
+  };
+
+  const handleFolderDrop = (e: React.DragEvent, targetFolder: string) => {
+    e.preventDefault();
+    e.stopPropagation();
+    
+    if (draggedFiles.length > 0 && !draggedFiles.includes(targetFolder)) {
+      // Move files to target folder
+      bulkMoveMutation.mutate({
+        hostId,
+        paths: draggedFiles,
+        destinationDir: targetFolder,
+      });
+    }
+    
+    setDraggedFiles([]);
+    setDropTargetFolder(null);
+    setIsDragging(false);
+  };
+
+  // Archive handlers
+  const handleCreateArchive = () => {
+    if (selectedFiles.size > 0) {
+      const defaultName = selectedFiles.size === 1 
+        ? Array.from(selectedFiles)[0].split("/").pop()?.replace(/\.[^.]+$/, "") || "archive"
+        : "archive";
+      setArchiveName(defaultName);
+      setShowCreateArchive(true);
+    }
+  };
+
+  const confirmCreateArchive = () => {
+    if (archiveName && selectedFiles.size > 0) {
+      createArchiveMutation.mutate({
+        hostId,
+        paths: Array.from(selectedFiles),
+        archiveName,
+        destinationDir: currentPath,
+      });
+    }
+  };
+
+  const handleExtractArchive = (archivePath: string) => {
+    setArchiveToExtract(archivePath);
+    setShowExtractArchive(true);
+  };
+
+  const confirmExtractArchive = () => {
+    if (archiveToExtract) {
+      extractArchiveMutation.mutate({
+        hostId,
+        archivePath: archiveToExtract,
+        destinationDir: currentPath,
+        createSubfolder: extractSubfolder,
+      });
+    }
+  };
+
+  const isArchiveFile = (fileType: string) => {
+    return ["tar.gz", "tgz", "tar.bz2", "tar.xz", "tar", "zip", "archive"].includes(fileType.toLowerCase());
   };
 
   const handleDelete = (filePath: string) => {
@@ -890,6 +1045,35 @@ function FileBrowserCard() {
           </div>
         </div>
 
+        {/* Disk Usage Bar */}
+        {diskUsageData?.success && (
+          <div className="p-3 rounded-lg bg-muted/20 border border-border/50">
+            <div className="flex items-center justify-between mb-2">
+              <div className="flex items-center gap-2">
+                <HardDrive className="w-4 h-4 text-muted-foreground" />
+                <span className="text-xs font-medium">Disk Usage</span>
+              </div>
+              <span className="text-xs text-muted-foreground">
+                {diskUsageData.formatted?.used} / {diskUsageData.formatted?.total} ({diskUsageData.usePercent}%)
+              </span>
+            </div>
+            <div className="w-full h-2 bg-muted/50 rounded-full overflow-hidden">
+              <div 
+                className={cn(
+                  "h-full transition-all duration-300 rounded-full",
+                  (diskUsageData.usePercent ?? 0) > 90 ? "bg-red-500" :
+                  (diskUsageData.usePercent ?? 0) > 70 ? "bg-yellow-500" : "bg-green-500"
+                )}
+                style={{ width: `${diskUsageData.usePercent}%` }}
+              />
+            </div>
+            <div className="flex justify-between mt-1.5 text-[10px] text-muted-foreground">
+              <span>Available: {diskUsageData.formatted?.available}</span>
+              <span>Current folder: {diskUsageData.formatted?.directorySize}</span>
+            </div>
+          </div>
+        )}
+
         {/* Search */}
         <div className="relative">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
@@ -918,6 +1102,15 @@ function FileBrowserCard() {
               </Button>
             </div>
             <div className="flex items-center gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-7 gap-1.5 text-xs"
+                onClick={handleCreateArchive}
+              >
+                <Archive className="w-3.5 h-3.5" />
+                Compress
+              </Button>
               <Button
                 variant="outline"
                 size="sm"
@@ -992,10 +1185,18 @@ function FileBrowserCard() {
               }, i: number) => (
                 <div
                   key={i}
+                  draggable
+                  onDragStart={(e) => handleFileDragStart(e, item.path)}
+                  onDragEnd={handleFileDragEnd}
+                  onDragOver={item.isDirectory ? (e) => handleFolderDragOver(e, item.path) : undefined}
+                  onDragLeave={item.isDirectory ? handleFolderDragLeave : undefined}
+                  onDrop={item.isDirectory ? (e) => handleFolderDrop(e, item.path) : undefined}
                   className={cn(
-                    "w-full grid grid-cols-12 gap-2 px-4 py-2.5 text-xs hover:bg-muted/20 transition-colors text-left border-b border-border/30 last:border-0",
+                    "w-full grid grid-cols-12 gap-2 px-4 py-2.5 text-xs hover:bg-muted/20 transition-colors text-left border-b border-border/30 last:border-0 cursor-grab active:cursor-grabbing",
                     selectedFile === item.path && "bg-purple-500/10",
-                    selectedFiles.has(item.path) && "bg-purple-500/5"
+                    selectedFiles.has(item.path) && "bg-purple-500/5",
+                    draggedFiles.includes(item.path) && "opacity-50",
+                    dropTargetFolder === item.path && "bg-green-500/20 border-green-500/50 border-2"
                   )}
                 >
                   <div className="col-span-1 flex items-center">
@@ -1012,6 +1213,9 @@ function FileBrowserCard() {
                   >
                     {getFileIcon(item.fileType)}
                     <span className={cn(item.isDirectory && "font-medium")}>{item.name}</span>
+                    {item.isDirectory && isDragging && !draggedFiles.includes(item.path) && (
+                      <span className="text-[10px] text-green-400 ml-1">(drop here)</span>
+                    )}
                   </button>
                   <div className="col-span-2 text-muted-foreground flex items-center">{item.isDirectory ? "--" : item.sizeFormatted}</div>
                   <div className="col-span-2 flex items-center">
@@ -1031,6 +1235,20 @@ function FileBrowserCard() {
                         title="Preview"
                       >
                         <Eye className="w-3.5 h-3.5" />
+                      </Button>
+                    )}
+                    {!item.isDirectory && isArchiveFile(item.fileType) && (
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-6 w-6 text-green-400 hover:text-green-300 hover:bg-green-500/10"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleExtractArchive(item.path);
+                        }}
+                        title="Extract Archive"
+                      >
+                        <Package className="w-3.5 h-3.5" />
                       </Button>
                     )}
                     <Button
@@ -1521,6 +1739,105 @@ function FileBrowserCard() {
             </div>
             <div className="flex justify-end">
               <Button variant="outline" onClick={() => setShowPermissions(false)}>Close</Button>
+            </div>
+          </DialogContent>
+        </Dialog>
+
+        {/* Create Archive Dialog */}
+        <Dialog open={showCreateArchive} onOpenChange={setShowCreateArchive}>
+          <DialogContent className="max-w-md">
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2">
+                <Archive className="w-5 h-5 text-purple-400" />
+                Create Archive
+              </DialogTitle>
+            </DialogHeader>
+            <div className="space-y-4">
+              <div className="p-3 rounded-lg bg-muted/30 border border-border/50">
+                <p className="text-xs text-muted-foreground mb-2">Files to compress:</p>
+                <div className="max-h-32 overflow-y-auto space-y-1">
+                  {Array.from(selectedFiles).map((path, i) => (
+                    <div key={i} className="text-xs truncate">
+                      {path.split("/").pop()}
+                    </div>
+                  ))}
+                </div>
+              </div>
+              <div className="space-y-2">
+                <label className="text-sm font-medium">Archive Name</label>
+                <div className="flex items-center gap-2">
+                  <Input
+                    value={archiveName}
+                    onChange={(e) => setArchiveName(e.target.value)}
+                    placeholder="archive-name"
+                    className="flex-1"
+                  />
+                  <span className="text-sm text-muted-foreground">.tar.gz</span>
+                </div>
+              </div>
+              <div className="text-xs text-muted-foreground">
+                Archive will be created in: {currentPath}
+              </div>
+            </div>
+            <div className="flex justify-end gap-2">
+              <Button variant="outline" onClick={() => setShowCreateArchive(false)}>Cancel</Button>
+              <Button 
+                onClick={confirmCreateArchive}
+                disabled={!archiveName || createArchiveMutation.isPending}
+                className="bg-purple-600 hover:bg-purple-700"
+              >
+                {createArchiveMutation.isPending ? (
+                  <><RefreshCw className="w-4 h-4 mr-2 animate-spin" /> Creating...</>
+                ) : (
+                  <><Archive className="w-4 h-4 mr-2" /> Create Archive</>
+                )}
+              </Button>
+            </div>
+          </DialogContent>
+        </Dialog>
+
+        {/* Extract Archive Dialog */}
+        <Dialog open={showExtractArchive} onOpenChange={setShowExtractArchive}>
+          <DialogContent className="max-w-md">
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2">
+                <Package className="w-5 h-5 text-green-400" />
+                Extract Archive
+              </DialogTitle>
+            </DialogHeader>
+            <div className="space-y-4">
+              <div className="p-3 rounded-lg bg-muted/30 border border-border/50">
+                <p className="text-xs text-muted-foreground mb-1">Archive:</p>
+                <p className="text-sm font-medium truncate">{archiveToExtract?.split("/").pop()}</p>
+              </div>
+              <div className="space-y-2">
+                <label className="text-sm font-medium">Destination</label>
+                <Input value={currentPath} disabled className="bg-muted/30" />
+              </div>
+              <div className="flex items-center gap-2">
+                <Checkbox
+                  id="subfolder"
+                  checked={extractSubfolder}
+                  onCheckedChange={(checked) => setExtractSubfolder(!!checked)}
+                />
+                <label htmlFor="subfolder" className="text-sm">
+                  Create subfolder for extracted files
+                </label>
+              </div>
+            </div>
+            <div className="flex justify-end gap-2">
+              <Button variant="outline" onClick={() => setShowExtractArchive(false)}>Cancel</Button>
+              <Button 
+                onClick={confirmExtractArchive}
+                disabled={extractArchiveMutation.isPending}
+                className="bg-green-600 hover:bg-green-700"
+              >
+                {extractArchiveMutation.isPending ? (
+                  <><RefreshCw className="w-4 h-4 mr-2 animate-spin" /> Extracting...</>
+                ) : (
+                  <><Package className="w-4 h-4 mr-2" /> Extract</>
+                )}
+              </Button>
             </div>
           </DialogContent>
         </Dialog>

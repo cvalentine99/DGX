@@ -6069,4 +6069,275 @@ PIPELINE_EOF`);
         return { success: false, error: error.message };
       }
     }),
+
+  // =========================================================================
+  // Disk Usage
+  // =========================================================================
+
+  // Get disk usage for a path
+  getDiskUsage: publicProcedure
+    .input(z.object({
+      hostId: z.enum(["alpha", "beta"]).default("alpha"),
+      path: z.string().default("/"),
+    }))
+    .query(async ({ input }) => {
+      const pool = getSSHPool();
+      if (!pool) {
+        return { success: false, error: "SSH pool not initialized" };
+      }
+
+      try {
+        // Get filesystem disk usage using df
+        const dfOutput = await pool.execute(
+          input.hostId,
+          `df -B1 "${input.path}" 2>/dev/null | tail -1`
+        );
+
+        const dfParts = dfOutput.trim().split(/\s+/);
+        if (dfParts.length < 6) {
+          return { success: false, error: "Failed to parse disk usage" };
+        }
+
+        const [filesystem, totalBytes, usedBytes, availBytes, usePercent, mountPoint] = dfParts;
+
+        // Get directory size using du
+        const duOutput = await pool.execute(
+          input.hostId,
+          `du -sb "${input.path}" 2>/dev/null | cut -f1`
+        );
+        const dirSize = parseInt(duOutput.trim()) || 0;
+
+        // Format sizes
+        const formatSize = (bytes: number) => {
+          if (bytes >= 1099511627776) return `${(bytes / 1099511627776).toFixed(2)} TB`;
+          if (bytes >= 1073741824) return `${(bytes / 1073741824).toFixed(2)} GB`;
+          if (bytes >= 1048576) return `${(bytes / 1048576).toFixed(2)} MB`;
+          if (bytes >= 1024) return `${(bytes / 1024).toFixed(2)} KB`;
+          return `${bytes} B`;
+        };
+
+        return {
+          success: true,
+          filesystem,
+          mountPoint,
+          total: parseInt(totalBytes),
+          used: parseInt(usedBytes),
+          available: parseInt(availBytes),
+          usePercent: parseInt(usePercent.replace("%", "")),
+          directorySize: dirSize,
+          formatted: {
+            total: formatSize(parseInt(totalBytes)),
+            used: formatSize(parseInt(usedBytes)),
+            available: formatSize(parseInt(availBytes)),
+            directorySize: formatSize(dirSize),
+          },
+        };
+      } catch (error: any) {
+        return { success: false, error: error.message };
+      }
+    }),
+
+  // =========================================================================
+  // File Compression/Archive
+  // =========================================================================
+
+  // Create a tar.gz archive from files
+  createArchive: publicProcedure
+    .input(z.object({
+      hostId: z.enum(["alpha", "beta"]).default("alpha"),
+      paths: z.array(z.string()).min(1).max(100),
+      archiveName: z.string(),
+      destinationDir: z.string(),
+    }))
+    .mutation(async ({ input }) => {
+      const pool = getSSHPool();
+      if (!pool) {
+        return { success: false, error: "SSH pool not initialized" };
+      }
+
+      try {
+        // Validate archive name
+        const archiveName = input.archiveName.endsWith(".tar.gz") 
+          ? input.archiveName 
+          : `${input.archiveName}.tar.gz`;
+        const archivePath = `${input.destinationDir}/${archiveName}`;
+
+        // Check if archive already exists
+        const existsCheck = await pool.execute(
+          input.hostId,
+          `test -e "${archivePath}" && echo "exists" || echo "not_exists"`
+        );
+
+        if (existsCheck.trim() === "exists") {
+          return { success: false, error: "Archive already exists at destination" };
+        }
+
+        // Build the tar command with all paths
+        // Use -C to change to parent directory and use relative paths
+        const pathList = input.paths.map(p => `"${p}"`).join(" ");
+        
+        // Create archive
+        const result = await pool.execute(
+          input.hostId,
+          `tar -czvf "${archivePath}" ${pathList} 2>&1`
+        );
+
+        // Verify archive was created
+        const verifyCheck = await pool.execute(
+          input.hostId,
+          `test -f "${archivePath}" && echo "created" || echo "failed"`
+        );
+
+        if (verifyCheck.trim() !== "created") {
+          return { success: false, error: "Failed to create archive", output: result };
+        }
+
+        // Get archive size
+        const sizeOutput = await pool.execute(
+          input.hostId,
+          `stat -c '%s' "${archivePath}"`
+        );
+        const archiveSize = parseInt(sizeOutput.trim()) || 0;
+
+        const formatSize = (bytes: number) => {
+          if (bytes >= 1073741824) return `${(bytes / 1073741824).toFixed(2)} GB`;
+          if (bytes >= 1048576) return `${(bytes / 1048576).toFixed(2)} MB`;
+          if (bytes >= 1024) return `${(bytes / 1024).toFixed(2)} KB`;
+          return `${bytes} B`;
+        };
+
+        return {
+          success: true,
+          message: `Archive created: ${archiveName}`,
+          archivePath,
+          archiveSize,
+          archiveSizeFormatted: formatSize(archiveSize),
+          filesIncluded: input.paths.length,
+        };
+      } catch (error: any) {
+        return { success: false, error: error.message };
+      }
+    }),
+
+  // Extract an archive
+  extractArchive: publicProcedure
+    .input(z.object({
+      hostId: z.enum(["alpha", "beta"]).default("alpha"),
+      archivePath: z.string(),
+      destinationDir: z.string(),
+      createSubfolder: z.boolean().default(true),
+    }))
+    .mutation(async ({ input }) => {
+      const pool = getSSHPool();
+      if (!pool) {
+        return { success: false, error: "SSH pool not initialized" };
+      }
+
+      try {
+        // Verify archive exists
+        const existsCheck = await pool.execute(
+          input.hostId,
+          `test -f "${input.archivePath}" && echo "exists" || echo "not_exists"`
+        );
+
+        if (existsCheck.trim() === "not_exists") {
+          return { success: false, error: "Archive file not found" };
+        }
+
+        // Determine extraction directory
+        let extractDir = input.destinationDir;
+        if (input.createSubfolder) {
+          const archiveName = input.archivePath.split("/").pop() || "archive";
+          const folderName = archiveName.replace(/\.(tar\.gz|tgz|tar\.bz2|tar\.xz|tar|zip)$/i, "");
+          extractDir = `${input.destinationDir}/${folderName}`;
+          
+          // Create subfolder
+          await pool.execute(input.hostId, `mkdir -p "${extractDir}"`);
+        }
+
+        // Determine archive type and extract
+        const archivePath = input.archivePath.toLowerCase();
+        let extractCmd: string;
+
+        if (archivePath.endsWith(".tar.gz") || archivePath.endsWith(".tgz")) {
+          extractCmd = `tar -xzvf "${input.archivePath}" -C "${extractDir}" 2>&1`;
+        } else if (archivePath.endsWith(".tar.bz2")) {
+          extractCmd = `tar -xjvf "${input.archivePath}" -C "${extractDir}" 2>&1`;
+        } else if (archivePath.endsWith(".tar.xz")) {
+          extractCmd = `tar -xJvf "${input.archivePath}" -C "${extractDir}" 2>&1`;
+        } else if (archivePath.endsWith(".tar")) {
+          extractCmd = `tar -xvf "${input.archivePath}" -C "${extractDir}" 2>&1`;
+        } else if (archivePath.endsWith(".zip")) {
+          extractCmd = `unzip -o "${input.archivePath}" -d "${extractDir}" 2>&1`;
+        } else {
+          return { success: false, error: "Unsupported archive format" };
+        }
+
+        const result = await pool.execute(
+          input.hostId,
+          extractCmd
+        );
+
+        // Count extracted files
+        const countOutput = await pool.execute(
+          input.hostId,
+          `find "${extractDir}" -type f | wc -l`
+        );
+        const fileCount = parseInt(countOutput.trim()) || 0;
+
+        return {
+          success: true,
+          message: `Archive extracted to ${extractDir}`,
+          extractDir,
+          filesExtracted: fileCount,
+          output: result.split("\n").slice(0, 20).join("\n"), // First 20 lines of output
+        };
+      } catch (error: any) {
+        return { success: false, error: error.message };
+      }
+    }),
+
+  // List archive contents without extracting
+  listArchiveContents: publicProcedure
+    .input(z.object({
+      hostId: z.enum(["alpha", "beta"]).default("alpha"),
+      archivePath: z.string(),
+    }))
+    .query(async ({ input }) => {
+      const pool = getSSHPool();
+      if (!pool) {
+        return { success: false, error: "SSH pool not initialized" };
+      }
+
+      try {
+        const archivePath = input.archivePath.toLowerCase();
+        let listCmd: string;
+
+        if (archivePath.endsWith(".tar.gz") || archivePath.endsWith(".tgz")) {
+          listCmd = `tar -tzvf "${input.archivePath}" 2>/dev/null | head -100`;
+        } else if (archivePath.endsWith(".tar.bz2")) {
+          listCmd = `tar -tjvf "${input.archivePath}" 2>/dev/null | head -100`;
+        } else if (archivePath.endsWith(".tar.xz")) {
+          listCmd = `tar -tJvf "${input.archivePath}" 2>/dev/null | head -100`;
+        } else if (archivePath.endsWith(".tar")) {
+          listCmd = `tar -tvf "${input.archivePath}" 2>/dev/null | head -100`;
+        } else if (archivePath.endsWith(".zip")) {
+          listCmd = `unzip -l "${input.archivePath}" 2>/dev/null | head -100`;
+        } else {
+          return { success: false, error: "Unsupported archive format" };
+        }
+
+        const result = await pool.execute(input.hostId, listCmd);
+        const lines = result.trim().split("\n").filter(Boolean);
+
+        return {
+          success: true,
+          contents: lines,
+          totalItems: lines.length,
+          truncated: lines.length >= 100,
+        };
+      } catch (error: any) {
+        return { success: false, error: error.message };
+      }
+    }),
 });

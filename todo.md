@@ -882,3 +882,24 @@
 - [x] Add owner/group information display
 - [x] Implement quick chmod buttons (644, 755, 777, 600)
 - [x] Add setFileOwnership endpoint (chown)
+
+## Drag-and-Drop File Moving
+- [x] Add drag handlers to file browser items
+- [x] Add drop zone highlighting on folders
+- [x] Implement drag preview showing file count
+- [x] Handle drop to move files to target folder
+- [x] Support dragging multiple selected files
+
+## Disk Usage Display
+- [x] Create ssh.getDiskUsage endpoint
+- [x] Add disk usage bar to file browser header
+- [x] Show used/total/available space
+- [x] Display directory-specific usage
+
+## File Compression/Archive
+- [x] Create ssh.createArchive endpoint (tar.gz)
+- [x] Create ssh.extractArchive endpoint
+- [x] Add compress button for selected files
+- [x] Add extract button for archive files
+- [x] Show progress indicator for compression operations
+- [x] Add listArchiveContents endpoint for previewing archives
