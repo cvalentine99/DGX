@@ -568,3 +568,6 @@
 
 - [x] Fix "0/2 Online" display bug in Connection Diagnostics panel
 - [x] Implement SSH jump host for Beta connections through Alpha
+
+- [x] Create Docker & K8s as separate sidebar page (not in Settings)
+- [x] Add Docker & K8s to sidebar navigation

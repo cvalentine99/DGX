@@ -28,6 +28,7 @@ import {
   Workflow,
   AlertCircle,
   Settings,
+  Container,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
@@ -54,6 +55,7 @@ const NAV_ITEMS = [
   { path: "/knowledge", icon: BookOpen, label: "Knowledge", description: "RAG & Documents" },
   { path: "/holoscan", icon: Workflow, label: "Holoscan", description: "Pipeline Manager" },
   { path: "/cuda", icon: Cpu, label: "CUDA", description: "Toolkit & Versions" },
+  { path: "/docker", icon: Container, label: "Docker & K8s", description: "Container Management" },
   { path: "/settings", icon: Settings, label: "Settings", description: "System Configuration" },
 ];
 
