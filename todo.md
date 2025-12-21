@@ -571,3 +571,10 @@
 
 - [x] Create Docker & K8s as separate sidebar page (not in Settings)
 - [x] Add Docker & K8s to sidebar navigation
+
+# Docker & K8s Enhancements
+
+- [x] Add container logs viewer modal with real-time streaming
+- [x] Add Docker images list view with size, tags, delete option
+- [x] Add Docker Compose support - upload and deploy stacks
+- [x] Integrate NVIDIA AI Workshop compose templates (NIM LLM, NeMo Curator, Triton, RAG Pipeline)

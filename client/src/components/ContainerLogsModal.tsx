@@ -84,7 +84,6 @@ export function ContainerLogsModal({
       hostId,
       containerId,
       tail: parseInt(tailLines),
-      timestamps: true,
     },
     {
       enabled: isOpen && !useSimulated,

@@ -2844,4 +2844,299 @@ WantedBy=multi-user.target
         };
       }
     }),
+
+  // ============================================
+  // DOCKER IMAGES ENDPOINTS
+  // ============================================
+
+  listDockerImages: publicProcedure
+    .input(z.object({
+      hostId: z.enum(["alpha", "beta"]),
+    }))
+    .query(async ({ input }: { input: { hostId: HostId } }) => {
+      try {
+        const conn = await createSSHConnection(input.hostId);
+        
+        const result = await executeSSHCommand(
+          conn,
+          `docker images --format '{{.ID}}|{{.Repository}}|{{.Tag}}|{{.Size}}|{{.CreatedAt}}' 2>/dev/null`
+        );
+        conn.end();
+        
+        if (result.code !== 0) {
+          return { success: false, error: result.stderr || "Failed to list images", images: [] };
+        }
+        
+        const images = result.stdout
+          .trim()
+          .split('\n')
+          .filter(Boolean)
+          .map(line => {
+            const [id, repository, tag, size, createdAt] = line.split('|');
+            return {
+              id: id?.trim() || '',
+              repository: repository?.trim() || '',
+              tag: tag?.trim() || '',
+              size: size?.trim() || '',
+              createdAt: createdAt?.trim() || '',
+              fullName: `${repository?.trim()}:${tag?.trim()}`,
+            };
+          })
+          .filter(img => img.id && img.repository !== '<none>');
+        
+        return {
+          success: true,
+          images,
+          host: DGX_HOSTS[input.hostId],
+        };
+      } catch (error: any) {
+        return {
+          success: false,
+          error: error.message,
+          images: [],
+          host: DGX_HOSTS[input.hostId],
+        };
+      }
+    }),
+
+  deleteDockerImage: publicProcedure
+    .input(z.object({
+      hostId: z.enum(["alpha", "beta"]),
+      imageId: z.string(),
+      force: z.boolean().optional().default(false),
+    }))
+    .mutation(async ({ input }: { input: { hostId: HostId; imageId: string; force?: boolean } }) => {
+      try {
+        const conn = await createSSHConnection(input.hostId);
+        
+        const forceFlag = input.force ? ' -f' : '';
+        const result = await executeSSHCommand(
+          conn,
+          `docker rmi${forceFlag} ${input.imageId} 2>&1`
+        );
+        conn.end();
+        
+        if (result.code !== 0) {
+          return { success: false, error: result.stderr || result.stdout || "Failed to delete image" };
+        }
+        
+        return {
+          success: true,
+          message: `Image ${input.imageId} deleted`,
+          host: DGX_HOSTS[input.hostId],
+        };
+      } catch (error: any) {
+        return {
+          success: false,
+          error: error.message,
+          host: DGX_HOSTS[input.hostId],
+        };
+      }
+    }),
+
+  pullDockerImage: publicProcedure
+    .input(z.object({
+      hostId: z.enum(["alpha", "beta"]),
+      imageName: z.string(),
+    }))
+    .mutation(async ({ input }: { input: { hostId: HostId; imageName: string } }) => {
+      try {
+        const conn = await createSSHConnection(input.hostId);
+        
+        // Start pull in background and return immediately
+        const result = await executeSSHCommand(
+          conn,
+          `docker pull ${input.imageName} 2>&1`
+        );
+        conn.end();
+        
+        if (result.code !== 0) {
+          return { success: false, error: result.stderr || result.stdout || "Failed to pull image" };
+        }
+        
+        return {
+          success: true,
+          message: `Image ${input.imageName} pulled successfully`,
+          output: result.stdout,
+          host: DGX_HOSTS[input.hostId],
+        };
+      } catch (error: any) {
+        return {
+          success: false,
+          error: error.message,
+          host: DGX_HOSTS[input.hostId],
+        };
+      }
+    }),
+
+  // ============================================
+  // DOCKER COMPOSE ENDPOINTS
+  // ============================================
+
+  listComposeProjects: publicProcedure
+    .input(z.object({
+      hostId: z.enum(["alpha", "beta"]),
+    }))
+    .query(async ({ input }: { input: { hostId: HostId } }) => {
+      try {
+        const conn = await createSSHConnection(input.hostId);
+        
+        // List docker compose projects
+        const result = await executeSSHCommand(
+          conn,
+          `docker compose ls --format json 2>/dev/null || echo '[]'`
+        );
+        conn.end();
+        
+        let projects: Array<{ name: string; status: string; configFiles: string }> = [];
+        try {
+          const parsed = JSON.parse(result.stdout.trim() || '[]');
+          projects = Array.isArray(parsed) ? parsed.map((p: any) => ({
+            name: p.Name || p.name || '',
+            status: p.Status || p.status || 'unknown',
+            configFiles: p.ConfigFiles || p.configFiles || '',
+          })) : [];
+        } catch {
+          // Fallback parsing
+          projects = [];
+        }
+        
+        return {
+          success: true,
+          projects,
+          host: DGX_HOSTS[input.hostId],
+        };
+      } catch (error: any) {
+        return {
+          success: false,
+          error: error.message,
+          projects: [],
+          host: DGX_HOSTS[input.hostId],
+        };
+      }
+    }),
+
+  deployComposeStack: publicProcedure
+    .input(z.object({
+      hostId: z.enum(["alpha", "beta"]),
+      projectName: z.string(),
+      composeContent: z.string(),
+      envVars: z.record(z.string(), z.string()).optional(),
+    }))
+    .mutation(async ({ input }) => {
+      try {
+        const conn = await createSSHConnection(input.hostId);
+        
+        // Create project directory
+        const projectDir = `/tmp/compose-${input.projectName}`;
+        await executeSSHCommand(conn, `mkdir -p ${projectDir}`);
+        
+        // Write compose file
+        const escapedContent = input.composeContent.replace(/'/g, "'\"'\"'");
+        await executeSSHCommand(conn, `cat > ${projectDir}/docker-compose.yml << 'COMPOSE_EOF'
+${input.composeContent}
+COMPOSE_EOF`);
+        
+        // Write .env file if envVars provided
+        if (input.envVars && Object.keys(input.envVars).length > 0) {
+          const envContent = Object.entries(input.envVars)
+            .map(([k, v]) => `${k}=${v}`)
+            .join('\n');
+          await executeSSHCommand(conn, `cat > ${projectDir}/.env << 'ENV_EOF'
+${envContent}
+ENV_EOF`);
+        }
+        
+        // Deploy with docker compose
+        const result = await executeSSHCommand(
+          conn,
+          `cd ${projectDir} && docker compose -p ${input.projectName} up -d 2>&1`
+        );
+        conn.end();
+        
+        if (result.code !== 0) {
+          return { success: false, error: result.stderr || result.stdout || "Failed to deploy stack" };
+        }
+        
+        return {
+          success: true,
+          message: `Stack ${input.projectName} deployed successfully`,
+          output: result.stdout,
+          host: DGX_HOSTS[input.hostId],
+        };
+      } catch (error: any) {
+        return {
+          success: false,
+          error: error.message,
+          host: DGX_HOSTS[input.hostId],
+        };
+      }
+    }),
+
+  stopComposeStack: publicProcedure
+    .input(z.object({
+      hostId: z.enum(["alpha", "beta"]),
+      projectName: z.string(),
+    }))
+    .mutation(async ({ input }: { input: { hostId: HostId; projectName: string } }) => {
+      try {
+        const conn = await createSSHConnection(input.hostId);
+        
+        const result = await executeSSHCommand(
+          conn,
+          `docker compose -p ${input.projectName} down 2>&1`
+        );
+        conn.end();
+        
+        if (result.code !== 0) {
+          return { success: false, error: result.stderr || result.stdout || "Failed to stop stack" };
+        }
+        
+        return {
+          success: true,
+          message: `Stack ${input.projectName} stopped`,
+          host: DGX_HOSTS[input.hostId],
+        };
+      } catch (error: any) {
+        return {
+          success: false,
+          error: error.message,
+          host: DGX_HOSTS[input.hostId],
+        };
+      }
+    }),
+
+  removeComposeStack: publicProcedure
+    .input(z.object({
+      hostId: z.enum(["alpha", "beta"]),
+      projectName: z.string(),
+      removeVolumes: z.boolean().optional().default(false),
+    }))
+    .mutation(async ({ input }: { input: { hostId: HostId; projectName: string; removeVolumes?: boolean } }) => {
+      try {
+        const conn = await createSSHConnection(input.hostId);
+        
+        const volumeFlag = input.removeVolumes ? ' -v' : '';
+        const result = await executeSSHCommand(
+          conn,
+          `docker compose -p ${input.projectName} down${volumeFlag} --rmi local 2>&1`
+        );
+        
+        // Clean up project directory
+        await executeSSHCommand(conn, `rm -rf /tmp/compose-${input.projectName}`);
+        conn.end();
+        
+        return {
+          success: true,
+          message: `Stack ${input.projectName} removed`,
+          host: DGX_HOSTS[input.hostId],
+        };
+      } catch (error: any) {
+        return {
+          success: false,
+          error: error.message,
+          host: DGX_HOSTS[input.hostId],
+        };
+      }
+    }),
 });

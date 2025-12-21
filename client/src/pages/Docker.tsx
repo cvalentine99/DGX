@@ -1,10 +1,12 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useRef } from "react";
 import { trpc } from "@/lib/trpc";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
+import { Textarea } from "@/components/ui/textarea";
 import {
   Container,
   Play,
@@ -21,9 +23,12 @@ import {
   Loader2,
   Box,
   Network,
-  Cpu,
-  HardDrive,
   GitBranch,
+  X,
+  Upload,
+  Rocket,
+  Zap,
+  Sparkles,
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -37,6 +42,129 @@ interface ContainerInfo {
   state?: string;
 }
 
+interface DockerImage {
+  id: string;
+  repository: string;
+  tag: string;
+  size: string;
+  createdAt: string;
+  fullName: string;
+}
+
+// NVIDIA AI Workshop compose templates
+const NVIDIA_WORKSHOP_TEMPLATES = [
+  {
+    id: "nim-llm",
+    name: "NIM LLM Inference",
+    description: "Deploy NVIDIA NIM for large language model inference with optimized performance",
+    icon: Zap,
+    compose: `version: '3.8'
+services:
+  nim-llm:
+    image: nvcr.io/nim/meta/llama-3.1-8b-instruct:latest
+    runtime: nvidia
+    environment:
+      - NGC_API_KEY=\${NGC_API_KEY}
+    ports:
+      - "8000:8000"
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+`,
+    envVars: ["NGC_API_KEY"],
+  },
+  {
+    id: "nemo-curator",
+    name: "NeMo Curator",
+    description: "Data curation pipeline for training high-quality AI models",
+    icon: Sparkles,
+    compose: `version: '3.8'
+services:
+  nemo-curator:
+    image: nvcr.io/nvidia/nemo:24.05
+    runtime: nvidia
+    volumes:
+      - ./data:/workspace/data
+    command: python -m nemo_curator.scripts.main
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+`,
+    envVars: [],
+  },
+  {
+    id: "triton-server",
+    name: "Triton Inference Server",
+    description: "High-performance inference serving for any AI model",
+    icon: Rocket,
+    compose: `version: '3.8'
+services:
+  triton:
+    image: nvcr.io/nvidia/tritonserver:24.05-py3
+    runtime: nvidia
+    ports:
+      - "8000:8000"
+      - "8001:8001"
+      - "8002:8002"
+    volumes:
+      - ./models:/models
+    command: tritonserver --model-repository=/models
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+`,
+    envVars: [],
+  },
+  {
+    id: "rag-pipeline",
+    name: "RAG Pipeline",
+    description: "Retrieval-Augmented Generation with vector database and LLM",
+    icon: Network,
+    compose: `version: '3.8'
+services:
+  milvus:
+    image: milvusdb/milvus:v2.4.0
+    ports:
+      - "19530:19530"
+    volumes:
+      - ./milvus_data:/var/lib/milvus
+    environment:
+      - ETCD_USE_EMBED=true
+      
+  rag-service:
+    image: nvcr.io/nvidia/nemo:24.05
+    runtime: nvidia
+    depends_on:
+      - milvus
+    environment:
+      - MILVUS_HOST=milvus
+      - NGC_API_KEY=\${NGC_API_KEY}
+    ports:
+      - "8080:8080"
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+`,
+    envVars: ["NGC_API_KEY"],
+  },
+];
+
 export default function Docker() {
   const [selectedHost, setSelectedHost] = useState<"alpha" | "beta">("alpha");
   const [pullImageTag, setPullImageTag] = useState("");
@@ -44,6 +172,20 @@ export default function Docker() {
   const [isPulling, setIsPulling] = useState(false);
   const [isPullingPlaybook, setIsPullingPlaybook] = useState(false);
   const [playbookHost, setPlaybookHost] = useState<"alpha" | "beta">("alpha");
+  
+  // Logs modal state
+  const [logsModalOpen, setLogsModalOpen] = useState(false);
+  const [selectedContainer, setSelectedContainer] = useState<ContainerInfo | null>(null);
+  const [autoRefreshLogs, setAutoRefreshLogs] = useState(true);
+  const logsEndRef = useRef<HTMLDivElement>(null);
+  
+  // Compose modal state
+  const [composeModalOpen, setComposeModalOpen] = useState(false);
+  const [composeContent, setComposeContent] = useState("");
+  const [composeProjectName, setComposeProjectName] = useState("");
+  const [composeEnvVars, setComposeEnvVars] = useState<Record<string, string>>({});
+  const [selectedTemplate, setSelectedTemplate] = useState<typeof NVIDIA_WORKSHOP_TEMPLATES[0] | null>(null);
+  const [isDeploying, setIsDeploying] = useState(false);
 
   // Container list query
   const { data: containerData, refetch: refetchContainers, isLoading: isLoadingContainers } = trpc.ssh.listAllContainers.useQuery(
@@ -51,11 +193,39 @@ export default function Docker() {
     { refetchInterval: 10000 }
   );
 
+  // Docker images query
+  const { data: imagesData, refetch: refetchImages, isLoading: isLoadingImages } = trpc.ssh.listDockerImages.useQuery(
+    { hostId: selectedHost },
+    { refetchInterval: 30000 }
+  );
+
+  // Compose projects query
+  const { data: composeData, refetch: refetchCompose } = trpc.ssh.listComposeProjects.useQuery(
+    { hostId: selectedHost },
+    { refetchInterval: 15000 }
+  );
+
   // K8s status query
   const { data: k8sStatus, isLoading: isLoadingK8s } = trpc.ssh.getKubernetesStatus.useQuery(
     { hostId: selectedHost },
     { refetchInterval: 30000 }
   );
+
+  // Container logs query
+  const { data: logsData, refetch: refetchLogs, isLoading: isLoadingLogs } = trpc.ssh.getContainerLogs.useQuery(
+    { hostId: selectedHost, containerId: selectedContainer?.id || "", tail: 200 },
+    { 
+      enabled: logsModalOpen && !!selectedContainer,
+      refetchInterval: autoRefreshLogs ? 3000 : false,
+    }
+  );
+
+  // Auto-scroll logs
+  useEffect(() => {
+    if (logsEndRef.current && logsData?.logs) {
+      logsEndRef.current.scrollIntoView({ behavior: "smooth" });
+    }
+  }, [logsData?.logs]);
 
   // Container mutations
   const startContainerMutation = trpc.ssh.startContainer.useMutation({
@@ -90,6 +260,34 @@ export default function Docker() {
     onError: (err) => toast.error(`Failed to remove: ${err.message}`),
   });
 
+  const pullImageMutation = trpc.ssh.pullDockerImage.useMutation({
+    onSuccess: (data) => {
+      if (data.success) {
+        toast.success(`Image pulled successfully`);
+        refetchImages();
+      } else {
+        toast.error(data.error || "Failed to pull image");
+      }
+      setIsPulling(false);
+    },
+    onError: (err) => {
+      toast.error(`Failed: ${err.message}`);
+      setIsPulling(false);
+    },
+  });
+
+  const deleteImageMutation = trpc.ssh.deleteDockerImage.useMutation({
+    onSuccess: (data) => {
+      if (data.success) {
+        toast.success("Image deleted");
+        refetchImages();
+      } else {
+        toast.error(data.error || "Failed to delete image");
+      }
+    },
+    onError: (err) => toast.error(`Failed: ${err.message}`),
+  });
+
   const pullPlaybookMutation = trpc.ssh.pullPlaybookImages.useMutation({
     onSuccess: (data) => {
       if (data.success) {
@@ -105,13 +303,77 @@ export default function Docker() {
     },
   });
 
+  const deployComposeMutation = trpc.ssh.deployComposeStack.useMutation({
+    onSuccess: (data) => {
+      if (data.success) {
+        toast.success(`Stack deployed successfully`);
+        setComposeModalOpen(false);
+        refetchCompose();
+        refetchContainers();
+      } else {
+        toast.error(data.error || "Failed to deploy stack");
+      }
+      setIsDeploying(false);
+    },
+    onError: (err) => {
+      toast.error(`Failed: ${err.message}`);
+      setIsDeploying(false);
+    },
+  });
+
+  const stopComposeMutation = trpc.ssh.stopComposeStack.useMutation({
+    onSuccess: () => {
+      toast.success("Stack stopped");
+      refetchCompose();
+      refetchContainers();
+    },
+    onError: (err) => toast.error(`Failed: ${err.message}`),
+  });
+
+  const handlePullImage = () => {
+    if (!pullImageTag) return;
+    setIsPulling(true);
+    pullImageMutation.mutate({ hostId: pullTargetHost === "both" ? "alpha" : pullTargetHost, imageName: pullImageTag });
+  };
+
   const handlePullPlaybookImages = () => {
     setIsPullingPlaybook(true);
     pullPlaybookMutation.mutate({ hostId: playbookHost });
   };
 
+  const handleOpenLogs = (container: ContainerInfo) => {
+    setSelectedContainer(container);
+    setLogsModalOpen(true);
+  };
+
+  const handleSelectTemplate = (template: typeof NVIDIA_WORKSHOP_TEMPLATES[0]) => {
+    setSelectedTemplate(template);
+    setComposeContent(template.compose);
+    setComposeProjectName(template.id);
+    const envVars: Record<string, string> = {};
+    template.envVars.forEach(v => { envVars[v] = ""; });
+    setComposeEnvVars(envVars);
+    setComposeModalOpen(true);
+  };
+
+  const handleDeployCompose = () => {
+    if (!composeProjectName || !composeContent) {
+      toast.error("Project name and compose content required");
+      return;
+    }
+    setIsDeploying(true);
+    deployComposeMutation.mutate({
+      hostId: selectedHost,
+      projectName: composeProjectName,
+      composeContent,
+      envVars: Object.keys(composeEnvVars).length > 0 ? composeEnvVars : undefined,
+    });
+  };
+
   const runningContainers = containerData?.running || [];
   const stoppedContainers = containerData?.stopped || [];
+  const images = imagesData?.images || [];
+  const composeProjects = composeData?.projects || [];
 
   return (
     <div className="space-y-6">
@@ -139,7 +401,11 @@ export default function Docker() {
           </select>
           <Button
             variant="outline"
-            onClick={() => refetchContainers()}
+            onClick={() => {
+              refetchContainers();
+              refetchImages();
+              refetchCompose();
+            }}
             disabled={isLoadingContainers}
           >
             <RefreshCw className={`h-4 w-4 mr-2 ${isLoadingContainers ? 'animate-spin' : ''}`} />
@@ -157,6 +423,10 @@ export default function Docker() {
           <TabsTrigger value="images" className="gap-2">
             <Layers className="h-4 w-4" />
             Images
+          </TabsTrigger>
+          <TabsTrigger value="compose" className="gap-2">
+            <Upload className="h-4 w-4" />
+            Compose
           </TabsTrigger>
           <TabsTrigger value="kubernetes" className="gap-2">
             <Network className="h-4 w-4" />
@@ -217,7 +487,7 @@ export default function Docker() {
                         <Button
                           variant="ghost"
                           size="sm"
-                          onClick={() => toast.info("Logs feature coming soon")}
+                          onClick={() => handleOpenLogs(container)}
                         >
                           <FileText className="h-4 w-4" />
                         </Button>
@@ -346,6 +616,7 @@ export default function Docker() {
                 <Button
                   className="bg-[#76b900] hover:bg-[#76b900]/90"
                   disabled={!pullImageTag || isPulling}
+                  onClick={handlePullImage}
                 >
                   {isPulling ? (
                     <Loader2 className="h-4 w-4 mr-2 animate-spin" />
@@ -355,6 +626,76 @@ export default function Docker() {
                   Pull Image
                 </Button>
               </div>
+            </CardContent>
+          </Card>
+
+          {/* Image List */}
+          <Card className="bg-black/40 border-gray-800">
+            <CardHeader>
+              <div className="flex items-center justify-between">
+                <div>
+                  <CardTitle className="flex items-center gap-2">
+                    <Layers className="h-5 w-5 text-[#76b900]" />
+                    Local Images
+                    <Badge variant="outline" className="ml-2">
+                      {images.length}
+                    </Badge>
+                  </CardTitle>
+                  <CardDescription>
+                    Docker images available on {selectedHost === 'alpha' ? 'DGX Spark Alpha' : 'DGX Spark Beta'}
+                  </CardDescription>
+                </div>
+                <Button variant="outline" size="sm" onClick={() => refetchImages()}>
+                  <RefreshCw className={`h-4 w-4 ${isLoadingImages ? 'animate-spin' : ''}`} />
+                </Button>
+              </div>
+            </CardHeader>
+            <CardContent>
+              {isLoadingImages ? (
+                <div className="flex items-center justify-center py-8">
+                  <Loader2 className="h-6 w-6 animate-spin text-[#76b900]" />
+                </div>
+              ) : images.length === 0 ? (
+                <div className="text-center py-8 text-gray-500">
+                  <Layers className="h-12 w-12 mx-auto mb-3 opacity-50" />
+                  <p>No images found</p>
+                </div>
+              ) : (
+                <div className="space-y-2 max-h-[500px] overflow-y-auto">
+                  {images.map((image: DockerImage) => (
+                    <div
+                      key={image.id}
+                      className="flex items-center justify-between p-3 rounded-lg bg-black/30 border border-gray-800 hover:border-gray-700 transition-colors"
+                    >
+                      <div className="flex items-center gap-3 flex-1 min-w-0">
+                        <div className="p-2 rounded bg-[#76b900]/20">
+                          <Layers className="h-4 w-4 text-[#76b900]" />
+                        </div>
+                        <div className="min-w-0 flex-1">
+                          <p className="font-medium text-white truncate">{image.repository}</p>
+                          <div className="flex items-center gap-2 text-xs text-gray-400">
+                            <Badge variant="outline" className="text-xs">{image.tag}</Badge>
+                            <span>{image.size}</span>
+                            <span className="truncate">{image.id.substring(0, 12)}</span>
+                          </div>
+                        </div>
+                      </div>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="text-red-500 hover:text-red-400"
+                        onClick={() => {
+                          if (confirm(`Delete image ${image.fullName}?`)) {
+                            deleteImageMutation.mutate({ hostId: selectedHost, imageId: image.id, force: true });
+                          }
+                        }}
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
+                    </div>
+                  ))}
+                </div>
+              )}
             </CardContent>
           </Card>
 
@@ -408,6 +749,119 @@ export default function Docker() {
           </Card>
         </TabsContent>
 
+        {/* Compose Tab */}
+        <TabsContent value="compose" className="space-y-6">
+          {/* NVIDIA AI Workshop Templates */}
+          <Card className="bg-black/40 border-gray-800">
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Sparkles className="h-5 w-5 text-[#76b900]" />
+                NVIDIA AI Workshop Templates
+              </CardTitle>
+              <CardDescription>
+                Pre-configured Docker Compose stacks for common AI workloads
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="grid grid-cols-2 gap-4">
+                {NVIDIA_WORKSHOP_TEMPLATES.map((template) => {
+                  const Icon = template.icon;
+                  return (
+                    <div
+                      key={template.id}
+                      className="p-4 rounded-lg bg-black/30 border border-gray-800 hover:border-[#76b900] transition-colors cursor-pointer group"
+                      onClick={() => handleSelectTemplate(template)}
+                    >
+                      <div className="flex items-start gap-3">
+                        <div className="p-2 rounded bg-[#76b900]/20 group-hover:bg-[#76b900]/30 transition-colors">
+                          <Icon className="h-5 w-5 text-[#76b900]" />
+                        </div>
+                        <div>
+                          <p className="font-medium text-white">{template.name}</p>
+                          <p className="text-sm text-gray-400 mt-1">{template.description}</p>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Active Compose Projects */}
+          <Card className="bg-black/40 border-gray-800">
+            <CardHeader>
+              <div className="flex items-center justify-between">
+                <div>
+                  <CardTitle className="flex items-center gap-2">
+                    <Upload className="h-5 w-5 text-[#76b900]" />
+                    Active Compose Projects
+                    <Badge variant="outline" className="ml-2">
+                      {composeProjects.length}
+                    </Badge>
+                  </CardTitle>
+                  <CardDescription>
+                    Running Docker Compose stacks
+                  </CardDescription>
+                </div>
+                <Button
+                  variant="outline"
+                  onClick={() => {
+                    setSelectedTemplate(null);
+                    setComposeContent("");
+                    setComposeProjectName("");
+                    setComposeEnvVars({});
+                    setComposeModalOpen(true);
+                  }}
+                  className="border-[#76b900] text-[#76b900]"
+                >
+                  <Upload className="h-4 w-4 mr-2" />
+                  Deploy Custom Stack
+                </Button>
+              </div>
+            </CardHeader>
+            <CardContent>
+              {composeProjects.length === 0 ? (
+                <div className="text-center py-8 text-gray-500">
+                  <Upload className="h-12 w-12 mx-auto mb-3 opacity-50" />
+                  <p>No active compose projects</p>
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  {composeProjects.map((project) => (
+                    <div
+                      key={project.name}
+                      className="flex items-center justify-between p-3 rounded-lg bg-black/30 border border-gray-800"
+                    >
+                      <div className="flex items-center gap-3">
+                        <div className="p-2 rounded bg-[#76b900]/20">
+                          <Upload className="h-4 w-4 text-[#76b900]" />
+                        </div>
+                        <div>
+                          <p className="font-medium text-white">{project.name}</p>
+                          <p className="text-xs text-gray-400">{project.status}</p>
+                        </div>
+                      </div>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="text-red-500 hover:text-red-400"
+                        onClick={() => {
+                          if (confirm(`Stop and remove stack ${project.name}?`)) {
+                            stopComposeMutation.mutate({ hostId: selectedHost, projectName: project.name });
+                          }
+                        }}
+                      >
+                        <Square className="h-4 w-4" />
+                      </Button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </TabsContent>
+
         {/* Kubernetes Tab */}
         <TabsContent value="kubernetes" className="space-y-6">
           <Card className="bg-black/40 border-gray-800">
@@ -447,7 +901,6 @@ export default function Docker() {
                 </div>
               ) : k8sStatus?.connected ? (
                 <div className="space-y-4">
-                  {/* Cluster Info */}
                   <div className="grid grid-cols-3 gap-4">
                     <div className="p-4 rounded-lg bg-black/30 border border-gray-800">
                       <div className="flex items-center gap-2 text-gray-400 mb-2">
@@ -488,6 +941,130 @@ export default function Docker() {
           </Card>
         </TabsContent>
       </Tabs>
+
+      {/* Container Logs Modal */}
+      <Dialog open={logsModalOpen} onOpenChange={setLogsModalOpen}>
+        <DialogContent className="max-w-4xl max-h-[80vh] bg-black/95 border-gray-800">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <FileText className="h-5 w-5 text-[#76b900]" />
+              Container Logs: {selectedContainer?.name}
+            </DialogTitle>
+            <DialogDescription>
+              Real-time logs from {selectedContainer?.image}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="flex items-center justify-between mb-2">
+            <div className="flex items-center gap-2">
+              <Button
+                variant={autoRefreshLogs ? "default" : "outline"}
+                size="sm"
+                onClick={() => setAutoRefreshLogs(!autoRefreshLogs)}
+                className={autoRefreshLogs ? "bg-[#76b900]" : ""}
+              >
+                {autoRefreshLogs ? "Auto-refresh ON" : "Auto-refresh OFF"}
+              </Button>
+              <Button variant="outline" size="sm" onClick={() => refetchLogs()}>
+                <RefreshCw className={`h-4 w-4 ${isLoadingLogs ? 'animate-spin' : ''}`} />
+              </Button>
+            </div>
+          </div>
+          <div className="bg-black rounded-lg border border-gray-800 p-4 h-[400px] overflow-y-auto font-mono text-sm">
+            {isLoadingLogs ? (
+              <div className="flex items-center justify-center h-full">
+                <Loader2 className="h-6 w-6 animate-spin text-[#76b900]" />
+              </div>
+            ) : logsData?.logs ? (
+              <pre className="whitespace-pre-wrap text-gray-300">{logsData.logs}</pre>
+            ) : (
+              <p className="text-gray-500">No logs available</p>
+            )}
+            <div ref={logsEndRef} />
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Compose Deploy Modal */}
+      <Dialog open={composeModalOpen} onOpenChange={setComposeModalOpen}>
+        <DialogContent className="max-w-3xl max-h-[80vh] bg-black/95 border-gray-800 overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Upload className="h-5 w-5 text-[#76b900]" />
+              {selectedTemplate ? `Deploy ${selectedTemplate.name}` : "Deploy Docker Compose Stack"}
+            </DialogTitle>
+            <DialogDescription>
+              {selectedTemplate?.description || "Configure and deploy a Docker Compose stack"}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div>
+              <label className="text-sm font-medium text-gray-300">Project Name</label>
+              <Input
+                value={composeProjectName}
+                onChange={(e) => setComposeProjectName(e.target.value)}
+                placeholder="my-project"
+                className="mt-1 bg-black/30 border-gray-700"
+              />
+            </div>
+            
+            {selectedTemplate && selectedTemplate.envVars.length > 0 && (
+              <div className="space-y-3">
+                <label className="text-sm font-medium text-gray-300">Environment Variables</label>
+                {selectedTemplate.envVars.map((envVar) => (
+                  <div key={envVar}>
+                    <label className="text-xs text-gray-400">{envVar}</label>
+                    <Input
+                      value={composeEnvVars[envVar] || ""}
+                      onChange={(e) => setComposeEnvVars({ ...composeEnvVars, [envVar]: e.target.value })}
+                      placeholder={`Enter ${envVar}`}
+                      className="mt-1 bg-black/30 border-gray-700"
+                      type={envVar.includes("KEY") || envVar.includes("SECRET") ? "password" : "text"}
+                    />
+                  </div>
+                ))}
+              </div>
+            )}
+            
+            <div>
+              <label className="text-sm font-medium text-gray-300">Docker Compose Content</label>
+              <Textarea
+                value={composeContent}
+                onChange={(e) => setComposeContent(e.target.value)}
+                placeholder="version: '3.8'&#10;services:&#10;  ..."
+                className="mt-1 bg-black/30 border-gray-700 font-mono text-sm h-64"
+              />
+            </div>
+            
+            <div className="flex items-center justify-between pt-4">
+              <select
+                value={selectedHost}
+                onChange={(e) => setSelectedHost(e.target.value as "alpha" | "beta")}
+                className="h-10 rounded-md border border-gray-700 bg-black/30 px-3 text-sm"
+              >
+                <option value="alpha">Deploy to Alpha</option>
+                <option value="beta">Deploy to Beta</option>
+              </select>
+              <div className="flex gap-2">
+                <Button variant="outline" onClick={() => setComposeModalOpen(false)}>
+                  Cancel
+                </Button>
+                <Button
+                  className="bg-[#76b900] hover:bg-[#76b900]/90"
+                  onClick={handleDeployCompose}
+                  disabled={isDeploying || !composeProjectName || !composeContent}
+                >
+                  {isDeploying ? (
+                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  ) : (
+                    <Rocket className="h-4 w-4 mr-2" />
+                  )}
+                  Deploy Stack
+                </Button>
+              </div>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
