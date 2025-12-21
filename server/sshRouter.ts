@@ -4,19 +4,21 @@ import { Client } from "ssh2";
 import { getSSHPool, initializeSSHPool, PoolStats } from "./sshConnectionPool";
 
 // DGX Spark host configurations
-// Using ngrok TCP tunnel for SSH access from cloud
+// Alpha: Uses ngrok TCP tunnel for SSH access from cloud
+// Beta: Uses local network IP (accessible from Alpha via LAN)
 const DGX_HOSTS = {
   alpha: {
     name: "DGX Spark Alpha",
-    host: process.env.DGX_SSH_HOST || "0.tcp.ngrok.io",
-    port: parseInt(process.env.DGX_SSH_PORT || "17974"),
-    localIp: "192.168.50.139", // Original local IP for reference
+    host: process.env.DGX_SSH_HOST || "8.tcp.ngrok.io",
+    port: parseInt(process.env.DGX_SSH_PORT || "18530"),
+    localIp: "192.168.50.139",
   },
   beta: {
     name: "DGX Spark Beta",
-    host: process.env.DGX_SSH_HOST || "0.tcp.ngrok.io",
-    port: parseInt(process.env.DGX_SSH_PORT || "17974"),
-    localIp: "192.168.50.110", // Original local IP for reference
+    // Beta connects via local network from Alpha (no ngrok needed)
+    host: process.env.DGX_SSH_HOST_BETA || "192.168.50.110",
+    port: parseInt(process.env.DGX_SSH_PORT_BETA || "22"),
+    localIp: "192.168.50.110",
   },
 } as const;
 
@@ -139,18 +141,21 @@ function getSSHCredentials() {
 }
 
 // Create single SSH connection attempt (internal helper)
+// For Beta, uses Alpha as a jump host via SSH port forwarding
 function createSSHConnectionAttempt(hostId: HostId, timeoutMs: number = RETRY_CONFIG.timeoutMs): Promise<Client> {
-  return new Promise((resolve, reject) => {
+  return new Promise(async (resolve, reject) => {
     const host = DGX_HOSTS[hostId];
     const credentials = getSSHCredentials();
     const conn = new Client();
     let settled = false;
+    let jumpConn: Client | null = null;
 
     // Connection timeout
     const timeoutId = setTimeout(() => {
       if (!settled) {
         settled = true;
         conn.end();
+        if (jumpConn) jumpConn.end();
         reject(new Error(`SSH connection timeout after ${timeoutMs}ms`));
       }
     }, timeoutMs);
@@ -159,6 +164,8 @@ function createSSHConnectionAttempt(hostId: HostId, timeoutMs: number = RETRY_CO
       if (!settled) {
         settled = true;
         clearTimeout(timeoutId);
+        // Store jump connection reference for cleanup
+        (conn as any)._jumpConn = jumpConn;
         resolve(conn);
       }
     });
@@ -167,6 +174,7 @@ function createSSHConnectionAttempt(hostId: HostId, timeoutMs: number = RETRY_CO
       if (!settled) {
         settled = true;
         clearTimeout(timeoutId);
+        if (jumpConn) jumpConn.end();
         reject(new Error(`SSH connection failed: ${err.message}`));
       }
     });
@@ -175,6 +183,7 @@ function createSSHConnectionAttempt(hostId: HostId, timeoutMs: number = RETRY_CO
       if (!settled) {
         settled = true;
         clearTimeout(timeoutId);
+        if (jumpConn) jumpConn.end();
         reject(new Error("SSH connection closed unexpectedly"));
       }
     });
@@ -201,11 +210,69 @@ function createSSHConnectionAttempt(hostId: HostId, timeoutMs: number = RETRY_CO
     }
 
     try {
-      conn.connect(config);
+      // For Beta, use Alpha as jump host
+      if (hostId === 'beta') {
+        console.log(`[SSH] Connecting to Beta via Alpha jump host`);
+        const alphaHost = DGX_HOSTS.alpha;
+        jumpConn = new Client();
+        
+        jumpConn.on('ready', () => {
+          console.log(`[SSH] Jump host (Alpha) connected, forwarding to Beta`);
+          // Create a forwarded connection to Beta through Alpha
+          jumpConn!.forwardOut(
+            '127.0.0.1',
+            0,
+            host.localIp, // Beta's local IP
+            host.port,    // Beta's SSH port (22)
+            (err, stream) => {
+              if (err) {
+                if (!settled) {
+                  settled = true;
+                  clearTimeout(timeoutId);
+                  jumpConn!.end();
+                  reject(new Error(`SSH jump forward failed: ${err.message}`));
+                }
+                return;
+              }
+              
+              // Connect to Beta through the forwarded stream
+              conn.connect({
+                sock: stream,
+                username: credentials.username,
+                password: credentials.password,
+                privateKey: credentials.privateKey,
+                readyTimeout: timeoutMs,
+              });
+            }
+          );
+        });
+        
+        jumpConn.on('error', (err) => {
+          if (!settled) {
+            settled = true;
+            clearTimeout(timeoutId);
+            reject(new Error(`SSH jump host connection failed: ${err.message}`));
+          }
+        });
+        
+        // Connect to Alpha (jump host)
+        jumpConn.connect({
+          host: alphaHost.host,
+          port: alphaHost.port,
+          username: credentials.username,
+          password: credentials.password,
+          privateKey: credentials.privateKey,
+          readyTimeout: timeoutMs,
+        });
+      } else {
+        // Direct connection for Alpha
+        conn.connect(config);
+      }
     } catch (err: any) {
       if (!settled) {
         settled = true;
         clearTimeout(timeoutId);
+        if (jumpConn) jumpConn.end();
         reject(new Error(`SSH connect error: ${err.message}`));
       }
     }

@@ -563,3 +563,8 @@
 - [x] Add service list and management (backend endpoints)
 - [ ] Test Docker management features (requires SSH connection)
 - [ ] Test Kubernetes features (if K8s deployed)
+
+# Bug Fixes
+
+- [x] Fix "0/2 Online" display bug in Connection Diagnostics panel
+- [x] Implement SSH jump host for Beta connections through Alpha

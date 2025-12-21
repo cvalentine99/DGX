@@ -373,10 +373,20 @@ export function ConnectionDiagnostics() {
   const alphaState = connectionStatus.alpha as ConnectionState;
   const betaState = connectionStatus.beta as ConnectionState;
   
-  // Calculate overall health
-  const healthyCount = [alphaState, betaState].filter(
-    s => s.status === 'connected'
-  ).length;
+  // Calculate overall health - consider a host "online" if:
+  // 1. Status is 'connected', OR
+  // 2. Had a successful connection in the last 30 seconds (on-demand connection pattern)
+  const isHostOnline = (state: ConnectionState): boolean => {
+    if (state.status === 'connected') return true;
+    if (state.lastSuccess) {
+      const timeSinceSuccess = Date.now() - state.lastSuccess;
+      // Consider online if last success was within 30 seconds
+      return timeSinceSuccess < 30000;
+    }
+    return false;
+  };
+  
+  const healthyCount = [alphaState, betaState].filter(isHostOnline).length;
   const totalHosts = 2;
 
   return (
