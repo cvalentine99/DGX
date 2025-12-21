@@ -2093,6 +2093,10 @@ function QuickLaunchTab({ selectedHost }: { selectedHost: "alpha" | "beta" }) {
   const [newEnvKey, setNewEnvKey] = useState("");
   const [newEnvValue, setNewEnvValue] = useState("");
   const [newVolume, setNewVolume] = useState("");
+  
+  // Import/Export state
+  const [importModalOpen, setImportModalOpen] = useState(false);
+  const [importJson, setImportJson] = useState("");
 
   const { data: presetsData } = trpc.ssh.getQuickLaunchPresets.useQuery();
   const presets = presetsData?.presets || [];
@@ -2139,6 +2143,27 @@ function QuickLaunchTab({ selectedHost }: { selectedHost: "alpha" | "beta" }) {
         refetchCustomPresets();
       } else {
         toast.error(data.error || "Failed to delete preset");
+      }
+    },
+    onError: (err) => toast.error(err.message),
+  });
+
+  // Export presets query
+  const { data: exportData, refetch: fetchExport } = trpc.presets.exportPresets.useQuery(
+    {},
+    { enabled: false } // Only fetch on demand
+  );
+
+  // Import presets mutation
+  const importPresetsMutation = trpc.presets.importPresets.useMutation({
+    onSuccess: (data) => {
+      if (data.success) {
+        toast.success(`Successfully imported ${data.imported} preset(s)!`);
+        setImportModalOpen(false);
+        setImportJson("");
+        refetchCustomPresets();
+      } else {
+        toast.error(data.error || "Failed to import presets");
       }
     },
     onError: (err) => toast.error(err.message),
@@ -2284,6 +2309,75 @@ function QuickLaunchTab({ selectedHost }: { selectedHost: "alpha" | "beta" }) {
     });
   };
 
+  // Export presets as JSON file
+  const handleExportPresets = async () => {
+    if (customPresets.length === 0) {
+      toast.error("No custom presets to export");
+      return;
+    }
+    
+    // Build export data from current custom presets
+    const exportData = {
+      version: "1.0",
+      exportedAt: new Date().toISOString(),
+      presets: customPresets.map((p: any) => ({
+        name: p.name,
+        description: p.description,
+        category: p.category,
+        icon: p.icon,
+        image: p.image,
+        defaultPort: p.defaultPort,
+        gpuRequired: p.gpuRequired,
+        command: p.command,
+        envVars: p.envVars || {},
+        volumes: p.volumes || [],
+        networkMode: p.networkMode,
+        restartPolicy: p.restartPolicy,
+      })),
+    };
+    
+    const blob = new Blob([JSON.stringify(exportData, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `nemo-presets-${new Date().toISOString().split('T')[0]}.json`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    toast.success(`Exported ${customPresets.length} preset(s)`);
+  };
+
+  // Import presets from JSON
+  const handleImportPresets = () => {
+    if (!importJson.trim()) {
+      toast.error("Please paste JSON data to import");
+      return;
+    }
+    try {
+      JSON.parse(importJson); // Validate JSON
+      importPresetsMutation.mutate({
+        jsonData: importJson,
+        overwriteExisting: false,
+      });
+    } catch (e) {
+      toast.error("Invalid JSON format");
+    }
+  };
+
+  // Handle file upload for import
+  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      const reader = new FileReader();
+      reader.onload = (event) => {
+        const content = event.target?.result as string;
+        setImportJson(content);
+      };
+      reader.readAsText(file);
+    }
+  };
+
   const presetIcons: Record<string, React.ReactNode> = {
     notebook: <FileText className="h-6 w-6" />,
     chart: <BarChart3 className="h-6 w-6" />,
@@ -2385,16 +2479,37 @@ function QuickLaunchTab({ selectedHost }: { selectedHost: "alpha" | "beta" }) {
             <div className="flex items-center gap-2 text-gray-400">
               <Sparkles className="h-5 w-5" />
               <h3 className="text-lg font-semibold">My Custom Presets</h3>
+              <Badge variant="outline" className="text-xs">{customPresets.length}</Badge>
             </div>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => setCreatePresetOpen(true)}
-              className="border-[#3b82f6]/50 text-[#3b82f6] hover:bg-[#3b82f6]/10"
-            >
-              <Plus className="h-4 w-4 mr-1" />
-              Create Preset
-            </Button>
+            <div className="flex gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handleExportPresets}
+                className="border-gray-700 text-gray-400 hover:text-white hover:bg-gray-800"
+              >
+                <Download className="h-4 w-4 mr-1" />
+                Export
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setImportModalOpen(true)}
+                className="border-gray-700 text-gray-400 hover:text-white hover:bg-gray-800"
+              >
+                <Upload className="h-4 w-4 mr-1" />
+                Import
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setCreatePresetOpen(true)}
+                className="border-[#3b82f6]/50 text-[#3b82f6] hover:bg-[#3b82f6]/10"
+              >
+                <Plus className="h-4 w-4 mr-1" />
+                Create Preset
+              </Button>
+            </div>
           </div>
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
             {customPresets.map((preset: any) => (
@@ -2709,6 +2824,93 @@ function QuickLaunchTab({ selectedHost }: { selectedHost: "alpha" | "beta" }) {
                 <Rocket className="h-4 w-4 mr-2" />
               )}
               Launch Container
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Import Presets Modal */}
+      <Dialog open={importModalOpen} onOpenChange={setImportModalOpen}>
+        <DialogContent className="max-w-xl bg-black/95 border-gray-800">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Upload className="h-5 w-5 text-[#3b82f6]" />
+              Import Presets
+            </DialogTitle>
+            <DialogDescription>
+              Import container presets from a JSON file or paste JSON data
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            {/* File Upload */}
+            <div className="space-y-2">
+              <label className="text-sm font-medium text-gray-300">Upload JSON File</label>
+              <Input
+                type="file"
+                accept=".json"
+                onChange={handleFileUpload}
+                className="bg-black/50 border-gray-700 file:bg-[#3b82f6]/20 file:text-[#3b82f6] file:border-0 file:mr-4 file:py-1 file:px-3 file:rounded-md"
+              />
+            </div>
+            
+            {/* Or paste JSON */}
+            <div className="relative">
+              <div className="absolute inset-0 flex items-center">
+                <span className="w-full border-t border-gray-700" />
+              </div>
+              <div className="relative flex justify-center text-xs uppercase">
+                <span className="bg-black px-2 text-gray-500">Or paste JSON</span>
+              </div>
+            </div>
+            
+            <div className="space-y-2">
+              <label className="text-sm font-medium text-gray-300">JSON Data</label>
+              <Textarea
+                value={importJson}
+                onChange={(e) => setImportJson(e.target.value)}
+                placeholder='{\n  "version": "1.0",\n  "presets": [...]\n}'
+                className="bg-black/50 border-gray-700 min-h-[200px] font-mono text-sm"
+              />
+            </div>
+            
+            {importJson && (
+              <div className="text-sm text-gray-400">
+                {(() => {
+                  try {
+                    const parsed = JSON.parse(importJson);
+                    return (
+                      <div className="flex items-center gap-2 text-green-400">
+                        <CheckCircle2 className="h-4 w-4" />
+                        Valid JSON - {parsed.presets?.length || 0} preset(s) found
+                      </div>
+                    );
+                  } catch {
+                    return (
+                      <div className="flex items-center gap-2 text-red-400">
+                        <AlertCircle className="h-4 w-4" />
+                        Invalid JSON format
+                      </div>
+                    );
+                  }
+                })()}
+              </div>
+            )}
+          </div>
+          <div className="flex justify-end gap-2">
+            <Button variant="outline" onClick={() => setImportModalOpen(false)}>
+              Cancel
+            </Button>
+            <Button
+              onClick={handleImportPresets}
+              disabled={!importJson.trim() || importPresetsMutation.isPending}
+              className="bg-[#3b82f6] hover:bg-[#3b82f6]/90"
+            >
+              {importPresetsMutation.isPending ? (
+                <Loader2 className="h-4 w-4 animate-spin mr-2" />
+              ) : (
+                <Upload className="h-4 w-4 mr-2" />
+              )}
+              Import Presets
             </Button>
           </div>
         </DialogContent>

@@ -648,3 +648,34 @@
 - [x] Add Clone button to built-in preset cards
 - [x] Pre-fill Create Preset modal with cloned preset data
 - [x] Allow users to customize name, port, and other settings before saving
+
+# Frontend-Backend Connection Gaps (Audit Dec 2024)
+
+## Quick Wins - Backend Exists, Frontend Not Wired
+
+- [x] Connect Holoscan camera list to ssh.getCameraDevices
+- [x] Connect Holoscan pipeline list to ssh.getHoloscanPipelines
+- [x] Wire Holoscan start/stop buttons to ssh.startHoloscanPipeline/stopHoloscanPipeline
+- [x] Add preset export/import UI buttons (backend presets.exportPresets/importPresets exists)
+- [ ] Add container action history panel (backend containerHistory.getHistory exists)
+- [ ] Display available models from vllm.listModels in Interaction page
+
+## CUDA Toolkit Page - Live Version Detection
+
+- [x] Create ssh.getCudaVersions endpoint to detect installed versions
+- [x] Parse nvidia-smi, nvcc --version for live data
+- [x] Replace hardcoded hostVersionData with live API calls
+
+## Training Page - NeMo Integration
+
+- [ ] Create trainingRouter for job management
+- [ ] Add training job CRUD operations
+- [ ] Integrate with NeMo training scripts via SSH
+- [ ] Add real-time training metrics (WebSocket or polling)
+
+## Data Curation Page - Dataset Management
+
+- [ ] Create datasetRouter for filesystem operations
+- [ ] Add SSH endpoints to list datasets on DGX hosts
+- [ ] Implement dataset upload/download
+- [ ] Connect preprocessing UI to actual scripts

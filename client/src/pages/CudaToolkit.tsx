@@ -1,5 +1,6 @@
-import { useState } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { motion } from "framer-motion";
+import { trpc } from "@/lib/trpc";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -35,6 +36,14 @@ import DashboardLayout from "@/components/DashboardLayout";
 import NgcCatalogBrowser from "@/components/NgcCatalogBrowser";
 import { HuggingFaceBrowser } from "@/components/HuggingFaceBrowser";
 import { toast } from "sonner";
+import { Loader2 } from "lucide-react";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 
 // Version compatibility data
 interface VersionInfo {
@@ -231,20 +240,109 @@ function getStatusBadge(status: string) {
 }
 
 export default function CudaToolkit() {
-  const [selectedHost, setSelectedHost] = useState(0);
-  const [isRefreshing, setIsRefreshing] = useState(false);
+  const [selectedHostId, setSelectedHostId] = useState<"alpha" | "beta">("alpha");
+
+  // Fetch live CUDA versions from backend
+  const { data: cudaData, isLoading, refetch, isRefetching } = trpc.ssh.getCudaVersions.useQuery(
+    { hostId: selectedHostId },
+    { refetchInterval: 60000 } // Refresh every minute
+  );
 
   const handleRefresh = () => {
-    setIsRefreshing(true);
-    setTimeout(() => {
-      setIsRefreshing(false);
-      toast.success("Version information refreshed");
-    }, 1500);
+    refetch();
+    toast.success("Refreshing version information...");
   };
 
-  const currentHost = hostVersionData[selectedHost];
+  // Transform API data to match existing UI structure
+  const liveVersions = useMemo(() => {
+    if (!cudaData?.success) return null;
+    
+    const v = cudaData.versions;
+    return [
+      {
+        name: "CUDA Toolkit",
+        required: "12.x",
+        installed: v.cuda,
+        status: v.cuda.includes("12") ? "compatible" : v.cuda === "Not installed" ? "not_installed" : "warning",
+        description: "NVIDIA CUDA Toolkit for GPU-accelerated computing",
+        icon: Cpu,
+        color: "text-blue-400",
+        features: ["nvcc compiler", "cuBLAS", "cuFFT", "cuRAND", "cuSPARSE", "NPP"],
+      },
+      {
+        name: "cuDNN",
+        required: "8.9+",
+        installed: v.cudnn,
+        status: v.cudnn.startsWith("8.9") || v.cudnn.startsWith("9") ? "compatible" : v.cudnn === "Not installed" ? "not_installed" : "warning",
+        description: "NVIDIA CUDA Deep Neural Network library",
+        icon: Layers,
+        color: "text-blue-400",
+        features: ["Convolution", "Pooling", "Normalization", "Activation", "RNN", "Attention"],
+      },
+      {
+        name: "TensorRT",
+        required: "10.x",
+        installed: v.tensorrt,
+        status: v.tensorrt.startsWith("10") ? "compatible" : v.tensorrt === "Not installed" ? "not_installed" : "warning",
+        description: "NVIDIA TensorRT for high-performance deep learning inference",
+        icon: Zap,
+        color: "text-blue-400",
+        features: ["INT8 Quantization", "FP16 Precision", "Dynamic Shapes", "Plugin API"],
+      },
+      {
+        name: "NCCL",
+        required: "2.18+",
+        installed: v.nccl,
+        status: parseFloat(v.nccl) >= 2.18 ? "compatible" : v.nccl === "Not installed" ? "not_installed" : "warning",
+        description: "NVIDIA Collective Communications Library for multi-GPU",
+        icon: Activity,
+        color: "text-blue-400",
+        features: ["AllReduce", "Broadcast", "AllGather", "ReduceScatter"],
+      },
+      {
+        name: "Driver",
+        required: "535+",
+        installed: v.driver,
+        status: parseFloat(v.driver) >= 535 ? "compatible" : v.driver === "Not installed" ? "not_installed" : "warning",
+        description: "NVIDIA GPU Driver",
+        icon: HardDrive,
+        color: "text-blue-400",
+        features: ["CUDA Support", "MIG", "vGPU", "NVLink"],
+      },
+      {
+        name: "PyTorch",
+        required: "2.2+",
+        installed: v.pytorch,
+        status: parseFloat(v.pytorch) >= 2.2 ? "compatible" : v.pytorch === "Not installed" ? "not_installed" : "warning",
+        description: "PyTorch deep learning framework",
+        icon: Box,
+        color: "text-blue-400",
+        features: ["CUDA Tensors", "Autograd", "TorchScript", "Distributed"],
+      },
+      {
+        name: "Python",
+        required: "3.10+",
+        installed: v.python,
+        status: parseFloat(v.python) >= 3.10 ? "compatible" : v.python === "Not installed" ? "not_installed" : "warning",
+        description: "Python runtime",
+        icon: Server,
+        color: "text-blue-400",
+        features: ["Type Hints", "Async/Await", "Pattern Matching"],
+      },
+    ] as VersionInfo[];
+  }, [cudaData]);
+
+  // Use live data if available, fallback to static
+  const selectedHostIndex = selectedHostId === "alpha" ? 0 : 1;
+  const currentHost = liveVersions ? {
+    hostname: cudaData?.host?.name || "DGX Spark",
+    ip: cudaData?.host?.localIp || "Unknown",
+    versions: liveVersions,
+  } : hostVersionData[selectedHostIndex] || hostVersionData[0];
+  
   const compatibleCount = currentHost.versions.filter(v => v.status === "compatible").length;
   const totalCount = currentHost.versions.length;
+  const isRefreshing = isLoading || isRefetching;
 
   return (
     <DashboardLayout>
@@ -278,39 +376,48 @@ export default function CudaToolkit() {
 
         {/* Host Selector */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          {hostVersionData.map((host, index) => (
+          {(["alpha", "beta"] as const).map((hostId, index) => {
+            const hostInfo = hostId === "alpha" 
+              ? { hostname: "DGX Spark Alpha", ip: "192.168.50.139" }
+              : { hostname: "DGX Spark Beta", ip: "192.168.50.110" };
+            const isSelected = selectedHostId === hostId;
+            return (
             <motion.div
-              key={host.ip}
+              key={hostId}
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ delay: index * 0.1 }}
             >
               <Card
                 className={`cursor-pointer transition-all ${
-                  selectedHost === index
+                  isSelected
                     ? "bg-primary/10 border-primary/50 ring-1 ring-primary/30"
                     : "bg-card/50 border-border hover:bg-card/80"
                 }`}
-                onClick={() => setSelectedHost(index)}
+                onClick={() => setSelectedHostId(hostId)}
               >
                 <CardContent className="p-4">
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-3">
                       <div className={`w-10 h-10 rounded-lg flex items-center justify-center ${
-                        selectedHost === index ? "bg-primary/20" : "bg-white/5"
+                        isSelected ? "bg-primary/20" : "bg-white/5"
                       }`}>
-                        <Server className={`w-5 h-5 ${selectedHost === index ? "text-primary" : "text-muted-foreground"}`} />
+                        <Server className={`w-5 h-5 ${isSelected ? "text-primary" : "text-muted-foreground"}`} />
                       </div>
                       <div>
-                        <h3 className="font-semibold">{host.hostname}</h3>
-                        <p className="text-sm text-muted-foreground font-mono">{host.ip}</p>
+                        <h3 className="font-semibold">{hostInfo.hostname}</h3>
+                        <p className="text-sm text-muted-foreground font-mono">{hostInfo.ip}</p>
                       </div>
                     </div>
                     <div className="flex items-center gap-2">
                       <div className="text-right">
                         <p className="text-sm text-muted-foreground">Compatibility</p>
                         <p className="text-lg font-bold text-blue-400">
-                          {host.versions.filter(v => v.status === "compatible").length}/{host.versions.length}
+                          {isSelected && isLoading ? (
+                            <Loader2 className="w-4 h-4 animate-spin inline" />
+                          ) : (
+                            `${compatibleCount}/${totalCount}`
+                          )}
                         </p>
                       </div>
                       <CheckCircle2 className="w-6 h-6 text-blue-400" />
@@ -319,7 +426,8 @@ export default function CudaToolkit() {
                 </CardContent>
               </Card>
             </motion.div>
-          ))}
+          );
+          })}
         </div>
 
         {/* Main Content Tabs */}

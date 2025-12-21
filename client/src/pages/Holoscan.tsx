@@ -74,6 +74,7 @@ import { toast } from "sonner";
 import { trpc } from "@/lib/trpc";
 import { WebRTCPreviewV2 } from "@/components/WebRTCPreviewV2";
 import { InferenceOverlay, useSimulatedDetections } from "@/components/InferenceOverlay";
+import { Loader2 } from "lucide-react";
 
 // BRIO Camera Configuration
 const brioCameraConfig = {
@@ -232,6 +233,50 @@ export default function Holoscan() {
   const [cameraConnected, setCameraConnected] = useState(true);
   const [showDeployDialog, setShowDeployDialog] = useState(false);
   const [logs, setLogs] = useState(generateLogs("BRIO Object Detection"));
+  const [selectedHost, setSelectedHost] = useState<"alpha" | "beta">("alpha");
+
+  // Backend API queries
+  const { data: cameraDevices, isLoading: isLoadingCameras, refetch: refetchCameras } = trpc.ssh.getCameraDevices.useQuery(
+    { hostId: selectedHost },
+    { refetchInterval: autoRefresh ? 30000 : false }
+  );
+
+  const { data: holoscanPipelines, isLoading: isLoadingPipelines, refetch: refetchPipelines } = trpc.ssh.getHoloscanPipelines.useQuery(
+    { hostId: selectedHost },
+    { refetchInterval: autoRefresh ? 5000 : false }
+  );
+
+  // Mutations for pipeline control
+  const startPipelineMutation = trpc.ssh.startHoloscanPipeline.useMutation({
+    onSuccess: (data) => {
+      if (data.success) {
+        toast.success(data.message || "Pipeline started");
+        refetchPipelines();
+      } else {
+        toast.error(data.error || "Failed to start pipeline");
+      }
+    },
+    onError: (err) => toast.error(err.message),
+  });
+
+  const stopPipelineMutation = trpc.ssh.stopHoloscanPipeline.useMutation({
+    onSuccess: (data) => {
+      if (data.success) {
+        toast.success(data.message || "Pipeline stopped");
+        refetchPipelines();
+      } else {
+        toast.error(data.error || "Failed to stop pipeline");
+      }
+    },
+    onError: (err) => toast.error(err.message),
+  });
+
+  // Update camera connection status based on API response
+  useEffect(() => {
+    if (cameraDevices) {
+      setCameraConnected(cameraDevices.success && cameraDevices.devices.length > 0);
+    }
+  }, [cameraDevices]);
   
   // Inference overlay state
   const [showInferenceOverlay, setShowInferenceOverlay] = useState(true);
@@ -337,6 +382,19 @@ export default function Holoscan() {
       return;
     }
     
+    // Call backend to start pipeline
+    startPipelineMutation.mutate({
+      hostId: selectedHost,
+      pipelineType: newPipeline.template,
+      config: {
+        camera: newPipeline.camera,
+        resolution: newPipeline.resolution,
+        fps: newPipeline.fps,
+        format: newPipeline.format,
+      },
+    });
+    
+    // Also add to local state for immediate UI feedback
     const template = pipelineTemplates.find(t => t.id === newPipeline.template);
     const newApp = {
       id: `${newPipeline.template}-${Date.now()}`,
@@ -357,7 +415,6 @@ export default function Holoscan() {
     setSelectedApp(newApp);
     setShowDeployDialog(false);
     setNewPipeline({ template: "", name: "", camera: "/dev/video0", resolution: "1920x1080", fps: 60, format: "MJPEG" });
-    toast.success(`Deployed pipeline: ${newPipeline.name}`);
   };
 
   const handleDeleteApp = (appId: string) => {
@@ -544,34 +601,57 @@ export default function Holoscan() {
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-4">
               <div className={`p-3 rounded-lg ${cameraConnected ? 'bg-nvidia-green/20' : 'bg-nvidia-critical/20'}`}>
-                <Camera className={`h-6 w-6 ${cameraConnected ? 'text-nvidia-green' : 'text-nvidia-critical'}`} />
+                {isLoadingCameras ? (
+                  <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+                ) : (
+                  <Camera className={`h-6 w-6 ${cameraConnected ? 'text-nvidia-green' : 'text-nvidia-critical'}`} />
+                )}
               </div>
               <div>
                 <div className="flex items-center gap-2">
-                  <h3 className="font-display font-semibold">{brioCameraConfig.name}</h3>
+                  <h3 className="font-display font-semibold">
+                    {cameraDevices?.devices?.[0]?.name || brioCameraConfig.name}
+                  </h3>
                   <Badge variant={cameraConnected ? "default" : "destructive"}>
-                    {cameraConnected ? "Connected" : "Disconnected"}
+                    {isLoadingCameras ? "Checking..." : cameraConnected ? "Connected" : "Disconnected"}
                   </Badge>
-                  <Badge variant="outline" className="text-nvidia-teal">4K UHD</Badge>
+                  {cameraDevices?.devices?.[0]?.capabilities?.includes('4K UHD') && (
+                    <Badge variant="outline" className="text-nvidia-teal">4K UHD</Badge>
+                  )}
+                  {cameraDevices?.fallback && (
+                    <Badge variant="outline" className="text-nvidia-warning">Cached</Badge>
+                  )}
                 </div>
                 <p className="text-sm text-muted-foreground">
-                  {brioCameraConfig.connection} • Serial: {brioCameraConfig.serial} • FW {brioCameraConfig.firmware}
+                  {cameraDevices?.host?.name || 'DGX Spark'} • 
+                  {cameraDevices?.devices?.[0]?.vendorId && `ID: ${cameraDevices.devices[0].vendorId}:${cameraDevices.devices[0].productId}`}
+                  {cameraDevices?.devices?.[0]?.serial && ` • Serial: ${cameraDevices.devices[0].serial}`}
                 </p>
               </div>
             </div>
             <div className="flex items-center gap-6 text-sm">
-              <div className="text-center">
-                <div className="text-nvidia-green font-mono text-lg">/dev/video0</div>
-                <div className="text-muted-foreground text-xs">RGB Camera</div>
-              </div>
-              <div className="text-center">
-                <div className="text-nvidia-teal font-mono text-lg">/dev/video2</div>
-                <div className="text-muted-foreground text-xs">IR Camera</div>
-              </div>
-              <div className="text-center">
-                <div className="text-purple-400 font-mono text-lg">{brioCameraConfig.powerDraw}</div>
-                <div className="text-muted-foreground text-xs">Power Draw</div>
-              </div>
+              {/* Host selector */}
+              <Select value={selectedHost} onValueChange={(v: "alpha" | "beta") => setSelectedHost(v)}>
+                <SelectTrigger className="w-[140px]">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="alpha">DGX Alpha</SelectItem>
+                  <SelectItem value="beta">DGX Beta</SelectItem>
+                </SelectContent>
+              </Select>
+              {/* Camera devices from API */}
+              {cameraDevices?.devices?.slice(0, 2).map((device, idx) => (
+                <div key={device.path} className="text-center">
+                  <div className={`font-mono text-lg ${idx === 0 ? 'text-nvidia-green' : 'text-nvidia-teal'}`}>
+                    {device.path}
+                  </div>
+                  <div className="text-muted-foreground text-xs">{device.type === 'camera' ? 'RGB Camera' : device.type}</div>
+                </div>
+              ))}
+              <Button variant="ghost" size="sm" onClick={() => refetchCameras()}>
+                <RefreshCw className={`h-4 w-4 ${isLoadingCameras ? 'animate-spin' : ''}`} />
+              </Button>
             </div>
           </div>
         </CardContent>

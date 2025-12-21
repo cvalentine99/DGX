@@ -4490,4 +4490,107 @@ ENV_EOF`);
         };
       }
     }),
+
+  // Get CUDA toolkit and related software versions
+  getCudaVersions: publicProcedure
+    .input(z.object({
+      hostId: z.enum(["alpha", "beta"]),
+    }))
+    .query(async ({ input }: { input: { hostId: HostId } }) => {
+      try {
+        const conn = await createSSHConnection(input.hostId);
+        
+        // Get CUDA version
+        const cudaResult = await executeSSHCommand(
+          conn,
+          `nvcc --version 2>/dev/null | grep 'release' | awk '{print $6}' | cut -d',' -f1 || cat /usr/local/cuda/version.txt 2>/dev/null | awk '{print $3}' || echo 'Not installed'`
+        );
+        
+        // Get cuDNN version
+        const cudnnResult = await executeSSHCommand(
+          conn,
+          `cat /usr/include/cudnn_version.h 2>/dev/null | grep CUDNN_MAJOR -A 2 | head -3 | awk -F' ' '{print $3}' | tr '\n' '.' | sed 's/\.$//g' || dpkg -l 2>/dev/null | grep cudnn | head -1 | awk '{print $3}' | cut -d'-' -f1 || echo 'Not installed'`
+        );
+        
+        // Get TensorRT version
+        const tensorrtResult = await executeSSHCommand(
+          conn,
+          `dpkg -l 2>/dev/null | grep tensorrt | head -1 | awk '{print $3}' | cut -d'-' -f1 || python3 -c "import tensorrt; print(tensorrt.__version__)" 2>/dev/null || echo 'Not installed'`
+        );
+        
+        // Get NCCL version
+        const ncclResult = await executeSSHCommand(
+          conn,
+          `cat /usr/include/nccl.h 2>/dev/null | grep NCCL_MAJOR -A 2 | head -3 | awk -F' ' '{print $3}' | tr '\n' '.' | sed 's/\.$//g' || dpkg -l 2>/dev/null | grep nccl | head -1 | awk '{print $3}' | cut -d'-' -f1 || echo 'Not installed'`
+        );
+        
+        // Get NVIDIA driver version
+        const driverResult = await executeSSHCommand(
+          conn,
+          `nvidia-smi --query-gpu=driver_version --format=csv,noheader 2>/dev/null | head -1 || echo 'Not installed'`
+        );
+        
+        // Get GPU info
+        const gpuResult = await executeSSHCommand(
+          conn,
+          `nvidia-smi --query-gpu=name,memory.total,compute_cap --format=csv,noheader 2>/dev/null | head -1 || echo 'Unknown'`
+        );
+        
+        // Get PyTorch version
+        const pytorchResult = await executeSSHCommand(
+          conn,
+          `python3 -c "import torch; print(torch.__version__)" 2>/dev/null || echo 'Not installed'`
+        );
+        
+        // Get Python version
+        const pythonResult = await executeSSHCommand(
+          conn,
+          `python3 --version 2>/dev/null | awk '{print $2}' || echo 'Not installed'`
+        );
+        
+        conn.end();
+        
+        // Parse GPU info
+        const gpuParts = gpuResult.stdout.trim().split(',').map(s => s.trim());
+        
+        return {
+          success: true,
+          versions: {
+            cuda: cudaResult.stdout.trim() || 'Not installed',
+            cudnn: cudnnResult.stdout.trim() || 'Not installed',
+            tensorrt: tensorrtResult.stdout.trim() || 'Not installed',
+            nccl: ncclResult.stdout.trim() || 'Not installed',
+            driver: driverResult.stdout.trim() || 'Not installed',
+            pytorch: pytorchResult.stdout.trim() || 'Not installed',
+            python: pythonResult.stdout.trim() || 'Not installed',
+          },
+          gpu: {
+            name: gpuParts[0] || 'Unknown',
+            memory: gpuParts[1] || 'Unknown',
+            computeCapability: gpuParts[2] || 'Unknown',
+          },
+          host: DGX_HOSTS[input.hostId],
+        };
+      } catch (error: any) {
+        return {
+          success: false,
+          error: error.message,
+          versions: {
+            cuda: 'Error',
+            cudnn: 'Error',
+            tensorrt: 'Error',
+            nccl: 'Error',
+            driver: 'Error',
+            pytorch: 'Error',
+            python: 'Error',
+          },
+          gpu: {
+            name: 'Error',
+            memory: 'Error',
+            computeCapability: 'Error',
+          },
+          host: DGX_HOSTS[input.hostId],
+        };
+      }
+    }),
 });
