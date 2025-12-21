@@ -20,6 +20,7 @@ import { Slider } from "@/components/ui/slider";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Checkbox } from "@/components/ui/checkbox";
 import { toast } from "sonner";
+import { trpc } from "@/lib/trpc";
 
 // Animation variants
 const containerVariants = {
@@ -308,6 +309,7 @@ interface DeploymentStatus {
   endTime?: number;
   overallStatus: 'idle' | 'running' | 'completed' | 'failed' | 'cancelled';
   error?: string;
+  deploymentId?: string;
 }
 
 const INITIAL_DEPLOYMENT_STEPS: Omit<DeploymentStep, 'logs'>[] = [
@@ -567,40 +569,84 @@ export default function DeploymentWizard() {
     };
     setValidationChecks([...checks]);
 
-    // Check 2: SSH Connectivity (simulated - would use actual SSH check in production)
+    // Determine host ID based on hostname
+    const hostId = config.hostname.includes('139') || config.hostname.includes('alpha') ? 'alpha' as const : 'beta' as const;
+
+    // Check 2: SSH Connectivity (real check)
     checks[1] = { name: 'SSH Connectivity', status: 'running' };
     setValidationChecks([...checks]);
-    await new Promise(r => setTimeout(r, 800));
-    // In production, this would actually test SSH connection
-    const sshValid = config.hostname && config.sshPort > 0;
-    checks[1] = {
-      name: 'SSH Connectivity',
-      status: sshValid ? 'passed' : 'failed',
-      message: sshValid ? `Ready to connect to ${config.hostname}:${config.sshPort}` : 'Invalid SSH configuration'
-    };
+    try {
+      const connResult = await testConnectionMutation.mutateAsync({ hostId });
+      checks[1] = {
+        name: 'SSH Connectivity',
+        status: connResult.success ? 'passed' : 'failed',
+        message: connResult.success 
+          ? `Connected to ${config.hostname} (${connResult.latencyMs}ms latency)`
+          : connResult.error || 'SSH connection failed'
+      };
+    } catch (error) {
+      checks[1] = {
+        name: 'SSH Connectivity',
+        status: 'failed',
+        message: error instanceof Error ? error.message : 'SSH connection failed'
+      };
+    }
     setValidationChecks([...checks]);
 
-    // Check 3: GPU Availability (simulated)
+    // Check 3: GPU Availability (real check)
     checks[2] = { name: 'GPU Availability', status: 'running' };
     setValidationChecks([...checks]);
-    await new Promise(r => setTimeout(r, 600));
-    checks[2] = {
-      name: 'GPU Availability',
-      status: 'passed',
-      message: `${config.gpuCount}x ${config.gpuType.split(' ').pop()} configured`
-    };
+    try {
+      const gpuResult = await checkGPUMutation.mutateAsync({ hostId });
+      if (gpuResult.success && gpuResult.available) {
+        checks[2] = {
+          name: 'GPU Availability',
+          status: 'passed',
+          message: `${gpuResult.gpuCount} GPU(s) detected: ${gpuResult.gpus?.map(g => g.name).join(', ')}`
+        };
+      } else {
+        checks[2] = {
+          name: 'GPU Availability',
+          status: 'passed', // Not a failure, just no GPU
+          message: 'No GPU detected (CPU-only mode)'
+        };
+      }
+    } catch (error) {
+      checks[2] = {
+        name: 'GPU Availability',
+        status: 'passed', // Don't fail on GPU check error
+        message: 'Could not verify GPU (will continue without GPU)'
+      };
+    }
     setValidationChecks([...checks]);
 
-    // Check 4: Disk Space (simulated)
+    // Check 4: Disk Space (real check)
     checks[3] = { name: 'Disk Space', status: 'running' };
     setValidationChecks([...checks]);
-    await new Promise(r => setTimeout(r, 400));
-    const diskValid = config.storageGB >= 50;
-    checks[3] = {
-      name: 'Disk Space',
-      status: diskValid ? 'passed' : 'failed',
-      message: diskValid ? `${config.storageGB}GB allocated` : 'Minimum 50GB required'
-    };
+    try {
+      const diskResult = await checkDiskMutation.mutateAsync({ hostId, path: '/opt', requiredGB: 10 });
+      if (diskResult.success) {
+        checks[3] = {
+          name: 'Disk Space',
+          status: diskResult.available ? 'passed' : 'failed',
+          message: diskResult.available 
+            ? `${diskResult.availableGB}GB available (${diskResult.usedPercent}% used)`
+            : `Only ${diskResult.availableGB}GB available, need ${diskResult.requiredGB}GB`
+        };
+      } else {
+        checks[3] = {
+          name: 'Disk Space',
+          status: 'failed',
+          message: diskResult.error || 'Failed to check disk space'
+        };
+      }
+    } catch (error) {
+      checks[3] = {
+        name: 'Disk Space',
+        status: 'failed',
+        message: error instanceof Error ? error.message : 'Failed to check disk space'
+      };
+    }
     setValidationChecks([...checks]);
 
     setIsValidating(false);
@@ -612,6 +658,54 @@ export default function DeploymentWizard() {
       toast.error('Some validation checks failed');
     }
   };
+
+  // tRPC mutations for real deployment
+  const testConnectionMutation = trpc.deployment.testConnection.useMutation();
+  const checkGPUMutation = trpc.deployment.checkGPU.useMutation();
+  const checkDiskMutation = trpc.deployment.checkDiskSpace.useMutation();
+  const startDeploymentMutation = trpc.deployment.startDeployment.useMutation();
+  const cancelDeploymentMutation = trpc.deployment.cancelDeployment.useMutation();
+  const deploymentStatusQuery = trpc.deployment.getDeploymentStatus.useQuery(
+    { deploymentId: deploymentStatus.deploymentId || '' },
+    { enabled: !!deploymentStatus.deploymentId && deploymentStatus.isDeploying, refetchInterval: 1000 }
+  );
+
+  // Sync deployment status from server
+  useEffect(() => {
+    if (deploymentStatusQuery.data?.success && deploymentStatusQuery.data.deployment) {
+      const serverDeployment = deploymentStatusQuery.data.deployment;
+      
+      // Map server steps to local format
+      const mappedSteps: DeploymentStep[] = serverDeployment.steps.map(s => ({
+        id: s.id,
+        name: s.name,
+        description: s.name,
+        status: s.status as DeploymentStep['status'],
+        logs: s.logs.map(log => `[${new Date().toLocaleTimeString()}] ${log}`),
+        startTime: s.startTime,
+        endTime: s.endTime,
+      }));
+
+      const currentIdx = mappedSteps.findIndex(s => s.status === 'running');
+      
+      setDeploymentStatus(prev => ({
+        ...prev,
+        steps: mappedSteps,
+        currentStepIndex: currentIdx >= 0 ? currentIdx : prev.currentStepIndex,
+        overallStatus: serverDeployment.status as typeof prev.overallStatus,
+        isDeploying: serverDeployment.status === 'running',
+        endTime: serverDeployment.endTime,
+      }));
+
+      // Handle completion
+      if (serverDeployment.status === 'completed') {
+        toast.success('Deployment completed successfully!');
+        saveToHistory();
+      } else if (serverDeployment.status === 'failed') {
+        toast.error('Deployment failed');
+      }
+    }
+  }, [deploymentStatusQuery.data]);
 
   // Start deployment execution
   const startDeployment = async () => {
@@ -650,113 +744,99 @@ export default function DeploymentWizard() {
     };
 
     try {
-      // Step 1: Connect to Host
+      // Determine host ID based on hostname
+      const hostId = config.hostname.includes('139') || config.hostname.includes('alpha') ? 'alpha' : 'beta';
+
+      // Step 1: Test SSH Connection
       setDeploymentStatus(prev => ({ ...prev, currentStepIndex: 0 }));
       updateStep(0, { status: 'running', startTime: Date.now() });
-      addLog(0, `Connecting to ${config.hostname}:${config.sshPort}...`);
-      await new Promise(r => setTimeout(r, 1000));
-      addLog(0, `SSH handshake initiated with user ${config.sshUsername}`);
-      await new Promise(r => setTimeout(r, 800));
-      addLog(0, 'Connection established successfully');
+      addLog(0, `Testing SSH connection to ${hostId}...`);
+      
+      const connResult = await testConnectionMutation.mutateAsync({ hostId });
+      
+      if (!connResult.success) {
+        throw new Error(connResult.error || 'SSH connection failed');
+      }
+      
+      addLog(0, connResult.message || 'Connection established');
+      addLog(0, `Latency: ${connResult.latencyMs}ms`);
       updateStep(0, { status: 'completed', endTime: Date.now() });
 
-      // Step 2: Upload Files
+      // Step 2: Check GPU and Disk Space
       setDeploymentStatus(prev => ({ ...prev, currentStepIndex: 1 }));
-      updateStep(1, { status: 'running', startTime: Date.now(), progress: 0 });
-      const fileNames = Object.keys(generatedFiles);
-      for (let i = 0; i < fileNames.length; i++) {
-        addLog(1, `Uploading ${fileNames[i]}...`);
-        await new Promise(r => setTimeout(r, 300));
-        updateStep(1, { progress: Math.round(((i + 1) / fileNames.length) * 100) });
+      updateStep(1, { status: 'running', startTime: Date.now() });
+      addLog(1, 'Checking GPU availability...');
+      
+      const gpuResult = await checkGPUMutation.mutateAsync({ hostId });
+      if (gpuResult.success && gpuResult.available) {
+        addLog(1, `Found ${gpuResult.gpuCount} GPU(s): ${gpuResult.gpus?.map(g => g.name).join(', ')}`);
+      } else {
+        addLog(1, 'No GPU detected (continuing without GPU support)');
       }
-      addLog(1, `${fileNames.length} files uploaded successfully`);
+
+      addLog(1, 'Checking disk space...');
+      const diskResult = await checkDiskMutation.mutateAsync({ hostId, path: '/opt', requiredGB: 10 });
+      if (diskResult.success) {
+        addLog(1, `Disk: ${diskResult.availableGB}GB available of ${diskResult.totalGB}GB (${diskResult.usedPercent}% used)`);
+        if (!diskResult.available) {
+          addLog(1, `Warning: Less than ${diskResult.requiredGB}GB available`);
+        }
+      }
       updateStep(1, { status: 'completed', endTime: Date.now() });
 
-      // Step 3: Install Dependencies
+      // Step 3-6: Start real deployment via backend
       setDeploymentStatus(prev => ({ ...prev, currentStepIndex: 2 }));
       updateStep(2, { status: 'running', startTime: Date.now() });
-      addLog(2, 'Checking system requirements...');
-      await new Promise(r => setTimeout(r, 600));
-      addLog(2, 'Installing Node.js dependencies...');
-      await new Promise(r => setTimeout(r, 1200));
-      addLog(2, 'Installing Python packages...');
-      await new Promise(r => setTimeout(r, 800));
-      if (config.enableDatabase) {
-        addLog(2, 'Setting up SQLite database...');
-        await new Promise(r => setTimeout(r, 500));
-      }
-      addLog(2, 'All dependencies installed');
-      updateStep(2, { status: 'completed', endTime: Date.now() });
+      addLog(2, 'Initiating deployment on remote host...');
 
-      // Step 4: Configure Services
-      setDeploymentStatus(prev => ({ ...prev, currentStepIndex: 3 }));
-      updateStep(3, { status: 'running', startTime: Date.now() });
-      addLog(3, 'Loading environment configuration...');
-      await new Promise(r => setTimeout(r, 400));
-      addLog(3, 'Configuring systemd service...');
-      await new Promise(r => setTimeout(r, 600));
-      if (config.enableNginx) {
-        addLog(3, 'Setting up Nginx reverse proxy...');
-        await new Promise(r => setTimeout(r, 500));
-      }
+      // Prepare files for upload
+      const files = Object.entries(generatedFiles).map(([name, content]) => ({
+        name,
+        content,
+        path: name.includes('compose') || name.includes('Dockerfile') ? '' : 'config',
+      }));
+
+      // Prepare environment variables
+      const envVars: Record<string, string> = {
+        NODE_ENV: 'production',
+        PORT: '3000',
+      };
+      if (config.jwtSecret) envVars.JWT_SECRET = config.jwtSecret;
+      if (config.ngcApiKey) envVars.NGC_API_KEY = config.ngcApiKey;
+      if (config.huggingfaceToken) envVars.HUGGINGFACE_TOKEN = config.huggingfaceToken;
       if (config.enableVllm) {
-        addLog(3, `Configuring vLLM with model ${config.vllmModel}...`);
-        await new Promise(r => setTimeout(r, 700));
+        envVars.VLLM_API_URL = `http://localhost:${config.vllmPort}`;
       }
-      addLog(3, 'Service configuration complete');
-      updateStep(3, { status: 'completed', endTime: Date.now() });
 
-      // Step 5: Start Services
-      setDeploymentStatus(prev => ({ ...prev, currentStepIndex: 4 }));
-      updateStep(4, { status: 'running', startTime: Date.now() });
-      if (config.deploymentMethod === 'ai-workbench') {
-        addLog(4, 'Starting Docker containers...');
-        await new Promise(r => setTimeout(r, 800));
-        addLog(4, 'Container nemo-app started');
-        await new Promise(r => setTimeout(r, 400));
-        if (config.enableJupyter) {
-          addLog(4, 'Container nemo-jupyter started');
-          await new Promise(r => setTimeout(r, 300));
-        }
-        if (config.enableVllm) {
-          addLog(4, 'Container nemo-vllm started');
-          await new Promise(r => setTimeout(r, 500));
-        }
-      } else {
-        addLog(4, 'Starting systemd service...');
-        await new Promise(r => setTimeout(r, 600));
-        addLog(4, 'Service nemo-command-center started');
+      const deployResult = await startDeploymentMutation.mutateAsync({
+        hostId,
+        deploymentMethod: config.deploymentMethod,
+        config: {
+          appName: 'nemo-command-center',
+          deployPath: '/opt/nemo-command-center',
+          port: 3000,
+          enableNginx: config.enableNginx,
+          enableSystemd: true,
+          envVars,
+        },
+        files,
+      });
+
+      if (!deployResult.success) {
+        throw new Error('Failed to start deployment');
       }
-      addLog(4, 'All services running');
-      updateStep(4, { status: 'completed', endTime: Date.now() });
 
-      // Step 6: Verify Deployment
-      setDeploymentStatus(prev => ({ ...prev, currentStepIndex: 5 }));
-      updateStep(5, { status: 'running', startTime: Date.now() });
-      addLog(5, 'Running health checks...');
-      await new Promise(r => setTimeout(r, 800));
-      addLog(5, `Checking http://${config.hostname}:3000/health...`);
-      await new Promise(r => setTimeout(r, 600));
-      addLog(5, 'Health check passed: API responding');
-      if (config.enableVllm) {
-        addLog(5, `Checking vLLM at port ${config.vllmPort}...`);
-        await new Promise(r => setTimeout(r, 500));
-        addLog(5, 'vLLM service healthy');
-      }
-      addLog(5, 'Deployment verified successfully!');
-      updateStep(5, { status: 'completed', endTime: Date.now() });
-
-      // Deployment complete
+      // Store deployment ID for status polling
       setDeploymentStatus(prev => ({
         ...prev,
-        isDeploying: false,
-        endTime: Date.now(),
-        overallStatus: 'completed'
+        deploymentId: deployResult.deploymentId,
       }));
-      toast.success('Deployment completed successfully!');
-      
-      // Auto-save to history on successful deployment
-      saveToHistory();
+
+      addLog(2, `Deployment started: ${deployResult.deploymentId}`);
+      addLog(2, 'Monitoring deployment progress...');
+
+      // The rest of the deployment will be tracked via the polling query
+      // which will update the UI as steps complete on the server
 
     } catch (error) {
       const currentIdx = deploymentStatus.currentStepIndex;
@@ -775,7 +855,14 @@ export default function DeploymentWizard() {
   };
 
   // Cancel deployment
-  const cancelDeployment = () => {
+  const cancelDeployment = async () => {
+    if (deploymentStatus.deploymentId) {
+      try {
+        await cancelDeploymentMutation.mutateAsync({ deploymentId: deploymentStatus.deploymentId });
+      } catch (error) {
+        console.error('Failed to cancel deployment on server:', error);
+      }
+    }
     setDeploymentStatus(prev => ({
       ...prev,
       isDeploying: false,

@@ -983,3 +983,19 @@
 - [x] Add animated progress bar with percentage
 - [x] Auto-save to history on successful deployment
 - [x] Add retry button on failure
+
+## Real SSH Deployment Integration
+- [x] Create deploymentRouter with real SSH execution
+- [x] Implement testConnection endpoint for SSH validation
+- [x] Implement checkGPU endpoint for GPU availability
+- [x] Implement checkDiskSpace endpoint for storage validation
+- [x] Implement startDeployment endpoint with full deployment flow
+- [x] Implement file upload via base64 encoding over SSH
+- [x] Implement dependency installation (Node.js, pnpm, Docker)
+- [x] Implement service configuration (systemd, nginx)
+- [x] Implement service startup and health verification
+- [x] Update frontend validation to use real SSH checks
+- [x] Update frontend deployment to use real tRPC endpoints
+- [x] Add deployment status polling with real-time updates
+- [x] Add proper error handling and cancellation support
+- [x] Add rollback endpoint for deployment cleanup
