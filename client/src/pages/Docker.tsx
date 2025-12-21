@@ -42,6 +42,7 @@ import {
   Beaker,
   Cpu,
   BarChart3,
+  Copy,
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -2190,6 +2191,27 @@ function QuickLaunchTab({ selectedHost }: { selectedHost: "alpha" | "beta" }) {
     setNewVolume("");
   };
 
+  const handleClonePreset = (preset: any) => {
+    // Pre-fill the create preset form with cloned data
+    setNewPreset({
+      name: `${preset.name} (Copy)`,
+      description: preset.description || "",
+      category: preset.category || "Custom",
+      icon: preset.icon || "box",
+      image: preset.image,
+      defaultPort: preset.defaultPort || 8080,
+      gpuRequired: preset.gpuRequired || false,
+      command: preset.command || "",
+      envVars: preset.envVars || {},
+      volumes: preset.volumes || [],
+      networkMode: preset.networkMode || "bridge",
+      restartPolicy: preset.restartPolicy || "no",
+      isPublic: false,
+    });
+    setCreatePresetOpen(true);
+    toast.info(`Cloning "${preset.name}" - customize and save as your own preset`);
+  };
+
   const handleCreatePreset = () => {
     if (!newPreset.name || !newPreset.image) {
       toast.error("Name and image are required");
@@ -2323,17 +2345,31 @@ function QuickLaunchTab({ selectedHost }: { selectedHost: "alpha" | "beta" }) {
                     <div className="text-xs text-gray-500">
                       Port: {preset.defaultPort}
                     </div>
-                    <Button
-                      size="sm"
-                      className="bg-[#3b82f6] hover:bg-[#3b82f6]/90"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        handleLaunch(preset);
-                      }}
-                    >
-                      <Play className="h-3 w-3 mr-1" />
-                      Launch
-                    </Button>
+                    <div className="flex gap-1">
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="h-8 w-8 p-0 text-gray-400 hover:text-purple-400 hover:bg-purple-500/10"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleClonePreset(preset);
+                        }}
+                        title="Clone as custom preset"
+                      >
+                        <Copy className="h-3.5 w-3.5" />
+                      </Button>
+                      <Button
+                        size="sm"
+                        className="bg-[#3b82f6] hover:bg-[#3b82f6]/90"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleLaunch(preset);
+                        }}
+                      >
+                        <Play className="h-3 w-3 mr-1" />
+                        Launch
+                      </Button>
+                    </div>
                   </div>
                 </CardContent>
               </Card>

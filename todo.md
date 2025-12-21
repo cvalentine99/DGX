@@ -642,3 +642,9 @@
 - [ ] Add preset import/export (JSON format)
 - [x] Support custom environment variables in presets
 - [x] Support volume mounts configuration in presets
+
+# Clone Built-in Presets Feature
+
+- [x] Add Clone button to built-in preset cards
+- [x] Pre-fill Create Preset modal with cloned preset data
+- [x] Allow users to customize name, port, and other settings before saving
