@@ -1,4 +1,4 @@
-import { int, mysqlEnum, mysqlTable, text, timestamp, varchar, boolean } from "drizzle-orm/mysql-core";
+import { int, mysqlEnum, mysqlTable, text, timestamp, varchar, boolean, index } from "drizzle-orm/mysql-core";
 
 /**
  * Core user table backing auth flow.
@@ -57,7 +57,10 @@ export const gpuMetricsHistory = mysqlTable("gpu_metrics_history", {
   cpuUtilization: int("cpuUtilization"), // 0-100%
   systemMemoryUsed: int("systemMemoryUsed"), // MB
   systemMemoryTotal: int("systemMemoryTotal"), // MB
-});
+}, (table) => ({
+  // Index for efficient time-series queries by host
+  hostTimeIdx: index("idx_host_time").on(table.hostId, table.timestamp),
+}));
 
 export type GpuMetricsHistory = typeof gpuMetricsHistory.$inferSelect;
 export type InsertGpuMetricsHistory = typeof gpuMetricsHistory.$inferInsert;
@@ -73,7 +76,10 @@ export const inferenceRequestLogs = mysqlTable("inference_request_logs", {
   latencyMs: int("latencyMs").notNull(),
   userId: int("userId").references(() => users.id),
   success: int("success").notNull().default(1), // 1 = success, 0 = failure
-});
+}, (table) => ({
+  // Index for efficient time-based queries
+  timestampIdx: index("idx_timestamp").on(table.timestamp),
+}));
 
 export type InferenceRequestLog = typeof inferenceRequestLogs.$inferSelect;
 export type InsertInferenceRequestLog = typeof inferenceRequestLogs.$inferInsert;

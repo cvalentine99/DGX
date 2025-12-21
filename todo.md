@@ -1014,3 +1014,12 @@
 - [x] Create embedded migration script with all table schemas
 - [x] Add database user and password generation
 - [x] Update systemd service to depend on mysql.service
+
+## V3 Audit Fixes
+- [x] Fix schema drift - Added indexes to drizzle/schema.ts (idx_host_time, idx_timestamp)
+- [x] Optimize nginx - Serve static assets directly from /assets/, /images/ with caching
+- [x] Add data pruning - Daily cron job at 3 AM, 30-day retention, table optimization
+- [x] Include full server source in deployment package
+- [x] Changed default nginx port to 87
+- [x] Added gzip compression for static assets
+- [x] Added separate location blocks for /api/, /trpc/, /socket.io/

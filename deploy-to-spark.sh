@@ -230,7 +230,7 @@ collect_basic_config() {
     prompt_yes_no "ENABLE_NGINX" "Enable nginx reverse proxy (recommended)" "y"
     
     if [[ "${CONFIG[ENABLE_NGINX]}" == "true" ]]; then
-        prompt "NGINX_PORT" "Nginx port" "80"
+        prompt "NGINX_PORT" "Nginx port" "87"
     fi
     
     prompt_yes_no "ENABLE_SSL" "Enable SSL/HTTPS" "n"
@@ -503,8 +503,20 @@ copy_files() {
         run_step "Copying shared modules" "cp -r $SCRIPT_DIR/shared $INSTALL_DIR/"
     fi
     
+    if [[ -d "$SCRIPT_DIR/server" ]]; then
+        run_step "Copying server source" "cp -r $SCRIPT_DIR/server $INSTALL_DIR/"
+    fi
+    
     if [[ -f "$SCRIPT_DIR/pnpm-lock.yaml" ]]; then
         cp "$SCRIPT_DIR/pnpm-lock.yaml" "$INSTALL_DIR/" 2>/dev/null || true
+    fi
+    
+    if [[ -f "$SCRIPT_DIR/tsconfig.json" ]]; then
+        cp "$SCRIPT_DIR/tsconfig.json" "$INSTALL_DIR/" 2>/dev/null || true
+    fi
+    
+    if [[ -f "$SCRIPT_DIR/drizzle.config.ts" ]]; then
+        cp "$SCRIPT_DIR/drizzle.config.ts" "$INSTALL_DIR/" 2>/dev/null || true
     fi
 }
 
@@ -907,7 +919,38 @@ server {
     add_header X-Content-Type-Options "nosniff" always;
     add_header X-XSS-Protection "1; mode=block" always;
 
-    location / {
+    # Gzip compression for static assets
+    gzip on;
+    gzip_vary on;
+    gzip_min_length 1024;
+    gzip_proxied any;
+    gzip_types text/plain text/css text/xml text/javascript application/javascript application/json application/xml;
+
+    # Static assets - serve directly from disk (high performance)
+    location /assets/ {
+        alias ${INSTALL_DIR}/public/assets/;
+        expires 1y;
+        add_header Cache-Control "public, immutable";
+        access_log off;
+    }
+
+    # Images - serve directly from disk
+    location /images/ {
+        alias ${INSTALL_DIR}/public/images/;
+        expires 30d;
+        add_header Cache-Control "public";
+        access_log off;
+    }
+
+    # Favicon and static root files
+    location ~* ^/(favicon\.ico|robots\.txt|\.well-known)/ {
+        root ${INSTALL_DIR}/public;
+        expires 7d;
+        access_log off;
+    }
+
+    # API and dynamic routes - proxy to Node.js
+    location /api/ {
         proxy_pass http://127.0.0.1:${CONFIG[APP_PORT]};
         proxy_http_version 1.1;
         proxy_set_header Upgrade \$http_upgrade;
@@ -919,9 +962,36 @@ server {
         proxy_cache_bypass \$http_upgrade;
         proxy_read_timeout 86400;
         proxy_send_timeout 86400;
-        
-        # WebSocket support
         proxy_buffering off;
+    }
+
+    # tRPC endpoint
+    location /trpc/ {
+        proxy_pass http://127.0.0.1:${CONFIG[APP_PORT]};
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade \$http_upgrade;
+        proxy_set_header Connection 'upgrade';
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto \$scheme;
+        proxy_cache_bypass \$http_upgrade;
+        proxy_read_timeout 86400;
+        proxy_send_timeout 86400;
+        proxy_buffering off;
+    }
+
+    # Socket.io WebSocket connections
+    location /socket.io/ {
+        proxy_pass http://127.0.0.1:${CONFIG[APP_PORT]};
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade \$http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_read_timeout 86400;
+        proxy_send_timeout 86400;
     }
 
     # Health check endpoint
@@ -930,12 +1000,130 @@ server {
         proxy_http_version 1.1;
         proxy_set_header Host \$host;
     }
+
+    # SPA fallback - try static file first, then proxy to Node.js
+    location / {
+        root ${INSTALL_DIR}/public;
+        try_files \$uri \$uri/ @backend;
+    }
+
+    # Backend fallback for SPA routes
+    location @backend {
+        proxy_pass http://127.0.0.1:${CONFIG[APP_PORT]};
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade \$http_upgrade;
+        proxy_set_header Connection 'upgrade';
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto \$scheme;
+        proxy_cache_bypass \$http_upgrade;
+    }
 }
 EOF
 
     run_step "Enabling nginx site" "ln -sf /etc/nginx/sites-available/${APP_NAME} /etc/nginx/sites-enabled/ && rm -f /etc/nginx/sites-enabled/default"
     run_step "Testing nginx config" "nginx -t"
     run_step "Reloading nginx" "systemctl reload nginx"
+}
+
+setup_data_pruning() {
+    print_section "Setting Up Data Pruning"
+    
+    # Create the pruning script
+    cat > ${INSTALL_DIR}/prune-metrics.sh << 'PRUNE_EOF'
+#!/bin/bash
+#===============================================================================
+# NeMo Command Center - Metrics Data Pruning Script
+# Deletes metrics older than specified retention period to prevent disk fill
+#===============================================================================
+
+# Load environment
+if [[ -f /etc/nemo/nemo-command-center.env ]]; then
+    source /etc/nemo/nemo-command-center.env
+fi
+
+# Default retention: 30 days
+RETENTION_DAYS=${METRICS_RETENTION_DAYS:-30}
+
+# Parse DATABASE_URL to extract credentials
+if [[ -z "$DATABASE_URL" ]]; then
+    echo "ERROR: DATABASE_URL not set"
+    exit 1
+fi
+
+# Extract MySQL connection details from URL
+# Format: mysql://user:password@host:port/database
+DB_USER=$(echo $DATABASE_URL | sed -E 's|mysql://([^:]+):.*|\1|')
+DB_PASS=$(echo $DATABASE_URL | sed -E 's|mysql://[^:]+:([^@]+)@.*|\1|')
+DB_HOST=$(echo $DATABASE_URL | sed -E 's|mysql://[^@]+@([^:]+):.*|\1|')
+DB_PORT=$(echo $DATABASE_URL | sed -E 's|mysql://[^@]+@[^:]+:([0-9]+)/.*|\1|')
+DB_NAME=$(echo $DATABASE_URL | sed -E 's|mysql://[^/]+/(.+)|\1|')
+
+LOG_FILE="/opt/nemo-command-center/logs/prune.log"
+
+log() {
+    echo "$(date '+%Y-%m-%d %H:%M:%S') - $1" >> "$LOG_FILE"
+}
+
+log "Starting metrics pruning (retention: ${RETENTION_DAYS} days)"
+
+# Prune gpu_metrics_history
+GPU_DELETED=$(mysql -u"$DB_USER" -p"$DB_PASS" -h"$DB_HOST" -P"$DB_PORT" "$DB_NAME" -N -e "
+    DELETE FROM gpu_metrics_history 
+    WHERE timestamp < DATE_SUB(NOW(), INTERVAL ${RETENTION_DAYS} DAY);
+    SELECT ROW_COUNT();
+" 2>/dev/null)
+log "Deleted ${GPU_DELETED:-0} rows from gpu_metrics_history"
+
+# Prune inference_request_logs
+INFERENCE_DELETED=$(mysql -u"$DB_USER" -p"$DB_PASS" -h"$DB_HOST" -P"$DB_PORT" "$DB_NAME" -N -e "
+    DELETE FROM inference_request_logs 
+    WHERE timestamp < DATE_SUB(NOW(), INTERVAL ${RETENTION_DAYS} DAY);
+    SELECT ROW_COUNT();
+" 2>/dev/null)
+log "Deleted ${INFERENCE_DELETED:-0} rows from inference_request_logs"
+
+# Prune dismissed system_alerts older than 7 days
+ALERTS_DELETED=$(mysql -u"$DB_USER" -p"$DB_PASS" -h"$DB_HOST" -P"$DB_PORT" "$DB_NAME" -N -e "
+    DELETE FROM system_alerts 
+    WHERE dismissed = 1 AND timestamp < DATE_SUB(NOW(), INTERVAL 7 DAY);
+    SELECT ROW_COUNT();
+" 2>/dev/null)
+log "Deleted ${ALERTS_DELETED:-0} dismissed alerts"
+
+# Optimize tables after deletion
+mysql -u"$DB_USER" -p"$DB_PASS" -h"$DB_HOST" -P"$DB_PORT" "$DB_NAME" -e "
+    OPTIMIZE TABLE gpu_metrics_history;
+    OPTIMIZE TABLE inference_request_logs;
+    OPTIMIZE TABLE system_alerts;
+" 2>/dev/null
+log "Tables optimized"
+
+log "Pruning complete"
+PRUNE_EOF
+
+    chmod +x ${INSTALL_DIR}/prune-metrics.sh
+    
+    # Add cron job to run daily at 3 AM
+    CRON_LINE="0 3 * * * ${INSTALL_DIR}/prune-metrics.sh"
+    
+    # Check if cron job already exists
+    if ! crontab -l 2>/dev/null | grep -q "prune-metrics.sh"; then
+        (crontab -l 2>/dev/null; echo "$CRON_LINE") | crontab -
+        echo -e "  ${GREEN}✓${NC} Cron job added (daily at 3 AM)"
+    else
+        echo -e "  ${GREEN}✓${NC} Cron job already exists"
+    fi
+    
+    # Add retention config to env file if not present
+    if ! grep -q "METRICS_RETENTION_DAYS" "$CONFIG_DIR/${APP_NAME}.env" 2>/dev/null; then
+        echo "" >> "$CONFIG_DIR/${APP_NAME}.env"
+        echo "# Data retention (days) - metrics older than this are automatically deleted" >> "$CONFIG_DIR/${APP_NAME}.env"
+        echo "METRICS_RETENTION_DAYS=30" >> "$CONFIG_DIR/${APP_NAME}.env"
+    fi
+    
+    echo -e "  ${GREEN}✓${NC} Data pruning configured (30 day retention)"
 }
 
 #===============================================================================
@@ -1045,6 +1233,7 @@ main() {
     write_config
     setup_systemd
     setup_nginx
+    setup_data_pruning
     
     # Done
     print_completion
