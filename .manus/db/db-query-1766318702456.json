@@ -1,0 +1,61 @@
+{
+  "query": "SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_NAME = 'container_presets' AND TABLE_SCHEMA = DATABASE();",
+  "command": "mysql --batch --raw --column-names --default-character-set=utf8mb4 --host gateway02.us-east-1.prod.aws.tidbcloud.com --port 4000 --user 3xenzgJ3NGNThF2.92cf7feae79a --database L4hdhmSjdzBAK7vRuk2opV --execute SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_NAME = 'container_presets' AND TABLE_SCHEMA = DATABASE();",
+  "rows": [
+    {
+      "COLUMN_NAME": "id"
+    },
+    {
+      "COLUMN_NAME": "userId"
+    },
+    {
+      "COLUMN_NAME": "name"
+    },
+    {
+      "COLUMN_NAME": "description"
+    },
+    {
+      "COLUMN_NAME": "category"
+    },
+    {
+      "COLUMN_NAME": "icon"
+    },
+    {
+      "COLUMN_NAME": "image"
+    },
+    {
+      "COLUMN_NAME": "defaultPort"
+    },
+    {
+      "COLUMN_NAME": "gpuRequired"
+    },
+    {
+      "COLUMN_NAME": "command"
+    },
+    {
+      "COLUMN_NAME": "envVars"
+    },
+    {
+      "COLUMN_NAME": "volumes"
+    },
+    {
+      "COLUMN_NAME": "networkMode"
+    },
+    {
+      "COLUMN_NAME": "restartPolicy"
+    },
+    {
+      "COLUMN_NAME": "isPublic"
+    },
+    {
+      "COLUMN_NAME": "createdAt"
+    },
+    {
+      "COLUMN_NAME": "updatedAt"
+    }
+  ],
+  "messages": [],
+  "stdout": "COLUMN_NAME\nid\nuserId\nname\ndescription\ncategory\nicon\nimage\ndefaultPort\ngpuRequired\ncommand\nenvVars\nvolumes\nnetworkMode\nrestartPolicy\nisPublic\ncreatedAt\nupdatedAt\n",
+  "stderr": "",
+  "execution_time_ms": 56
+}

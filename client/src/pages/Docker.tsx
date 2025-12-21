@@ -2069,9 +2069,79 @@ function QuickLaunchTab({ selectedHost }: { selectedHost: "alpha" | "beta" }) {
   const [customName, setCustomName] = useState<string>("");
   const [launchModalOpen, setLaunchModalOpen] = useState(false);
   const [launchingPreset, setLaunchingPreset] = useState<any>(null);
+  
+  // Custom presets state
+  const [createPresetOpen, setCreatePresetOpen] = useState(false);
+  const [editPresetOpen, setEditPresetOpen] = useState(false);
+  const [editingPreset, setEditingPreset] = useState<any>(null);
+  const [newPreset, setNewPreset] = useState({
+    name: "",
+    description: "",
+    category: "Custom",
+    icon: "box",
+    image: "",
+    defaultPort: 8080,
+    gpuRequired: false,
+    command: "",
+    envVars: {} as Record<string, string>,
+    volumes: [] as string[],
+    networkMode: "bridge",
+    restartPolicy: "no",
+    isPublic: false,
+  });
+  const [newEnvKey, setNewEnvKey] = useState("");
+  const [newEnvValue, setNewEnvValue] = useState("");
+  const [newVolume, setNewVolume] = useState("");
 
   const { data: presetsData } = trpc.ssh.getQuickLaunchPresets.useQuery();
   const presets = presetsData?.presets || [];
+  
+  // Custom presets from database
+  const { data: customPresetsData, refetch: refetchCustomPresets } = trpc.presets.getPresets.useQuery({
+    includePublic: true,
+  });
+  const customPresets = customPresetsData?.presets || [];
+
+  // Custom preset mutations
+  const createPresetMutation = trpc.presets.createPreset.useMutation({
+    onSuccess: (data) => {
+      if (data.success) {
+        toast.success("Custom preset created successfully!");
+        setCreatePresetOpen(false);
+        resetNewPreset();
+        refetchCustomPresets();
+      } else {
+        toast.error(data.error || "Failed to create preset");
+      }
+    },
+    onError: (err) => toast.error(err.message),
+  });
+
+  const updatePresetMutation = trpc.presets.updatePreset.useMutation({
+    onSuccess: (data) => {
+      if (data.success) {
+        toast.success("Preset updated successfully!");
+        setEditPresetOpen(false);
+        setEditingPreset(null);
+        refetchCustomPresets();
+      } else {
+        toast.error(data.error || "Failed to update preset");
+      }
+    },
+    onError: (err) => toast.error(err.message),
+  });
+
+  const deletePresetMutation = trpc.presets.deletePreset.useMutation({
+    onSuccess: (data) => {
+      if (data.success) {
+        toast.success("Preset deleted successfully!");
+        refetchCustomPresets();
+      } else {
+        toast.error(data.error || "Failed to delete preset");
+      }
+    },
+    onError: (err) => toast.error(err.message),
+  });
 
   const launchMutation = trpc.ssh.launchQuickPreset.useMutation({
     onSuccess: (data) => {
@@ -2095,8 +2165,91 @@ function QuickLaunchTab({ selectedHost }: { selectedHost: "alpha" | "beta" }) {
   const handleLaunch = (preset: any) => {
     setLaunchingPreset(preset);
     setCustomPort(preset.defaultPort.toString());
-    setCustomName(`${preset.id}-${Date.now().toString().slice(-6)}`);
+    setCustomName(`${preset.id || preset.name.toLowerCase().replace(/\s+/g, '-')}-${Date.now().toString().slice(-6)}`);
     setLaunchModalOpen(true);
+  };
+
+  const resetNewPreset = () => {
+    setNewPreset({
+      name: "",
+      description: "",
+      category: "Custom",
+      icon: "box",
+      image: "",
+      defaultPort: 8080,
+      gpuRequired: false,
+      command: "",
+      envVars: {},
+      volumes: [],
+      networkMode: "bridge",
+      restartPolicy: "no",
+      isPublic: false,
+    });
+    setNewEnvKey("");
+    setNewEnvValue("");
+    setNewVolume("");
+  };
+
+  const handleCreatePreset = () => {
+    if (!newPreset.name || !newPreset.image) {
+      toast.error("Name and image are required");
+      return;
+    }
+    createPresetMutation.mutate(newPreset);
+  };
+
+  const handleEditPreset = (preset: any) => {
+    setEditingPreset(preset);
+    setEditPresetOpen(true);
+  };
+
+  const handleUpdatePreset = () => {
+    if (!editingPreset) return;
+    updatePresetMutation.mutate({
+      id: editingPreset.id,
+      ...editingPreset,
+    });
+  };
+
+  const handleDeletePreset = (presetId: number) => {
+    if (confirm("Are you sure you want to delete this preset?")) {
+      deletePresetMutation.mutate({ id: presetId });
+    }
+  };
+
+  const addEnvVar = () => {
+    if (newEnvKey && newEnvValue) {
+      setNewPreset(prev => ({
+        ...prev,
+        envVars: { ...prev.envVars, [newEnvKey]: newEnvValue }
+      }));
+      setNewEnvKey("");
+      setNewEnvValue("");
+    }
+  };
+
+  const removeEnvVar = (key: string) => {
+    setNewPreset(prev => {
+      const { [key]: _, ...rest } = prev.envVars;
+      return { ...prev, envVars: rest };
+    });
+  };
+
+  const addVolume = () => {
+    if (newVolume) {
+      setNewPreset(prev => ({
+        ...prev,
+        volumes: [...prev.volumes, newVolume]
+      }));
+      setNewVolume("");
+    }
+  };
+
+  const removeVolume = (index: number) => {
+    setNewPreset(prev => ({
+      ...prev,
+      volumes: prev.volumes.filter((_, i) => i !== index)
+    }));
   };
 
   const handleConfirmLaunch = () => {
@@ -2188,6 +2341,279 @@ function QuickLaunchTab({ selectedHost }: { selectedHost: "alpha" | "beta" }) {
           </div>
         </div>
       ))}
+
+      {/* Custom Presets Section */}
+      {customPresets.length > 0 && (
+        <div className="space-y-4">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2 text-gray-400">
+              <Sparkles className="h-5 w-5" />
+              <h3 className="text-lg font-semibold">My Custom Presets</h3>
+            </div>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setCreatePresetOpen(true)}
+              className="border-[#3b82f6]/50 text-[#3b82f6] hover:bg-[#3b82f6]/10"
+            >
+              <Plus className="h-4 w-4 mr-1" />
+              Create Preset
+            </Button>
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            {customPresets.map((preset: any) => (
+              <Card
+                key={preset.id}
+                className="bg-black/40 border-gray-800 hover:border-purple-500/50 transition-all group"
+              >
+                <CardContent className="p-4">
+                  <div className="flex items-start justify-between mb-3">
+                    <div className="p-2 rounded-lg bg-purple-500/10 text-purple-500 group-hover:bg-purple-500/20 transition-colors">
+                      {presetIcons[preset.icon] || <Box className="h-6 w-6" />}
+                    </div>
+                    <div className="flex gap-1">
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="h-7 w-7 p-0 text-gray-400 hover:text-white"
+                        onClick={() => handleEditPreset(preset)}
+                      >
+                        <Settings className="h-3.5 w-3.5" />
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="h-7 w-7 p-0 text-gray-400 hover:text-red-500"
+                        onClick={() => handleDeletePreset(preset.id)}
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </Button>
+                    </div>
+                  </div>
+                  <h4 className="font-semibold text-white mb-1">{preset.name}</h4>
+                  <p className="text-sm text-gray-400 mb-3 line-clamp-2">{preset.description}</p>
+                  <div className="flex items-center justify-between">
+                    <div className="text-xs text-gray-500">
+                      Port: {preset.defaultPort}
+                    </div>
+                    <Button
+                      size="sm"
+                      className="bg-purple-500 hover:bg-purple-500/90"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleLaunch(preset);
+                      }}
+                    >
+                      <Play className="h-3 w-3 mr-1" />
+                      Launch
+                    </Button>
+                  </div>
+                </CardContent>
+              </Card>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Create New Preset Button (if no custom presets) */}
+      {customPresets.length === 0 && (
+        <Card className="bg-black/40 border-dashed border-gray-700 hover:border-[#3b82f6]/50 transition-all cursor-pointer" onClick={() => setCreatePresetOpen(true)}>
+          <CardContent className="py-8 text-center">
+            <Plus className="h-12 w-12 mx-auto text-gray-600 mb-3" />
+            <h3 className="text-lg font-semibold text-gray-400">Create Custom Preset</h3>
+            <p className="text-sm text-gray-500">Save your container configurations for quick reuse</p>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Create Preset Modal */}
+      <Dialog open={createPresetOpen} onOpenChange={setCreatePresetOpen}>
+        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto bg-black/95 border-gray-800">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Plus className="h-5 w-5 text-[#3b82f6]" />
+              Create Custom Preset
+            </DialogTitle>
+            <DialogDescription>
+              Save a container configuration as a reusable preset
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <label className="text-sm font-medium text-gray-300">Name *</label>
+                <Input
+                  value={newPreset.name}
+                  onChange={(e) => setNewPreset(prev => ({ ...prev, name: e.target.value }))}
+                  placeholder="My Custom Container"
+                  className="bg-black/50 border-gray-700"
+                />
+              </div>
+              <div className="space-y-2">
+                <label className="text-sm font-medium text-gray-300">Category</label>
+                <select
+                  value={newPreset.category}
+                  onChange={(e) => setNewPreset(prev => ({ ...prev, category: e.target.value }))}
+                  className="w-full h-10 rounded-md border border-gray-700 bg-black/50 px-3 text-sm"
+                >
+                  <option value="Custom">Custom</option>
+                  <option value="Development">Development</option>
+                  <option value="Monitoring">Monitoring</option>
+                  <option value="Training">Training</option>
+                  <option value="Inference">Inference</option>
+                </select>
+              </div>
+            </div>
+            <div className="space-y-2">
+              <label className="text-sm font-medium text-gray-300">Description</label>
+              <Textarea
+                value={newPreset.description}
+                onChange={(e) => setNewPreset(prev => ({ ...prev, description: e.target.value }))}
+                placeholder="Brief description of this preset..."
+                className="bg-black/50 border-gray-700"
+                rows={2}
+              />
+            </div>
+            <div className="space-y-2">
+              <label className="text-sm font-medium text-gray-300">Docker Image *</label>
+              <Input
+                value={newPreset.image}
+                onChange={(e) => setNewPreset(prev => ({ ...prev, image: e.target.value }))}
+                placeholder="nvcr.io/nvidia/pytorch:24.01-py3"
+                className="bg-black/50 border-gray-700"
+              />
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <label className="text-sm font-medium text-gray-300">Default Port</label>
+                <Input
+                  type="number"
+                  value={newPreset.defaultPort}
+                  onChange={(e) => setNewPreset(prev => ({ ...prev, defaultPort: parseInt(e.target.value) || 8080 }))}
+                  className="bg-black/50 border-gray-700"
+                />
+              </div>
+              <div className="space-y-2">
+                <label className="text-sm font-medium text-gray-300">Icon</label>
+                <select
+                  value={newPreset.icon}
+                  onChange={(e) => setNewPreset(prev => ({ ...prev, icon: e.target.value }))}
+                  className="w-full h-10 rounded-md border border-gray-700 bg-black/50 px-3 text-sm"
+                >
+                  <option value="box">Box</option>
+                  <option value="notebook">Notebook</option>
+                  <option value="server">Server</option>
+                  <option value="code">Code</option>
+                  <option value="brain">Brain</option>
+                  <option value="chart">Chart</option>
+                  <option value="flask">Flask</option>
+                  <option value="message">Message</option>
+                </select>
+              </div>
+            </div>
+            <div className="flex items-center gap-4">
+              <label className="flex items-center gap-2 text-sm text-gray-300">
+                <input
+                  type="checkbox"
+                  checked={newPreset.gpuRequired}
+                  onChange={(e) => setNewPreset(prev => ({ ...prev, gpuRequired: e.target.checked }))}
+                  className="rounded border-gray-700"
+                />
+                Requires GPU
+              </label>
+              <label className="flex items-center gap-2 text-sm text-gray-300">
+                <input
+                  type="checkbox"
+                  checked={newPreset.isPublic}
+                  onChange={(e) => setNewPreset(prev => ({ ...prev, isPublic: e.target.checked }))}
+                  className="rounded border-gray-700"
+                />
+                Public (share with others)
+              </label>
+            </div>
+            <div className="space-y-2">
+              <label className="text-sm font-medium text-gray-300">Command (optional)</label>
+              <Input
+                value={newPreset.command}
+                onChange={(e) => setNewPreset(prev => ({ ...prev, command: e.target.value }))}
+                placeholder="jupyter lab --ip=0.0.0.0"
+                className="bg-black/50 border-gray-700"
+              />
+            </div>
+            {/* Environment Variables */}
+            <div className="space-y-2">
+              <label className="text-sm font-medium text-gray-300">Environment Variables</label>
+              <div className="flex gap-2">
+                <Input
+                  value={newEnvKey}
+                  onChange={(e) => setNewEnvKey(e.target.value)}
+                  placeholder="KEY"
+                  className="bg-black/50 border-gray-700 flex-1"
+                />
+                <Input
+                  value={newEnvValue}
+                  onChange={(e) => setNewEnvValue(e.target.value)}
+                  placeholder="value"
+                  className="bg-black/50 border-gray-700 flex-1"
+                />
+                <Button variant="outline" onClick={addEnvVar}>
+                  <Plus className="h-4 w-4" />
+                </Button>
+              </div>
+              {Object.entries(newPreset.envVars).map(([key, value]) => (
+                <div key={key} className="flex items-center gap-2 text-sm bg-gray-900/50 rounded px-3 py-2">
+                  <code className="text-[#3b82f6]">{key}</code>
+                  <span className="text-gray-500">=</span>
+                  <code className="text-gray-300 flex-1">{value}</code>
+                  <Button variant="ghost" size="sm" className="h-6 w-6 p-0" onClick={() => removeEnvVar(key)}>
+                    <X className="h-3 w-3" />
+                  </Button>
+                </div>
+              ))}
+            </div>
+            {/* Volumes */}
+            <div className="space-y-2">
+              <label className="text-sm font-medium text-gray-300">Volume Mounts</label>
+              <div className="flex gap-2">
+                <Input
+                  value={newVolume}
+                  onChange={(e) => setNewVolume(e.target.value)}
+                  placeholder="/host/path:/container/path"
+                  className="bg-black/50 border-gray-700 flex-1"
+                />
+                <Button variant="outline" onClick={addVolume}>
+                  <Plus className="h-4 w-4" />
+                </Button>
+              </div>
+              {newPreset.volumes.map((vol, i) => (
+                <div key={i} className="flex items-center gap-2 text-sm bg-gray-900/50 rounded px-3 py-2">
+                  <code className="text-gray-300 flex-1">{vol}</code>
+                  <Button variant="ghost" size="sm" className="h-6 w-6 p-0" onClick={() => removeVolume(i)}>
+                    <X className="h-3 w-3" />
+                  </Button>
+                </div>
+              ))}
+            </div>
+          </div>
+          <div className="flex justify-end gap-2">
+            <Button variant="outline" onClick={() => { setCreatePresetOpen(false); resetNewPreset(); }}>
+              Cancel
+            </Button>
+            <Button
+              className="bg-[#3b82f6] hover:bg-[#3b82f6]/90"
+              onClick={handleCreatePreset}
+              disabled={createPresetMutation.isPending || !newPreset.name || !newPreset.image}
+            >
+              {createPresetMutation.isPending ? (
+                <Loader2 className="h-4 w-4 animate-spin mr-2" />
+              ) : (
+                <Plus className="h-4 w-4 mr-2" />
+              )}
+              Create Preset
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
 
       {/* Launch Configuration Modal */}
       <Dialog open={launchModalOpen} onOpenChange={setLaunchModalOpen}>

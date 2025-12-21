@@ -631,3 +631,14 @@
 - [x] Add VS Code Server, MLflow, Gradio, Ollama launchers
 - [x] Add host selection for deployment target
 - [x] Add port configuration and container naming
+
+# Custom Preset Template Library
+
+- [x] Create database schema for custom container presets
+- [x] Add backend CRUD endpoints (create, read, update, delete presets)
+- [x] Create "My Custom Presets" section in Quick Launch tab
+- [x] Add "Create Custom Preset" button and modal form
+- [x] Implement preset edit and delete functionality
+- [ ] Add preset import/export (JSON format)
+- [x] Support custom environment variables in presets
+- [x] Support volume mounts configuration in presets

@@ -127,3 +127,27 @@ export const systemSettings = mysqlTable("system_settings", {
 
 export type SystemSettings = typeof systemSettings.$inferSelect;
 export type InsertSystemSettings = typeof systemSettings.$inferInsert;
+
+// Custom container presets for Quick Launch template library
+export const containerPresets = mysqlTable("container_presets", {
+  id: int("id").autoincrement().primaryKey(),
+  userId: int("userId").references(() => users.id),
+  name: varchar("name", { length: 128 }).notNull(),
+  description: text("description"),
+  category: varchar("category", { length: 64 }).notNull().default("Custom"),
+  icon: varchar("icon", { length: 32 }).default("box"), // lucide icon name
+  image: varchar("image", { length: 512 }).notNull(), // Docker image tag
+  defaultPort: int("defaultPort").notNull().default(8080),
+  gpuRequired: int("gpuRequired").notNull().default(0), // 1 = requires GPU
+  command: text("command"), // Optional custom command
+  envVars: text("envVars"), // JSON string of environment variables
+  volumes: text("volumes"), // JSON string of volume mounts
+  networkMode: varchar("networkMode", { length: 32 }).default("bridge"),
+  restartPolicy: varchar("restartPolicy", { length: 32 }).default("no"),
+  isPublic: int("isPublic").notNull().default(0), // 1 = shared with all users
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
+export type ContainerPreset = typeof containerPresets.$inferSelect;
+export type InsertContainerPreset = typeof containerPresets.$inferInsert;
