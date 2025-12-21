@@ -4,21 +4,23 @@ import { Client } from "ssh2";
 import { getSSHPool, initializeSSHPool, PoolStats } from "./sshConnectionPool";
 
 // DGX Spark host configurations
-// Alpha: Uses ngrok TCP tunnel for SSH access from cloud
-// Beta: Uses local network IP (accessible from Alpha via LAN)
+// When running on Beta (192.168.50.110):
+//   - Beta is LOCAL (use local commands, no SSH)
+//   - Alpha is REMOTE (use SSH to 192.168.50.139)
 const DGX_HOSTS = {
   alpha: {
     name: "DGX Spark Alpha",
-    host: process.env.DGX_SSH_HOST || "8.tcp.ngrok.io",
-    port: parseInt(process.env.DGX_SSH_PORT || "18530"),
+    host: process.env.DGX_SSH_HOST || "192.168.50.139",
+    port: parseInt(process.env.DGX_SSH_PORT || "22"),
     localIp: "192.168.50.139",
+    isLocal: false, // Alpha is REMOTE - accessed via SSH
   },
   beta: {
     name: "DGX Spark Beta",
-    // Beta connects via local network from Alpha (no ngrok needed)
     host: process.env.DGX_SSH_HOST_BETA || "192.168.50.110",
     port: parseInt(process.env.DGX_SSH_PORT_BETA || "22"),
     localIp: "192.168.50.110",
+    isLocal: process.env.LOCAL_HOST === 'beta' || process.env.LOCAL_HOST === undefined, // Beta is LOCAL by default
   },
 } as const;
 
@@ -80,6 +82,43 @@ function calculateBackoffDelay(attempt: number): number {
 // Sleep helper for delays
 function sleep(ms: number): Promise<void> {
   return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+// Import child_process for local command execution
+import { exec as execCallback } from 'child_process';
+import { promisify } from 'util';
+const execAsync = promisify(execCallback);
+
+// Execute command locally (for Beta when running on Beta)
+async function executeLocalCommand(command: string): Promise<string> {
+  try {
+    const { stdout, stderr } = await execAsync(command, {
+      maxBuffer: 50 * 1024 * 1024, // 50MB buffer
+      timeout: 60000, // 60 second timeout
+    });
+    return stdout || stderr || '';
+  } catch (error: any) {
+    // Return stderr or error message on failure
+    return error.stderr || error.message || 'Command failed';
+  }
+}
+
+// Check if host should use local execution
+function isLocalHost(hostId: HostId): boolean {
+  const host = DGX_HOSTS[hostId];
+  return host.isLocal === true;
+}
+
+// Execute command on host - automatically chooses local or SSH
+async function executeOnHost(hostId: HostId, command: string): Promise<string> {
+  if (isLocalHost(hostId)) {
+    console.log(`[LOCAL] Executing on ${DGX_HOSTS[hostId].name}: ${command.substring(0, 100)}...`);
+    return executeLocalCommand(command);
+  } else {
+    // Use SSH pool for remote hosts
+    const pool = getSSHPool();
+    return pool.execute(hostId, command);
+  }
 }
 
 // Helper to parse storage size strings (e.g., "377G", "31.6G", "1.2T")
@@ -2307,7 +2346,7 @@ WantedBy=multi-user.target
         const pool = getSSHPool();
         const startTime = Date.now();
         
-        const output = await pool.execute(input.hostId, input.command);
+        const output = await executeOnHost(input.hostId, input.command);
         const duration = Date.now() - startTime;
         
         return {
@@ -4613,7 +4652,7 @@ ENV_EOF`);
 
       try {
         // Get directory listing with file details
-        const stdout = await pool.execute(
+        const stdout = await executeOnHost(
           input.hostId,
           `ls -la "${input.path}" 2>/dev/null | tail -n +2`
         );
@@ -4697,7 +4736,7 @@ ENV_EOF`);
       }
 
       try {
-        const stdout = await pool.execute(
+        const stdout = await executeOnHost(
           input.hostId,
           `find "${input.basePath}" -maxdepth 5 -name "*${input.pattern}*" -type f 2>/dev/null | head -${input.maxResults}`
         );
@@ -4728,7 +4767,7 @@ ENV_EOF`);
 
       try {
         // First check file size
-        const sizeOutput = await pool.execute(
+        const sizeOutput = await executeOnHost(
           input.hostId,
           `stat -c%s "${input.path}" 2>/dev/null || echo "0"`
         );
@@ -4742,7 +4781,7 @@ ENV_EOF`);
         const readSize = truncated ? input.maxSize : fileSize;
 
         // Read file content (with size limit)
-        const content = await pool.execute(
+        const content = await executeOnHost(
           input.hostId,
           `head -c ${readSize} "${input.path}" 2>/dev/null`
         );
@@ -4790,7 +4829,7 @@ ENV_EOF`);
         
         // Check if file exists and overwrite is false
         if (!input.overwrite) {
-          const existsCheck = await pool.execute(
+          const existsCheck = await executeOnHost(
             input.hostId,
             `test -f "${fullPath}" && echo "exists" || echo "not_exists"`
           );
@@ -4800,7 +4839,7 @@ ENV_EOF`);
         }
 
         // Ensure destination directory exists
-        await pool.execute(
+        await executeOnHost(
           input.hostId,
           `mkdir -p "${input.destinationPath}"`
         );
@@ -4808,13 +4847,13 @@ ENV_EOF`);
         // Decode base64 and write file
         // Using printf to handle binary data properly
         const escapedContent = input.content.replace(/'/g, "'\"'\"'");
-        await pool.execute(
+        await executeOnHost(
           input.hostId,
           `echo '${escapedContent}' | base64 -d > "${fullPath}"`
         );
 
         // Verify file was written
-        const sizeOutput = await pool.execute(
+        const sizeOutput = await executeOnHost(
           input.hostId,
           `stat -c%s "${fullPath}" 2>/dev/null || echo "0"`
         );
@@ -4853,7 +4892,7 @@ ENV_EOF`);
         const escapedCode = input.code.replace(/'/g, "'\"'\"'").replace(/\$/g, "\\$");
         
         // Write code to temp file
-        await pool.execute(
+        await executeOnHost(
           input.hostId,
           `cat > "${tempFile}" << 'PYTHON_EOF'
 ${input.code}
@@ -4861,13 +4900,13 @@ PYTHON_EOF`
         );
 
         // Use Python's py_compile to check syntax
-        const result = await pool.execute(
+        const result = await executeOnHost(
           input.hostId,
           `python3 -m py_compile "${tempFile}" 2>&1 && echo "VALID" || echo "INVALID"`
         );
 
         // Clean up temp file
-        await pool.execute(input.hostId, `rm -f "${tempFile}"`);
+        await executeOnHost(input.hostId, `rm -f "${tempFile}"`);
 
         const output = result.trim();
         const isValid = output.endsWith("VALID");
@@ -4934,7 +4973,7 @@ PYTHON_EOF`
       try {
         const logPath = `/home/cvalentine/holoscan-pipelines/${input.pipelineName}/logs/pipeline.log`;
         
-        const logsOutput = await pool.execute(
+        const logsOutput = await executeOnHost(
           input.hostId,
           `tail -n ${input.lines} "${logPath}" 2>/dev/null || echo ""`
         );
@@ -5141,7 +5180,7 @@ if __name__ == "__main__":
         }
 
         // Create deployment directory
-        await pool.execute(input.hostId, `mkdir -p "${input.deployPath}"`);
+        await executeOnHost(input.hostId, `mkdir -p "${input.deployPath}"`);
 
         // Write pipeline file
         const filename = input.pipelineId === "valentine-rf" ? "valentine_rf_app.py" : "netsec_app.py";
@@ -5149,7 +5188,7 @@ if __name__ == "__main__":
         
         // Escape the code for shell
         const escapedCode = code.replace(/'/g, "'\"'\"'");
-        await pool.execute(input.hostId, `cat > "${fullPath}" << 'PIPELINE_EOF'
+        await executeOnHost(input.hostId, `cat > "${fullPath}" << 'PIPELINE_EOF'
 ${code}
 PIPELINE_EOF`);
 
@@ -5178,7 +5217,7 @@ PIPELINE_EOF`);
 
       try {
         // Check if file exists
-        const checkResult = await pool.execute(input.hostId, `test -f "${input.pipelinePath}" && echo "exists"`);
+        const checkResult = await executeOnHost(input.hostId, `test -f "${input.pipelinePath}" && echo "exists"`);
         if (!checkResult.includes("exists")) {
           return { success: false, error: "Pipeline file not found" };
         }
@@ -5189,13 +5228,13 @@ PIPELINE_EOF`);
         
         if (input.background) {
           // Run in background with nohup
-          await pool.execute(
+          await executeOnHost(
             input.hostId,
             `nohup python3 "${input.pipelinePath}" > "${logFile}" 2>&1 & echo $! > "${pidFile}"`
           );
           
           // Get the PID
-          const pidOutput = await pool.execute(input.hostId, `cat "${pidFile}" 2>/dev/null || echo "0"`);
+          const pidOutput = await executeOnHost(input.hostId, `cat "${pidFile}" 2>/dev/null || echo "0"`);
           const pid = parseInt(pidOutput.trim()) || 0;
           
           return {
@@ -5205,7 +5244,7 @@ PIPELINE_EOF`);
           };
         } else {
           // Run in foreground (blocking)
-          const output = await pool.execute(input.hostId, `python3 "${input.pipelinePath}" 2>&1`);
+          const output = await executeOnHost(input.hostId, `python3 "${input.pipelinePath}" 2>&1`);
           return {
             success: true,
             message: output,
@@ -5232,14 +5271,14 @@ PIPELINE_EOF`);
         const pidFile = input.pipelinePath.replace(".py", ".pid");
         
         // Get PID from file
-        const pidOutput = await pool.execute(input.hostId, `cat "${pidFile}" 2>/dev/null || echo "0"`);
+        const pidOutput = await executeOnHost(input.hostId, `cat "${pidFile}" 2>/dev/null || echo "0"`);
         const pid = parseInt(pidOutput.trim()) || 0;
         
         if (pid > 0) {
           // Kill the process
-          await pool.execute(input.hostId, `kill ${pid} 2>/dev/null || true`);
+          await executeOnHost(input.hostId, `kill ${pid} 2>/dev/null || true`);
           // Clean up PID file
-          await pool.execute(input.hostId, `rm -f "${pidFile}"`);
+          await executeOnHost(input.hostId, `rm -f "${pidFile}"`);
           
           return {
             success: true,
@@ -5272,12 +5311,12 @@ PIPELINE_EOF`);
         const pidFile = input.pipelinePath.replace(".py", ".pid");
         
         // Get PID from file
-        const pidOutput = await pool.execute(input.hostId, `cat "${pidFile}" 2>/dev/null || echo "0"`);
+        const pidOutput = await executeOnHost(input.hostId, `cat "${pidFile}" 2>/dev/null || echo "0"`);
         const pid = parseInt(pidOutput.trim()) || 0;
         
         if (pid > 0) {
           // Check if process is running
-          const checkResult = await pool.execute(input.hostId, `ps -p ${pid} > /dev/null 2>&1 && echo "running" || echo "stopped"`);
+          const checkResult = await executeOnHost(input.hostId, `ps -p ${pid} > /dev/null 2>&1 && echo "running" || echo "stopped"`);
           const running = checkResult.includes("running");
           
           return {
@@ -5313,7 +5352,7 @@ PIPELINE_EOF`);
         const logFile = input.pipelinePath.replace(".py", ".log");
         
         // Get last N lines of log
-        const logs = await pool.execute(input.hostId, `tail -n ${input.lines} "${logFile}" 2>/dev/null || echo "No logs available"`);
+        const logs = await executeOnHost(input.hostId, `tail -n ${input.lines} "${logFile}" 2>/dev/null || echo "No logs available"`);
         
         return {
           success: true,
@@ -5338,7 +5377,7 @@ PIPELINE_EOF`);
 
       try {
         // List Python files in deploy directory
-        const listOutput = await pool.execute(
+        const listOutput = await executeOnHost(
           input.hostId,
           `ls -1 "${input.deployPath}"/*.py 2>/dev/null || echo ""`
         );
@@ -5352,7 +5391,7 @@ PIPELINE_EOF`);
           const pidFile = filePath.replace(".py", ".pid");
           
           // Check if log and pid files exist
-          const checkResult = await pool.execute(
+          const checkResult = await executeOnHost(
             input.hostId,
             `test -f "${logFile}" && echo "log" || true; test -f "${pidFile}" && echo "pid" || true`
           );
@@ -5394,11 +5433,11 @@ PIPELINE_EOF`);
         const logFile = input.pipelinePath.replace(".py", ".log");
         
         // Get total line count
-        const countOutput = await pool.execute(input.hostId, `wc -l < "${logFile}" 2>/dev/null || echo "0"`);
+        const countOutput = await executeOnHost(input.hostId, `wc -l < "${logFile}" 2>/dev/null || echo "0"`);
         const totalLines = parseInt(countOutput.trim()) || 0;
         
         // Get logs from specified line
-        const logsOutput = await pool.execute(
+        const logsOutput = await executeOnHost(
           input.hostId,
           `tail -n +${input.fromLine + 1} "${logFile}" 2>/dev/null | head -500 || echo ""`
         );
@@ -5473,7 +5512,7 @@ PIPELINE_EOF`);
       for (const hostId of hosts) {
         try {
           // List deployed pipelines
-          const listOutput = await pool.execute(
+          const listOutput = await executeOnHost(
             hostId,
             `ls -1 "${deployPath}"/*.py 2>/dev/null || echo ""`
           );
@@ -5485,7 +5524,7 @@ PIPELINE_EOF`);
             const pidFile = filePath.replace(".py", ".pid");
             
             // Get PID
-            const pidOutput = await pool.execute(hostId, `cat "${pidFile}" 2>/dev/null || echo "0"`);
+            const pidOutput = await executeOnHost(hostId, `cat "${pidFile}" 2>/dev/null || echo "0"`);
             const pid = parseInt(pidOutput.trim()) || 0;
             
             let running = false;
@@ -5495,7 +5534,7 @@ PIPELINE_EOF`);
             
             if (pid > 0) {
               // Check if process is running and get stats
-              const statsOutput = await pool.execute(
+              const statsOutput = await executeOnHost(
                 hostId,
                 `ps -p ${pid} -o %cpu,%mem,etime --no-headers 2>/dev/null || echo ""`
               );
@@ -5558,7 +5597,7 @@ PIPELINE_EOF`);
         }
 
         // Check if file exists
-        const existsCheck = await pool.execute(
+        const existsCheck = await executeOnHost(
           input.hostId,
           `test -e "${input.filePath}" && echo "exists" || echo "not_exists"`
         );
@@ -5568,7 +5607,7 @@ PIPELINE_EOF`);
         }
 
         // Check if it's a directory
-        const typeCheck = await pool.execute(
+        const typeCheck = await executeOnHost(
           input.hostId,
           `test -d "${input.filePath}" && echo "directory" || echo "file"`
         );
@@ -5578,23 +5617,23 @@ PIPELINE_EOF`);
         // Delete file or directory
         if (isDirectory) {
           // For directories, check if empty first (safety measure)
-          const isEmpty = await pool.execute(
+          const isEmpty = await executeOnHost(
             input.hostId,
             `[ -z "$(ls -A "${input.filePath}")" ] && echo "empty" || echo "not_empty"`
           );
 
           if (isEmpty.trim() === "not_empty") {
             // Use rm -rf for non-empty directories (with caution)
-            await pool.execute(input.hostId, `rm -rf "${input.filePath}"`);
+            await executeOnHost(input.hostId, `rm -rf "${input.filePath}"`);
           } else {
-            await pool.execute(input.hostId, `rmdir "${input.filePath}"`);
+            await executeOnHost(input.hostId, `rmdir "${input.filePath}"`);
           }
         } else {
-          await pool.execute(input.hostId, `rm -f "${input.filePath}"`);
+          await executeOnHost(input.hostId, `rm -f "${input.filePath}"`);
         }
 
         // Verify deletion
-        const verifyCheck = await pool.execute(
+        const verifyCheck = await executeOnHost(
           input.hostId,
           `test -e "${input.filePath}" && echo "exists" || echo "deleted"`
         );
@@ -5628,7 +5667,7 @@ PIPELINE_EOF`);
 
       try {
         // Check if source exists
-        const sourceCheck = await pool.execute(
+        const sourceCheck = await executeOnHost(
           input.hostId,
           `test -e "${input.sourcePath}" && echo "exists" || echo "not_exists"`
         );
@@ -5638,7 +5677,7 @@ PIPELINE_EOF`);
         }
 
         // Check if destination already exists
-        const destCheck = await pool.execute(
+        const destCheck = await executeOnHost(
           input.hostId,
           `test -e "${input.destinationPath}" && echo "exists" || echo "not_exists"`
         );
@@ -5648,21 +5687,21 @@ PIPELINE_EOF`);
         }
 
         // Get source type for response
-        const typeCheck = await pool.execute(
+        const typeCheck = await executeOnHost(
           input.hostId,
           `test -d "${input.sourcePath}" && echo "directory" || echo "file"`
         );
         const isDirectory = typeCheck.trim() === "directory";
 
         // Perform rename/move
-        await pool.execute(input.hostId, `mv "${input.sourcePath}" "${input.destinationPath}"`);
+        await executeOnHost(input.hostId, `mv "${input.sourcePath}" "${input.destinationPath}"`);
 
         // Verify rename
-        const verifySource = await pool.execute(
+        const verifySource = await executeOnHost(
           input.hostId,
           `test -e "${input.sourcePath}" && echo "exists" || echo "not_exists"`
         );
-        const verifyDest = await pool.execute(
+        const verifyDest = await executeOnHost(
           input.hostId,
           `test -e "${input.destinationPath}" && echo "exists" || echo "not_exists"`
         );
@@ -5697,7 +5736,7 @@ PIPELINE_EOF`);
 
       try {
         // Check if path already exists
-        const existsCheck = await pool.execute(
+        const existsCheck = await executeOnHost(
           input.hostId,
           `test -e "${input.path}" && echo "exists" || echo "not_exists"`
         );
@@ -5707,10 +5746,10 @@ PIPELINE_EOF`);
         }
 
         // Create directory with parents
-        await pool.execute(input.hostId, `mkdir -p "${input.path}"`);
+        await executeOnHost(input.hostId, `mkdir -p "${input.path}"`);
 
         // Verify creation
-        const verifyCheck = await pool.execute(
+        const verifyCheck = await executeOnHost(
           input.hostId,
           `test -d "${input.path}" && echo "created" || echo "failed"`
         );
@@ -5758,7 +5797,7 @@ PIPELINE_EOF`);
           }
 
           // Check if exists
-          const existsCheck = await pool.execute(
+          const existsCheck = await executeOnHost(
             input.hostId,
             `test -e "${filePath}" && echo "exists" || echo "not_exists"`
           );
@@ -5769,10 +5808,10 @@ PIPELINE_EOF`);
           }
 
           // Delete
-          await pool.execute(input.hostId, `rm -rf "${filePath}"`);
+          await executeOnHost(input.hostId, `rm -rf "${filePath}"`);
 
           // Verify
-          const verifyCheck = await pool.execute(
+          const verifyCheck = await executeOnHost(
             input.hostId,
             `test -e "${filePath}" && echo "exists" || echo "deleted"`
           );
@@ -5811,7 +5850,7 @@ PIPELINE_EOF`);
       }
 
       // Verify destination exists and is a directory
-      const destCheck = await pool.execute(
+      const destCheck = await executeOnHost(
         input.hostId,
         `test -d "${input.destinationDir}" && echo "valid" || echo "invalid"`
       );
@@ -5828,7 +5867,7 @@ PIPELINE_EOF`);
           const newPath = `${input.destinationDir}/${fileName}`;
 
           // Check if source exists
-          const sourceCheck = await pool.execute(
+          const sourceCheck = await executeOnHost(
             input.hostId,
             `test -e "${sourcePath}" && echo "exists" || echo "not_exists"`
           );
@@ -5839,7 +5878,7 @@ PIPELINE_EOF`);
           }
 
           // Check if destination already exists
-          const destFileCheck = await pool.execute(
+          const destFileCheck = await executeOnHost(
             input.hostId,
             `test -e "${newPath}" && echo "exists" || echo "not_exists"`
           );
@@ -5850,10 +5889,10 @@ PIPELINE_EOF`);
           }
 
           // Move
-          await pool.execute(input.hostId, `mv "${sourcePath}" "${newPath}"`);
+          await executeOnHost(input.hostId, `mv "${sourcePath}" "${newPath}"`);
 
           // Verify
-          const verifyCheck = await pool.execute(
+          const verifyCheck = await executeOnHost(
             input.hostId,
             `test -e "${newPath}" && echo "moved" || echo "failed"`
           );
@@ -5896,7 +5935,7 @@ PIPELINE_EOF`);
 
       try {
         // Get detailed file info using stat
-        const statOutput = await pool.execute(
+        const statOutput = await executeOnHost(
           input.hostId,
           `stat -c '%a|%U|%G|%F|%s|%Y' "${input.path}" 2>/dev/null || echo "ERROR"`
         );
@@ -5908,7 +5947,7 @@ PIPELINE_EOF`);
         const [octal, owner, group, fileType, size, mtime] = statOutput.trim().split("|");
 
         // Get symbolic permissions
-        const lsOutput = await pool.execute(
+        const lsOutput = await executeOnHost(
           input.hostId,
           `ls -ld "${input.path}" 2>/dev/null | awk '{print $1}'`
         );
@@ -5964,7 +6003,7 @@ PIPELINE_EOF`);
 
       try {
         // Verify file exists
-        const existsCheck = await pool.execute(
+        const existsCheck = await executeOnHost(
           input.hostId,
           `test -e "${input.path}" && echo "exists" || echo "not_exists"`
         );
@@ -5975,13 +6014,13 @@ PIPELINE_EOF`);
 
         // Apply chmod
         const recursiveFlag = input.recursive ? "-R" : "";
-        await pool.execute(
+        await executeOnHost(
           input.hostId,
           `chmod ${recursiveFlag} ${input.mode} "${input.path}"`
         );
 
         // Verify the change
-        const verifyOutput = await pool.execute(
+        const verifyOutput = await executeOnHost(
           input.hostId,
           `stat -c '%a' "${input.path}"`
         );
@@ -6028,7 +6067,7 @@ PIPELINE_EOF`);
 
       try {
         // Verify file exists
-        const existsCheck = await pool.execute(
+        const existsCheck = await executeOnHost(
           input.hostId,
           `test -e "${input.path}" && echo "exists" || echo "not_exists"`
         );
@@ -6047,7 +6086,7 @@ PIPELINE_EOF`);
         const recursiveFlag = input.recursive ? "-R" : "";
         
         // Note: chown typically requires sudo
-        const result = await pool.execute(
+        const result = await executeOnHost(
           input.hostId,
           `chown ${recursiveFlag} ${ownershipStr} "${input.path}" 2>&1`
         );
@@ -6088,7 +6127,7 @@ PIPELINE_EOF`);
 
       try {
         // Get filesystem disk usage using df
-        const dfOutput = await pool.execute(
+        const dfOutput = await executeOnHost(
           input.hostId,
           `df -B1 "${input.path}" 2>/dev/null | tail -1`
         );
@@ -6101,7 +6140,7 @@ PIPELINE_EOF`);
         const [filesystem, totalBytes, usedBytes, availBytes, usePercent, mountPoint] = dfParts;
 
         // Get directory size using du
-        const duOutput = await pool.execute(
+        const duOutput = await executeOnHost(
           input.hostId,
           `du -sb "${input.path}" 2>/dev/null | cut -f1`
         );
@@ -6163,7 +6202,7 @@ PIPELINE_EOF`);
         const archivePath = `${input.destinationDir}/${archiveName}`;
 
         // Check if archive already exists
-        const existsCheck = await pool.execute(
+        const existsCheck = await executeOnHost(
           input.hostId,
           `test -e "${archivePath}" && echo "exists" || echo "not_exists"`
         );
@@ -6177,13 +6216,13 @@ PIPELINE_EOF`);
         const pathList = input.paths.map(p => `"${p}"`).join(" ");
         
         // Create archive
-        const result = await pool.execute(
+        const result = await executeOnHost(
           input.hostId,
           `tar -czvf "${archivePath}" ${pathList} 2>&1`
         );
 
         // Verify archive was created
-        const verifyCheck = await pool.execute(
+        const verifyCheck = await executeOnHost(
           input.hostId,
           `test -f "${archivePath}" && echo "created" || echo "failed"`
         );
@@ -6193,7 +6232,7 @@ PIPELINE_EOF`);
         }
 
         // Get archive size
-        const sizeOutput = await pool.execute(
+        const sizeOutput = await executeOnHost(
           input.hostId,
           `stat -c '%s' "${archivePath}"`
         );
@@ -6235,7 +6274,7 @@ PIPELINE_EOF`);
 
       try {
         // Verify archive exists
-        const existsCheck = await pool.execute(
+        const existsCheck = await executeOnHost(
           input.hostId,
           `test -f "${input.archivePath}" && echo "exists" || echo "not_exists"`
         );
@@ -6252,7 +6291,7 @@ PIPELINE_EOF`);
           extractDir = `${input.destinationDir}/${folderName}`;
           
           // Create subfolder
-          await pool.execute(input.hostId, `mkdir -p "${extractDir}"`);
+          await executeOnHost(input.hostId, `mkdir -p "${extractDir}"`);
         }
 
         // Determine archive type and extract
@@ -6273,13 +6312,13 @@ PIPELINE_EOF`);
           return { success: false, error: "Unsupported archive format" };
         }
 
-        const result = await pool.execute(
+        const result = await executeOnHost(
           input.hostId,
           extractCmd
         );
 
         // Count extracted files
-        const countOutput = await pool.execute(
+        const countOutput = await executeOnHost(
           input.hostId,
           `find "${extractDir}" -type f | wc -l`
         );
@@ -6327,7 +6366,7 @@ PIPELINE_EOF`);
           return { success: false, error: "Unsupported archive format" };
         }
 
-        const result = await pool.execute(input.hostId, listCmd);
+        const result = await executeOnHost(input.hostId, listCmd);
         const lines = result.trim().split("\n").filter(Boolean);
 
         return {

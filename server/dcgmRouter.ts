@@ -4,14 +4,46 @@ import { Client } from "ssh2";
 import { recordGpuMetrics, getGpuMetricsHistory, createSystemAlert, cleanupOldGpuMetrics } from "./db";
 
 // DGX Spark host configuration
-// Using ngrok TCP tunnel for SSH access from cloud
-const NGROK_SSH_HOST = process.env.DGX_SSH_HOST || "0.tcp.ngrok.io";
-const NGROK_SSH_PORT = parseInt(process.env.DGX_SSH_PORT || "17974");
-
+// When running on Beta (192.168.50.110):
+//   - Beta is LOCAL (use local commands, no SSH)
+//   - Alpha is REMOTE (use SSH to 192.168.50.139)
 const DGX_HOSTS = [
-  { id: "alpha", name: "DGX Spark Alpha", ip: "192.168.50.139", sshHost: NGROK_SSH_HOST, sshPort: NGROK_SSH_PORT },
-  { id: "beta", name: "DGX Spark Beta", ip: "192.168.50.110", sshHost: NGROK_SSH_HOST, sshPort: NGROK_SSH_PORT },
+  { 
+    id: "alpha", 
+    name: "DGX Spark Alpha", 
+    ip: "192.168.50.139", 
+    sshHost: process.env.DGX_SSH_HOST || "192.168.50.139", 
+    sshPort: parseInt(process.env.DGX_SSH_PORT || "22"),
+    isLocal: false, // Alpha is REMOTE - accessed via SSH
+  },
+  { 
+    id: "beta", 
+    name: "DGX Spark Beta", 
+    ip: "192.168.50.110", 
+    sshHost: process.env.DGX_SSH_HOST_BETA || "192.168.50.110", 
+    sshPort: parseInt(process.env.DGX_SSH_PORT_BETA || "22"),
+    isLocal: process.env.LOCAL_HOST === 'beta' || process.env.LOCAL_HOST === undefined, // Beta is LOCAL by default
+  },
 ];
+
+// Import child_process for local command execution
+import { exec as execCallback } from 'child_process';
+import { promisify } from 'util';
+const execAsync = promisify(execCallback);
+
+// Execute command locally (for Beta when running on Beta)
+async function executeLocalCommand(command: string): Promise<string> {
+  try {
+    const { stdout, stderr } = await execAsync(command, {
+      maxBuffer: 50 * 1024 * 1024, // 50MB buffer
+      timeout: 60000, // 60 second timeout
+    });
+    return stdout || stderr || '';
+  } catch (error: any) {
+    // Return stderr or error message on failure
+    return error.stderr || error.message || 'Command failed';
+  }
+}
 
 // GPU metrics interface
 interface GpuMetrics {
@@ -39,6 +71,7 @@ interface HostMetrics {
   timestamp: number;
   connected: boolean;
   error?: string;
+  isLocal?: boolean;
   gpus: GpuMetrics[];
   systemMetrics: {
     cpuUtilization: number;
@@ -335,7 +368,17 @@ function parseSystemMetrics(output: string): { cpuUtilization: number; memoryUse
   return { cpuUtilization, memoryUsed, memoryTotal, uptime };
 }
 
-// Fetch metrics from a host via SSH
+// Execute command on host - automatically chooses local or SSH
+async function executeCommandOnHost(host: typeof DGX_HOSTS[0], command: string): Promise<string> {
+  if (host.isLocal) {
+    console.log(`[DCGM] Executing locally on ${host.name}: ${command.substring(0, 80)}...`);
+    return executeLocalCommand(command);
+  } else {
+    return executeSSHCommand(host.ip, command, host.sshHost, host.sshPort);
+  }
+}
+
+// Fetch metrics from a host (local or SSH)
 async function fetchHostMetrics(host: typeof DGX_HOSTS[0]): Promise<HostMetrics> {
   // Check cache first
   const cached = metricsCache.get(host.id);
@@ -351,8 +394,8 @@ async function fetchHostMetrics(host: typeof DGX_HOSTS[0]): Promise<HostMetrics>
     const systemCmd = `echo "CPU:$(top -bn1 | grep "Cpu(s)" | awk '{print $2}')" && echo "MEM_USED:$(free -m | awk '/Mem:/ {print $3}')" && echo "MEM_TOTAL:$(free -m | awk '/Mem:/ {print $2}')" && echo "UPTIME:$(uptime -p)"`;
     
     const [gpuOutput, systemOutput] = await Promise.all([
-      executeSSHCommand(host.ip, nvidiaSmiCmd, host.sshHost, host.sshPort),
-      executeSSHCommand(host.ip, systemCmd, host.sshHost, host.sshPort),
+      executeCommandOnHost(host, nvidiaSmiCmd),
+      executeCommandOnHost(host, systemCmd),
     ]);
     
     const gpus = parseNvidiaSmi(gpuOutput);
@@ -364,6 +407,7 @@ async function fetchHostMetrics(host: typeof DGX_HOSTS[0]): Promise<HostMetrics>
       hostIp: host.ip,
       timestamp: Date.now(),
       connected: true,
+      isLocal: host.isLocal,
       gpus,
       systemMetrics,
     };
@@ -389,6 +433,7 @@ async function fetchHostMetrics(host: typeof DGX_HOSTS[0]): Promise<HostMetrics>
       hostIp: host.ip,
       timestamp: Date.now(),
       connected: false,
+      isLocal: host.isLocal,
       error: errorMessage,
       gpus: [],
       systemMetrics: {
@@ -415,6 +460,7 @@ export const dcgmRouter = router({
       name: host.name,
       ip: host.ip,
       localIp: host.ip,
+      isLocal: host.isLocal,
     }));
   }),
 
@@ -429,13 +475,15 @@ export const dcgmRouter = router({
         throw new Error(`Host ${input.hostId} not found`);
       }
       
-      if (!hasCredentials()) {
+      // Local hosts don't need SSH credentials
+      if (!host.isLocal && !hasCredentials()) {
         return {
           hostId: host.id,
           hostName: host.name,
           hostIp: host.ip,
           timestamp: Date.now(),
           connected: false,
+          isLocal: host.isLocal,
           error: "SSH credentials not configured",
           gpus: [],
           systemMetrics: {
@@ -454,30 +502,34 @@ export const dcgmRouter = router({
   getAllMetrics: publicProcedure.query(async () => {
     const credentialsAvailable = hasCredentials();
     
-    if (!credentialsAvailable) {
-      return {
-        hosts: DGX_HOSTS.map(host => ({
-          hostId: host.id,
-          hostName: host.name,
-          hostIp: host.ip,
-          timestamp: Date.now(),
-          connected: false,
-          error: "SSH credentials not configured",
-          gpus: [],
-          systemMetrics: {
-            cpuUtilization: 0,
-            memoryUsed: 0,
-            memoryTotal: 0,
-            uptime: "unavailable",
-          },
-        })),
-        timestamp: Date.now(),
-        isLive: false,
-      };
-    }
-    
+    // Fetch metrics for each host - local hosts don't need credentials
     const results = await Promise.all(
-      DGX_HOSTS.map(host => fetchHostMetrics(host))
+      DGX_HOSTS.map(async (host) => {
+        // Local hosts can always be queried
+        if (host.isLocal) {
+          return fetchHostMetrics(host);
+        }
+        // Remote hosts need SSH credentials
+        if (!credentialsAvailable) {
+          return {
+            hostId: host.id,
+            hostName: host.name,
+            hostIp: host.ip,
+            timestamp: Date.now(),
+            connected: false,
+            isLocal: host.isLocal,
+            error: "SSH credentials not configured",
+            gpus: [],
+            systemMetrics: {
+              cpuUtilization: 0,
+              memoryUsed: 0,
+              memoryTotal: 0,
+              uptime: "unavailable",
+            },
+          };
+        }
+        return fetchHostMetrics(host);
+      })
     );
     
     return {
@@ -487,7 +539,7 @@ export const dcgmRouter = router({
     };
   }),
 
-  // Test SSH connection
+  // Test connection (local or SSH)
   testConnection: publicProcedure
     .input(z.object({
       hostId: z.string(),
@@ -499,12 +551,13 @@ export const dcgmRouter = router({
       }
       
       try {
-        const output = await executeSSHCommand(host.ip, "echo 'Connection successful' && hostname", host.sshHost, host.sshPort);
+        const output = await executeCommandOnHost(host, "echo 'Connection successful' && hostname");
         return {
           success: true,
           message: output.trim(),
           hostId: host.id,
           hostName: host.name,
+          isLocal: host.isLocal,
         };
       } catch (error) {
         return {
@@ -512,6 +565,7 @@ export const dcgmRouter = router({
           message: error instanceof Error ? error.message : "Connection failed",
           hostId: host.id,
           hostName: host.name,
+          isLocal: host.isLocal,
         };
       }
     }),

@@ -1037,3 +1037,27 @@
 - [x] Include all config files (vite, tsconfig, components.json, etc.)
 - [x] Include server/, shared/, drizzle/, deploy/, docs/
 - [x] Package size: 51MB with full source
+
+## Dashboard Routing Fix
+- [ ] Beta (192.168.50.110) = LOCAL host - use local commands (nvidia-smi, docker, etc.)
+- [ ] Alpha (192.168.50.139) = REMOTE host - use SSH for all commands
+- [ ] Update sshRouter to detect local vs remote
+- [ ] Update dashboard to show correct connection type
+
+# Local vs Remote Host Routing Fix (V8)
+
+- [x] Update sshRouter DGX_HOSTS config with isLocal flag
+- [x] Add executeLocalCommand function using child_process.exec
+- [x] Add isLocalHost helper function
+- [x] Add executeOnHost function that routes to local or SSH
+- [x] Replace all pool.execute calls with executeOnHost
+- [x] Update dcgmRouter DGX_HOSTS config with isLocal flag
+- [x] Add executeLocalCommand to dcgmRouter
+- [x] Add executeCommandOnHost to dcgmRouter
+- [x] Update fetchHostMetrics to use executeCommandOnHost
+- [x] Add isLocal flag to HostMetrics interface
+- [x] Add isLocal to all metrics responses
+- [x] Update Dashboard HostCard to show LOCAL/REMOTE badge
+- [x] Update default metrics with isLocal flags
+- [x] All 199 tests passing
+- [ ] Test on actual DGX Spark Beta (bare metal deployment)

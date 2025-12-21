@@ -113,6 +113,7 @@ interface HostMetrics {
   timestamp: number;
   connected: boolean;
   error?: string;
+  isLocal?: boolean;
   gpus: Array<{
     index: number;
     name: string;
@@ -179,7 +180,19 @@ function HostCard({
               </div>
             </div>
             <div className="flex items-center gap-2">
-              {!isLive && (
+              {/* Local/Remote indicator */}
+              <Badge 
+                variant="outline" 
+                className={cn(
+                  "text-[10px]",
+                  metrics.isLocal 
+                    ? "border-nvidia-green/50 text-nvidia-green" 
+                    : "border-nvidia-teal/50 text-nvidia-teal"
+                )}
+              >
+                {metrics.isLocal ? "LOCAL" : "REMOTE"}
+              </Badge>
+              {!isLive && !metrics.isLocal && (
                 <Tooltip>
                   <TooltipTrigger>
                     <Badge variant="outline" className="text-[10px] border-nvidia-warning/50 text-nvidia-warning">
@@ -621,6 +634,7 @@ export default function Dashboard() {
       hostIp: "192.168.50.139",
       timestamp: Date.now(),
       connected: true,
+      isLocal: false, // Alpha is REMOTE
       gpus: [{
         index: 0,
         name: "NVIDIA GB10 Grace Blackwell",
@@ -651,6 +665,7 @@ export default function Dashboard() {
       hostIp: "192.168.50.110",
       timestamp: Date.now(),
       connected: true,
+      isLocal: true, // Beta is LOCAL
       gpus: [{
         index: 0,
         name: "NVIDIA GB10 Grace Blackwell",
