@@ -614,3 +614,8 @@
 - [x] Update browser tab title to Valentine RF Command Center
 - [ ] Update VITE_APP_TITLE environment variable to Valentine RF Command Center
 - [x] Fix all remaining green color elements in components
+
+# Docker Settings Consolidation
+
+- [x] Move Docker tab content from Settings page to Docker & K8s page (already exists in sidebar)
+- [x] Remove Docker tab from Settings page (duplicate removed)
