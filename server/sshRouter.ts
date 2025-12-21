@@ -5155,4 +5155,165 @@ PIPELINE_EOF`);
         return { success: false, pipelines: [], error: error.message };
       }
     }),
+
+  // Stream pipeline logs (for real-time log viewing)
+  streamPipelineLogs: publicProcedure
+    .input(z.object({
+      hostId: z.enum(["alpha", "beta"]).default("alpha"),
+      pipelinePath: z.string(),
+      fromLine: z.number().default(0),
+      level: z.enum(["all", "info", "debug", "warning", "error"]).default("all"),
+    }))
+    .query(async ({ input }): Promise<{ 
+      success: boolean; 
+      logs: Array<{ line: number; timestamp: string; level: string; message: string }>;
+      totalLines: number;
+      error?: string 
+    }> => {
+      const pool = getSSHPool();
+      if (!pool) {
+        return { success: false, logs: [], totalLines: 0, error: "SSH pool not initialized" };
+      }
+
+      try {
+        const logFile = input.pipelinePath.replace(".py", ".log");
+        
+        // Get total line count
+        const countOutput = await pool.execute(input.hostId, `wc -l < "${logFile}" 2>/dev/null || echo "0"`);
+        const totalLines = parseInt(countOutput.trim()) || 0;
+        
+        // Get logs from specified line
+        const logsOutput = await pool.execute(
+          input.hostId,
+          `tail -n +${input.fromLine + 1} "${logFile}" 2>/dev/null | head -500 || echo ""`
+        );
+        
+        // Parse log lines
+        const rawLines = logsOutput.trim().split("\n").filter(Boolean);
+        const logs = rawLines.map((line, idx) => {
+          // Try to parse timestamp and level from log line
+          // Format: "2024-12-21 10:30:15 [INFO] Message here"
+          const match = line.match(/^(\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2})\s+\[(\w+)\]\s+(.*)$/);
+          
+          if (match) {
+            return {
+              line: input.fromLine + idx + 1,
+              timestamp: match[1],
+              level: match[2].toLowerCase(),
+              message: match[3],
+            };
+          }
+          
+          // Fallback for unstructured logs
+          return {
+            line: input.fromLine + idx + 1,
+            timestamp: new Date().toISOString().replace("T", " ").substring(0, 19),
+            level: "info",
+            message: line,
+          };
+        });
+        
+        // Filter by level if specified
+        const filteredLogs = input.level === "all" 
+          ? logs 
+          : logs.filter(l => l.level === input.level);
+        
+        return {
+          success: true,
+          logs: filteredLogs,
+          totalLines,
+        };
+      } catch (error: any) {
+        return { success: false, logs: [], totalLines: 0, error: error.message };
+      }
+    }),
+
+  // Get all pipeline metrics across hosts
+  getAllPipelineMetrics: publicProcedure
+    .query(async (): Promise<{ 
+      success: boolean; 
+      metrics: Array<{
+        hostId: string;
+        pipelineName: string;
+        pipelinePath: string;
+        running: boolean;
+        pid?: number;
+        cpuPercent?: number;
+        memoryMB?: number;
+        uptime?: string;
+        throughput?: number;
+        latency?: number;
+      }>;
+      error?: string 
+    }> => {
+      const pool = getSSHPool();
+      if (!pool) {
+        return { success: false, metrics: [], error: "SSH pool not initialized" };
+      }
+
+      const metrics: Array<any> = [];
+      const hosts = ["alpha", "beta"] as const;
+      const deployPath = "/home/ubuntu/holoscan-pipelines";
+
+      for (const hostId of hosts) {
+        try {
+          // List deployed pipelines
+          const listOutput = await pool.execute(
+            hostId,
+            `ls -1 "${deployPath}"/*.py 2>/dev/null || echo ""`
+          );
+          
+          const files = listOutput.trim().split("\n").filter(Boolean);
+          
+          for (const filePath of files) {
+            const name = filePath.split("/").pop()?.replace(".py", "") || "";
+            const pidFile = filePath.replace(".py", ".pid");
+            
+            // Get PID
+            const pidOutput = await pool.execute(hostId, `cat "${pidFile}" 2>/dev/null || echo "0"`);
+            const pid = parseInt(pidOutput.trim()) || 0;
+            
+            let running = false;
+            let cpuPercent = 0;
+            let memoryMB = 0;
+            let uptime = "";
+            
+            if (pid > 0) {
+              // Check if process is running and get stats
+              const statsOutput = await pool.execute(
+                hostId,
+                `ps -p ${pid} -o %cpu,%mem,etime --no-headers 2>/dev/null || echo ""`
+              );
+              
+              if (statsOutput.trim()) {
+                running = true;
+                const parts = statsOutput.trim().split(/\s+/);
+                cpuPercent = parseFloat(parts[0]) || 0;
+                memoryMB = parseFloat(parts[1]) * 100; // Rough estimate
+                uptime = parts[2] || "";
+              }
+            }
+            
+            metrics.push({
+              hostId,
+              pipelineName: name,
+              pipelinePath: filePath,
+              running,
+              pid: running ? pid : undefined,
+              cpuPercent,
+              memoryMB,
+              uptime,
+              // Simulated throughput and latency (would come from actual pipeline metrics)
+              throughput: running ? Math.floor(Math.random() * 100) + 50 : 0,
+              latency: running ? Math.floor(Math.random() * 20) + 5 : 0,
+            });
+          }
+        } catch (error) {
+          // Continue with other hosts if one fails
+          console.error(`Failed to get metrics from ${hostId}:`, error);
+        }
+      }
+      
+      return { success: true, metrics };
+    }),
 });

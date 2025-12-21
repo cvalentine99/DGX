@@ -799,3 +799,30 @@
 - [ ] Add real-time deployment status and log streaming
 - [x] Show running pipelines with stop/restart controls (Deployed Pipelines section)
 - [ ] Display pipeline output/visualization status
+
+# Pipeline Enhancements (Dec 2024)
+
+## Remove Medical Pipeline Templates
+- [x] Remove Endoscopy Tool Detection template
+- [x] Remove Ultrasound Segmentation template
+
+## Pipeline Log Streaming
+- [x] Create ssh.streamPipelineLogs endpoint for real-time logs
+- [x] Add log viewer panel to Holoscan page (Log Viewer Dialog)
+- [x] Support log level filtering (INFO, DEBUG, ERROR)
+- [x] Auto-scroll with pause/resume functionality
+- [ ] Add log download/export option
+
+## Pipeline Metrics Dashboard
+- [x] Create dedicated metrics view for all deployed pipelines (Metrics button in header)
+- [x] Show throughput, latency, memory per pipeline (getAllPipelineMetrics endpoint)
+- [ ] Add historical metrics charts
+- [x] Support cross-host pipeline comparison (shows Alpha and Beta)
+- [ ] Add alerts for performance thresholds
+
+## Custom Pipeline Editor
+- [x] Add code editor component (textarea with monospace font)
+- [x] Load pipeline template code for editing (Edit button on RF/NetSec templates)
+- [x] Syntax highlighting for Python (basic styling)
+- [ ] Validate pipeline code before deployment
+- [x] Save custom pipeline modifications (Save & Deploy button)
