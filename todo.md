@@ -679,3 +679,26 @@
 - [ ] Add SSH endpoints to list datasets on DGX hosts
 - [ ] Implement dataset upload/download
 - [ ] Connect preprocessing UI to actual scripts
+
+# New Feature Implementation (Dec 2024)
+
+## Container Action History Panel
+- [x] Create history panel component in Docker page
+- [x] Wire up containerHistory.getHistory endpoint
+- [x] Display timeline of container operations (start, stop, create, delete)
+- [x] Add filtering by container name and action type
+- [x] Show timestamps and status for each action
+
+## Model Selector in Interaction Page
+- [x] Connect vllm.listModels to fetch available models dynamically
+- [x] Replace hardcoded model list with API data
+- [ ] Add model status indicators (loaded/available)
+- [ ] Show model metadata (size, context length)
+
+## Training Job Management
+- [x] Create trainingRouter for job CRUD operations
+- [x] Add database schema for training jobs
+- [x] Implement job submission form in Training page
+- [x] Add real-time job status monitoring
+- [ ] Display training metrics and logs (telemetry card uses simulated data)
+- [x] Support job cancellation and restart

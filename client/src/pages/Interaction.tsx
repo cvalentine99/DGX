@@ -459,16 +459,23 @@ function SystemPromptCard({
   );
 }
 
-function InferenceConfigCard({ 
-  config, 
-  onConfigChange 
-}: { 
+function InferenceConfig({
+  config,
+  onConfigChange,
+  selectedModel,
+  onModelChange,
+}: {
   config: typeof DEFAULT_CONFIG;
   onConfigChange: (config: typeof DEFAULT_CONFIG) => void;
+  selectedModel: string;
+  onModelChange: (model: string) => void;
 }) {
-  // vLLM health check
+  // vLLM health check and models
   const { data: vllmHealth } = trpc.vllm.healthCheck.useQuery();
+  const { data: modelsData } = trpc.vllm.listModels.useQuery();
   const { data: ragStats } = trpc.rag.getStats.useQuery();
+  
+  const availableModels = modelsData?.models || [];
   
   return (
     <Card className="bg-card border-border">
@@ -505,6 +512,36 @@ function InferenceConfigCard({
             </div>
             <span className="text-xs font-mono text-[#3b82f6]">{ragStats?.totalDocuments || 0}</span>
           </div>
+        </div>
+        
+        {/* Model Selector */}
+        <div className="space-y-2">
+          <Label className="text-xs flex items-center gap-1 text-foreground">
+            <Brain className="w-3 h-3" />
+            Model
+          </Label>
+          <select
+            value={selectedModel}
+            onChange={(e) => onModelChange(e.target.value)}
+            className="w-full bg-black/50 border border-gray-700 rounded-md px-3 py-2 text-sm text-white"
+          >
+            {availableModels.length > 0 ? (
+              availableModels.map((model: { id: string }) => (
+                <option key={model.id} value={model.id}>
+                  {model.id.split('/').pop()}
+                </option>
+              ))
+            ) : (
+              <>
+                <option value="nemotron-3-nano-30b">Nemotron-3-Nano-30B (Default)</option>
+                <option value="llama-3.1-8b">Llama 3.1 8B</option>
+                <option value="mistral-7b">Mistral 7B</option>
+              </>
+            )}
+          </select>
+          {modelsData?.connected && availableModels.length > 0 && (
+            <p className="text-[10px] text-green-400">{availableModels.length} model(s) available</p>
+          )}
         </div>
         
         {/* RAG Toggle */}
@@ -591,6 +628,7 @@ export default function Interaction() {
   const [selectedPrompt, setSelectedPrompt] = useState("default");
   const [customPrompt, setCustomPrompt] = useState(SYSTEM_PROMPTS[0].prompt);
   const [config, setConfig] = useState(DEFAULT_CONFIG);
+  const [selectedModel, setSelectedModel] = useState("nemotron-3-nano-30b");
   
   return (
     <motion.div
@@ -622,7 +660,12 @@ export default function Interaction() {
             customPrompt={customPrompt}
             onCustomPromptChange={setCustomPrompt}
           />
-          <InferenceConfigCard config={config} onConfigChange={setConfig} />
+          <InferenceConfig 
+            config={config} 
+            onConfigChange={setConfig}
+            selectedModel={selectedModel}
+            onModelChange={setSelectedModel}
+          />
           <InferenceTestPanel />
         </motion.div>
       </div>

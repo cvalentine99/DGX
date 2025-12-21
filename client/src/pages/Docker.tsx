@@ -43,6 +43,8 @@ import {
   Cpu,
   BarChart3,
   Copy,
+  Clock,
+  History,
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -594,6 +596,10 @@ export default function Docker() {
             <Rocket className="h-4 w-4" />
             Quick Launch
           </TabsTrigger>
+          <TabsTrigger value="history" className="gap-2">
+            <History className="h-4 w-4" />
+            History
+          </TabsTrigger>
         </TabsList>
 
         {/* Containers Tab */}
@@ -1138,6 +1144,11 @@ export default function Docker() {
         {/* Quick Launch Tab */}
         <TabsContent value="quicklaunch" className="space-y-6">
           <QuickLaunchTab selectedHost={selectedHost} />
+        </TabsContent>
+
+        {/* History Tab */}
+        <TabsContent value="history" className="space-y-6">
+          <HistoryTab selectedHost={selectedHost} />
         </TabsContent>
       </Tabs>
 
@@ -2915,6 +2926,257 @@ function QuickLaunchTab({ selectedHost }: { selectedHost: "alpha" | "beta" }) {
           </div>
         </DialogContent>
       </Dialog>
+    </div>
+  );
+}
+
+// History Tab Component
+function HistoryTab({ selectedHost }: { selectedHost: "alpha" | "beta" }) {
+  const [filterAction, setFilterAction] = useState<string>("all");
+  const [filterStatus, setFilterStatus] = useState<string>("all");
+
+  // Fetch container action history
+  const { data: historyData, isLoading, refetch } = trpc.containerHistory.getHistory.useQuery(
+    { limit: 100 },
+    { refetchInterval: 10000 } // Refresh every 10 seconds
+  );
+
+  const { data: hostHistoryData } = trpc.containerHistory.getHistoryByHost.useQuery(
+    { hostId: selectedHost, limit: 50 }
+  );
+
+  const history = historyData?.history || [];
+  const hostHistory = hostHistoryData?.history || [];
+
+  // Filter history based on selected filters
+  const filteredHistory = history.filter((item: any) => {
+    if (filterAction !== "all" && item.action !== filterAction) return false;
+    if (filterStatus !== "all" && item.status !== filterStatus) return false;
+    return true;
+  });
+
+  const getActionIcon = (action: string) => {
+    switch (action) {
+      case "pull": return <Download className="h-4 w-4" />;
+      case "update": return <RefreshCw className="h-4 w-4" />;
+      case "remove": return <Trash2 className="h-4 w-4" />;
+      case "start": return <Play className="h-4 w-4" />;
+      case "stop": return <Square className="h-4 w-4" />;
+      default: return <Box className="h-4 w-4" />;
+    }
+  };
+
+  const getActionColor = (action: string) => {
+    switch (action) {
+      case "pull": return "text-blue-400 bg-blue-500/10";
+      case "update": return "text-cyan-400 bg-cyan-500/10";
+      case "remove": return "text-red-400 bg-red-500/10";
+      case "start": return "text-green-400 bg-green-500/10";
+      case "stop": return "text-yellow-400 bg-yellow-500/10";
+      default: return "text-gray-400 bg-gray-500/10";
+    }
+  };
+
+  const getStatusBadge = (status: string) => {
+    switch (status) {
+      case "completed":
+        return <Badge className="bg-green-500/20 text-green-400 border-green-500/30">Completed</Badge>;
+      case "failed":
+        return <Badge className="bg-red-500/20 text-red-400 border-red-500/30">Failed</Badge>;
+      case "started":
+        return <Badge className="bg-yellow-500/20 text-yellow-400 border-yellow-500/30">In Progress</Badge>;
+      default:
+        return <Badge variant="outline">{status}</Badge>;
+    }
+  };
+
+  const formatTimeAgo = (dateString: string) => {
+    const date = new Date(dateString);
+    const now = new Date();
+    const diffMs = now.getTime() - date.getTime();
+    const diffMins = Math.floor(diffMs / 60000);
+    const diffHours = Math.floor(diffMs / 3600000);
+    const diffDays = Math.floor(diffMs / 86400000);
+
+    if (diffMins < 1) return "Just now";
+    if (diffMins < 60) return `${diffMins}m ago`;
+    if (diffHours < 24) return `${diffHours}h ago`;
+    return `${diffDays}d ago`;
+  };
+
+  return (
+    <div className="space-y-6">
+      {/* Header */}
+      <Card className="bg-gradient-to-r from-purple-500/20 to-pink-500/20 border-purple-500/30">
+        <CardContent className="py-6">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-4">
+              <div className="p-3 rounded-xl bg-purple-500/20 border border-purple-500/30">
+                <History className="h-8 w-8 text-purple-400" />
+              </div>
+              <div>
+                <h2 className="text-xl font-bold text-white">Container Action History</h2>
+                <p className="text-gray-400">Timeline of container operations across all hosts</p>
+              </div>
+            </div>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => refetch()}
+              className="border-purple-500/50 text-purple-400 hover:bg-purple-500/10"
+            >
+              <RefreshCw className="h-4 w-4 mr-2" />
+              Refresh
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Filters */}
+      <Card className="bg-black/40 border-gray-800">
+        <CardContent className="py-4">
+          <div className="flex items-center gap-4">
+            <div className="flex items-center gap-2">
+              <span className="text-sm text-gray-400">Action:</span>
+              <select
+                value={filterAction}
+                onChange={(e) => setFilterAction(e.target.value)}
+                className="bg-black/50 border border-gray-700 rounded-md px-3 py-1.5 text-sm text-white"
+              >
+                <option value="all">All Actions</option>
+                <option value="pull">Pull</option>
+                <option value="update">Update</option>
+                <option value="remove">Remove</option>
+                <option value="start">Start</option>
+                <option value="stop">Stop</option>
+              </select>
+            </div>
+            <div className="flex items-center gap-2">
+              <span className="text-sm text-gray-400">Status:</span>
+              <select
+                value={filterStatus}
+                onChange={(e) => setFilterStatus(e.target.value)}
+                className="bg-black/50 border border-gray-700 rounded-md px-3 py-1.5 text-sm text-white"
+              >
+                <option value="all">All Status</option>
+                <option value="completed">Completed</option>
+                <option value="failed">Failed</option>
+                <option value="started">In Progress</option>
+              </select>
+            </div>
+            <div className="ml-auto text-sm text-gray-500">
+              {filteredHistory.length} action(s)
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* History Timeline */}
+      <Card className="bg-black/40 border-gray-800">
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Clock className="h-5 w-5 text-purple-400" />
+            Recent Actions
+          </CardTitle>
+          <CardDescription>Container operations timeline</CardDescription>
+        </CardHeader>
+        <CardContent>
+          {isLoading ? (
+            <div className="flex items-center justify-center py-12">
+              <Loader2 className="h-8 w-8 animate-spin text-purple-400" />
+            </div>
+          ) : filteredHistory.length === 0 ? (
+            <div className="text-center py-12 text-gray-500">
+              <History className="h-12 w-12 mx-auto mb-3 opacity-50" />
+              <p>No container actions recorded yet</p>
+              <p className="text-sm mt-1">Actions will appear here when you pull, update, or remove images</p>
+            </div>
+          ) : (
+            <div className="space-y-3">
+              {filteredHistory.map((item: any, index: number) => (
+                <div
+                  key={item.id || index}
+                  className="flex items-center gap-4 p-4 rounded-lg bg-black/30 border border-gray-800 hover:border-gray-700 transition-colors"
+                >
+                  {/* Action Icon */}
+                  <div className={`p-2 rounded-lg ${getActionColor(item.action)}`}>
+                    {getActionIcon(item.action)}
+                  </div>
+
+                  {/* Details */}
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 mb-1">
+                      <span className="font-medium text-white capitalize">{item.action}</span>
+                      <span className="text-gray-500">•</span>
+                      <span className="text-sm text-gray-400 truncate">{item.imageTag}</span>
+                    </div>
+                    <div className="flex items-center gap-3 text-xs text-gray-500">
+                      <span className="flex items-center gap-1">
+                        <Server className="h-3 w-3" />
+                        {item.hostName || item.hostId}
+                      </span>
+                      <span className="flex items-center gap-1">
+                        <Clock className="h-3 w-3" />
+                        {formatTimeAgo(item.createdAt)}
+                      </span>
+                      {item.userName && (
+                        <span className="text-gray-400">by {item.userName}</span>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Status */}
+                  <div className="flex items-center gap-3">
+                    {getStatusBadge(item.status)}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* Host-specific History */}
+      <Card className="bg-black/40 border-gray-800">
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Server className="h-5 w-5 text-[#3b82f6]" />
+            {selectedHost === "alpha" ? "DGX Spark Alpha" : "DGX Spark Beta"} History
+          </CardTitle>
+          <CardDescription>Recent actions on selected host</CardDescription>
+        </CardHeader>
+        <CardContent>
+          {hostHistory.length === 0 ? (
+            <div className="text-center py-8 text-gray-500">
+              <p>No actions recorded for this host</p>
+            </div>
+          ) : (
+            <div className="space-y-2">
+              {hostHistory.slice(0, 10).map((item: any, index: number) => (
+                <div
+                  key={item.id || index}
+                  className="flex items-center justify-between p-3 rounded-lg bg-black/20 border border-gray-800/50"
+                >
+                  <div className="flex items-center gap-3">
+                    <div className={`p-1.5 rounded ${getActionColor(item.action)}`}>
+                      {getActionIcon(item.action)}
+                    </div>
+                    <div>
+                      <span className="text-sm text-white capitalize">{item.action}</span>
+                      <span className="text-gray-500 mx-2">•</span>
+                      <span className="text-sm text-gray-400 truncate">{item.imageTag}</span>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    {getStatusBadge(item.status)}
+                    <span className="text-xs text-gray-500">{formatTimeAgo(item.createdAt)}</span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </CardContent>
+      </Card>
     </div>
   );
 }

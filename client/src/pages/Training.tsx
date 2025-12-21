@@ -5,8 +5,9 @@
  * job orchestration, and real-time training telemetry.
  */
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { motion } from "framer-motion";
+import { trpc } from "@/lib/trpc";
 import {
   Brain,
   Play,
@@ -31,6 +32,11 @@ import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { toast } from "sonner";
+import { Badge } from "@/components/ui/badge";
+import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
+import { Loader2, Plus, Trash2, RefreshCw, CheckCircle, XCircle, AlertCircle } from "lucide-react";
 
 // Training Recipes
 const TRAINING_RECIPES = [
@@ -425,63 +431,360 @@ function TrainingTelemetryCard() {
 }
 
 function JobQueueCard() {
-  const handleStartJob = () => {
-    toast.success("Training job started", {
-      description: "Job queued on DGX Spark Alpha"
-    });
+  const [showCreateModal, setShowCreateModal] = useState(false);
+  const [newJob, setNewJob] = useState({
+    name: "",
+    description: "",
+    baseModel: "nemotron-3-nano-30b",
+    trainingType: "lora" as const,
+    datasetPath: "/workspace/datasets/custom-instruct",
+    epochs: 3,
+    batchSize: 4,
+    learningRate: "2e-5",
+    hostId: "alpha" as const,
+    gpuCount: 1,
+  });
+
+  // Fetch training jobs
+  const { data: jobsData, isLoading, refetch } = trpc.training.getJobs.useQuery(
+    { limit: 10 },
+    { refetchInterval: 5000 }
+  );
+
+  // Fetch base models
+  const { data: modelsData } = trpc.training.getBaseModels.useQuery();
+
+  // Fetch stats
+  const { data: stats } = trpc.training.getStats.useQuery(undefined, {
+    refetchInterval: 5000
+  });
+
+  // Mutations
+  const createJobMutation = trpc.training.createJob.useMutation({
+    onSuccess: () => {
+      toast.success("Training job created", { description: "Job added to queue" });
+      setShowCreateModal(false);
+      refetch();
+    },
+    onError: (error) => {
+      toast.error("Failed to create job", { description: error.message });
+    }
+  });
+
+  const startJobMutation = trpc.training.startJob.useMutation({
+    onSuccess: () => {
+      toast.success("Training job started");
+      refetch();
+    }
+  });
+
+  const cancelJobMutation = trpc.training.cancelJob.useMutation({
+    onSuccess: () => {
+      toast.info("Training job cancelled");
+      refetch();
+    }
+  });
+
+  const deleteJobMutation = trpc.training.deleteJob.useMutation({
+    onSuccess: () => {
+      toast.success("Job deleted");
+      refetch();
+    }
+  });
+
+  const jobs = jobsData?.jobs || [];
+  const baseModels = modelsData?.models || [];
+
+  const getStatusBadge = (status: string) => {
+    switch (status) {
+      case "queued":
+        return <Badge className="bg-gray-500/20 text-gray-400 border-gray-500/30">Queued</Badge>;
+      case "preparing":
+        return <Badge className="bg-yellow-500/20 text-yellow-400 border-yellow-500/30">Preparing</Badge>;
+      case "running":
+        return <Badge className="bg-blue-500/20 text-blue-400 border-blue-500/30">Running</Badge>;
+      case "completed":
+        return <Badge className="bg-green-500/20 text-green-400 border-green-500/30">Completed</Badge>;
+      case "failed":
+        return <Badge className="bg-red-500/20 text-red-400 border-red-500/30">Failed</Badge>;
+      case "cancelled":
+        return <Badge className="bg-orange-500/20 text-orange-400 border-orange-500/30">Cancelled</Badge>;
+      default:
+        return <Badge variant="outline">{status}</Badge>;
+    }
+  };
+
+  const handleCreateJob = () => {
+    createJobMutation.mutate(newJob);
   };
 
   return (
-    <Card className="cyber-panel">
-      <CardHeader>
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-lg bg-muted flex items-center justify-center">
-              <Play className="w-5 h-5 text-foreground" />
+    <>
+      <Card className="cyber-panel">
+        <CardHeader>
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-lg bg-muted flex items-center justify-center">
+                <Play className="w-5 h-5 text-foreground" />
+              </div>
+              <div>
+                <CardTitle className="text-base font-display tracking-wide">Job Queue</CardTitle>
+                <p className="text-xs text-muted-foreground">
+                  {stats?.running || 0} running • {stats?.queued || 0} queued
+                </p>
+              </div>
             </div>
-            <div>
-              <CardTitle className="text-base font-display tracking-wide">Job Orchestration</CardTitle>
-              <p className="text-xs text-muted-foreground">NeMo Run Integration</p>
+            <div className="flex gap-2">
+              <Button variant="outline" size="sm" onClick={() => refetch()}>
+                <RefreshCw className="h-4 w-4" />
+              </Button>
+              <Button size="sm" onClick={() => setShowCreateModal(true)} className="gap-1">
+                <Plus className="h-4 w-4" />
+                New Job
+              </Button>
             </div>
           </div>
-        </div>
-      </CardHeader>
-      
-      <CardContent className="space-y-4">
-        <div className="space-y-2">
-          <Label className="text-xs">Target Host</Label>
-          <Select defaultValue="spark-1">
-            <SelectTrigger className="bg-muted/30">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="spark-1">DGX Spark Alpha (192.168.50.139)</SelectItem>
-              <SelectItem value="spark-2">DGX Spark Beta (192.168.50.110)</SelectItem>
-              <SelectItem value="both">Both Hosts (Distributed)</SelectItem>
-            </SelectContent>
-          </Select>
-        </div>
+        </CardHeader>
         
-        <div className="space-y-2">
-          <Label className="text-xs">Dataset</Label>
-          <Select defaultValue="custom">
-            <SelectTrigger className="bg-muted/30">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="custom">custom-instruct-v1</SelectItem>
-              <SelectItem value="dolly">databricks-dolly-15k</SelectItem>
-              <SelectItem value="alpaca">alpaca-cleaned</SelectItem>
-            </SelectContent>
-          </Select>
-        </div>
-        
-        <Button className="w-full gap-2 bg-nvidia-green hover:bg-nvidia-green/90" onClick={handleStartJob}>
-          <Play className="w-4 h-4" />
-          Start Training Job
-        </Button>
-      </CardContent>
-    </Card>
+        <CardContent className="space-y-3">
+          {isLoading ? (
+            <div className="flex items-center justify-center py-8">
+              <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+            </div>
+          ) : jobs.length === 0 ? (
+            <div className="text-center py-8 text-muted-foreground">
+              <Brain className="h-10 w-10 mx-auto mb-2 opacity-50" />
+              <p className="text-sm">No training jobs yet</p>
+              <p className="text-xs">Create a new job to get started</p>
+            </div>
+          ) : (
+            jobs.slice(0, 5).map((job: any) => (
+              <div key={job.id} className="p-3 rounded-lg bg-muted/30 border border-border/50">
+                <div className="flex items-center justify-between mb-2">
+                  <div className="flex items-center gap-2">
+                    <span className="font-medium text-sm">{job.name}</span>
+                    {getStatusBadge(job.status)}
+                  </div>
+                  <div className="flex gap-1">
+                    {job.status === "queued" && (
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => startJobMutation.mutate({ id: job.id })}
+                        className="h-7 w-7 p-0"
+                      >
+                        <Play className="h-3 w-3 text-green-400" />
+                      </Button>
+                    )}
+                    {(job.status === "running" || job.status === "preparing") && (
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => cancelJobMutation.mutate({ id: job.id })}
+                        className="h-7 w-7 p-0"
+                      >
+                        <Square className="h-3 w-3 text-yellow-400" />
+                      </Button>
+                    )}
+                    {(job.status === "completed" || job.status === "failed" || job.status === "cancelled") && (
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => deleteJobMutation.mutate({ id: job.id })}
+                        className="h-7 w-7 p-0"
+                      >
+                        <Trash2 className="h-3 w-3 text-red-400" />
+                      </Button>
+                    )}
+                  </div>
+                </div>
+                <div className="flex items-center gap-4 text-xs text-muted-foreground">
+                  <span>{job.trainingType.toUpperCase()}</span>
+                  <span>•</span>
+                  <span>{job.baseModel}</span>
+                  {job.progress > 0 && (
+                    <>
+                      <span>•</span>
+                      <span>{job.progress}%</span>
+                    </>
+                  )}
+                </div>
+                {job.status === "running" && job.progress > 0 && (
+                  <div className="mt-2 h-1.5 bg-muted rounded-full overflow-hidden">
+                    <div
+                      className="h-full bg-nvidia-green transition-all"
+                      style={{ width: `${job.progress}%` }}
+                    />
+                  </div>
+                )}
+              </div>
+            ))
+          )}
+        </CardContent>
+      </Card>
+
+      {/* Create Job Modal */}
+      <Dialog open={showCreateModal} onOpenChange={setShowCreateModal}>
+        <DialogContent className="max-w-lg bg-black/95 border-gray-800">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Brain className="h-5 w-5 text-nvidia-green" />
+              Create Training Job
+            </DialogTitle>
+            <DialogDescription>
+              Configure and submit a new fine-tuning job
+            </DialogDescription>
+          </DialogHeader>
+          
+          <div className="space-y-4 py-4">
+            <div className="space-y-2">
+              <Label>Job Name</Label>
+              <Input
+                value={newJob.name}
+                onChange={(e) => setNewJob({ ...newJob, name: e.target.value })}
+                placeholder="My Fine-tuning Job"
+                className="bg-black/50 border-gray-700"
+              />
+            </div>
+            
+            <div className="space-y-2">
+              <Label>Description</Label>
+              <Textarea
+                value={newJob.description}
+                onChange={(e) => setNewJob({ ...newJob, description: e.target.value })}
+                placeholder="Optional description..."
+                className="bg-black/50 border-gray-700 h-20"
+              />
+            </div>
+            
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label>Base Model</Label>
+                <Select
+                  value={newJob.baseModel}
+                  onValueChange={(v) => setNewJob({ ...newJob, baseModel: v })}
+                >
+                  <SelectTrigger className="bg-black/50 border-gray-700">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {baseModels.map((model: any) => (
+                      <SelectItem key={model.id} value={model.id}>
+                        {model.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              
+              <div className="space-y-2">
+                <Label>Training Type</Label>
+                <Select
+                  value={newJob.trainingType}
+                  onValueChange={(v: any) => setNewJob({ ...newJob, trainingType: v })}
+                >
+                  <SelectTrigger className="bg-black/50 border-gray-700">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="lora">LoRA</SelectItem>
+                    <SelectItem value="qlora">QLoRA</SelectItem>
+                    <SelectItem value="sft">Full SFT</SelectItem>
+                    <SelectItem value="full">Full Fine-tune</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+            
+            <div className="space-y-2">
+              <Label>Dataset Path</Label>
+              <Input
+                value={newJob.datasetPath}
+                onChange={(e) => setNewJob({ ...newJob, datasetPath: e.target.value })}
+                placeholder="/workspace/datasets/my-dataset"
+                className="bg-black/50 border-gray-700"
+              />
+            </div>
+            
+            <div className="grid grid-cols-3 gap-4">
+              <div className="space-y-2">
+                <Label>Epochs</Label>
+                <Input
+                  type="number"
+                  value={newJob.epochs}
+                  onChange={(e) => setNewJob({ ...newJob, epochs: parseInt(e.target.value) || 3 })}
+                  className="bg-black/50 border-gray-700"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label>Batch Size</Label>
+                <Input
+                  type="number"
+                  value={newJob.batchSize}
+                  onChange={(e) => setNewJob({ ...newJob, batchSize: parseInt(e.target.value) || 4 })}
+                  className="bg-black/50 border-gray-700"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label>Learning Rate</Label>
+                <Input
+                  value={newJob.learningRate}
+                  onChange={(e) => setNewJob({ ...newJob, learningRate: e.target.value })}
+                  className="bg-black/50 border-gray-700"
+                />
+              </div>
+            </div>
+            
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label>Target Host</Label>
+                <Select
+                  value={newJob.hostId}
+                  onValueChange={(v: any) => setNewJob({ ...newJob, hostId: v })}
+                >
+                  <SelectTrigger className="bg-black/50 border-gray-700">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="alpha">DGX Spark Alpha</SelectItem>
+                    <SelectItem value="beta">DGX Spark Beta</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-2">
+                <Label>GPU Count</Label>
+                <Input
+                  type="number"
+                  value={newJob.gpuCount}
+                  onChange={(e) => setNewJob({ ...newJob, gpuCount: parseInt(e.target.value) || 1 })}
+                  min={1}
+                  max={8}
+                  className="bg-black/50 border-gray-700"
+                />
+              </div>
+            </div>
+          </div>
+          
+          <div className="flex justify-end gap-2">
+            <Button variant="outline" onClick={() => setShowCreateModal(false)}>
+              Cancel
+            </Button>
+            <Button
+              onClick={handleCreateJob}
+              disabled={!newJob.name || !newJob.datasetPath || createJobMutation.isPending}
+              className="bg-nvidia-green hover:bg-nvidia-green/90"
+            >
+              {createJobMutation.isPending ? (
+                <Loader2 className="h-4 w-4 animate-spin mr-2" />
+              ) : (
+                <Plus className="h-4 w-4 mr-2" />
+              )}
+              Create Job
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+    </>
   );
 }
 

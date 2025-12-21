@@ -151,3 +151,62 @@ export const containerPresets = mysqlTable("container_presets", {
 
 export type ContainerPreset = typeof containerPresets.$inferSelect;
 export type InsertContainerPreset = typeof containerPresets.$inferInsert;
+
+// Training jobs for NeMo fine-tuning management
+export const trainingJobs = mysqlTable("training_jobs", {
+  id: int("id").autoincrement().primaryKey(),
+  userId: int("userId").references(() => users.id),
+  name: varchar("name", { length: 256 }).notNull(),
+  description: text("description"),
+  
+  // Model configuration
+  baseModel: varchar("baseModel", { length: 256 }).notNull(), // e.g., "nemotron-3-nano-30b"
+  modelPath: varchar("modelPath", { length: 512 }), // Path to model on DGX
+  outputPath: varchar("outputPath", { length: 512 }), // Path for trained model output
+  
+  // Training configuration
+  trainingType: mysqlEnum("trainingType", ["sft", "lora", "qlora", "full"]).notNull().default("lora"),
+  datasetPath: varchar("datasetPath", { length: 512 }).notNull(),
+  epochs: int("epochs").notNull().default(3),
+  batchSize: int("batchSize").notNull().default(4),
+  learningRate: varchar("learningRate", { length: 32 }).default("2e-5"),
+  maxSeqLength: int("maxSeqLength").default(2048),
+  gradientAccumulation: int("gradientAccumulation").default(1),
+  warmupSteps: int("warmupSteps").default(100),
+  
+  // LoRA specific config
+  loraRank: int("loraRank").default(16),
+  loraAlpha: int("loraAlpha").default(32),
+  loraDropout: varchar("loraDropout", { length: 16 }).default("0.05"),
+  
+  // Resource allocation
+  hostId: varchar("hostId", { length: 32 }).notNull(), // 'alpha' or 'beta'
+  gpuCount: int("gpuCount").notNull().default(1),
+  
+  // Job status
+  status: mysqlEnum("status", ["queued", "preparing", "running", "completed", "failed", "cancelled"]).notNull().default("queued"),
+  progress: int("progress").default(0), // 0-100%
+  currentEpoch: int("currentEpoch").default(0),
+  currentStep: int("currentStep").default(0),
+  totalSteps: int("totalSteps").default(0),
+  
+  // Metrics
+  trainLoss: varchar("trainLoss", { length: 32 }),
+  evalLoss: varchar("evalLoss", { length: 32 }),
+  
+  // Timing
+  startedAt: timestamp("startedAt"),
+  completedAt: timestamp("completedAt"),
+  estimatedTimeRemaining: int("estimatedTimeRemaining"), // seconds
+  
+  // Error handling
+  errorMessage: text("errorMessage"),
+  logPath: varchar("logPath", { length: 512 }),
+  
+  // Metadata
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
+export type TrainingJob = typeof trainingJobs.$inferSelect;
+export type InsertTrainingJob = typeof trainingJobs.$inferInsert;
