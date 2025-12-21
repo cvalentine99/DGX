@@ -865,3 +865,20 @@
 - [x] Add rename functionality with inline editing
 - [x] Handle errors gracefully (permissions, file in use)
 - [x] Add create directory endpoint and UI
+
+## Bulk File Operations
+- [x] Add multi-select checkbox to file browser items
+- [x] Create ssh.bulkDelete endpoint for batch file deletion
+- [x] Create ssh.bulkMove endpoint for batch file moving
+- [x] Add bulk action toolbar (delete selected, move selected)
+- [x] Show selected file count indicator
+- [x] Add select all / deselect all buttons
+
+## File Permissions Viewer
+- [x] Create ssh.getFilePermissions endpoint
+- [x] Create ssh.setFilePermissions endpoint (chmod)
+- [x] Add permissions button to file browser actions
+- [x] Create permissions dialog with octal/symbolic display
+- [x] Add owner/group information display
+- [x] Implement quick chmod buttons (644, 755, 777, 600)
+- [x] Add setFileOwnership endpoint (chown)

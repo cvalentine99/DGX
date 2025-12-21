@@ -31,6 +31,11 @@ import {
   ArrowLeft,
   HardDrive,
   X,
+  Trash2,
+  Move,
+  Shield,
+  CheckSquare,
+  Square,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -42,7 +47,10 @@ import TrainingDataGenerator from "@/components/TrainingDataGenerator";
 import { trpc } from "@/lib/trpc";
 import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Label } from "@/components/ui/label";
+import { Switch } from "@/components/ui/switch";
 
 // Dataset Catalog
 const DATASETS = [
@@ -377,6 +385,16 @@ function FileBrowserCard() {
   const [newFileName, setNewFileName] = useState("");
   const [showCreateFolder, setShowCreateFolder] = useState(false);
   const [newFolderName, setNewFolderName] = useState("");
+  
+  // Multi-select state
+  const [selectedFiles, setSelectedFiles] = useState<Set<string>>(new Set());
+  const [showBulkDeleteConfirm, setShowBulkDeleteConfirm] = useState(false);
+  const [showBulkMove, setShowBulkMove] = useState(false);
+  const [bulkMoveDestination, setBulkMoveDestination] = useState("");
+  
+  // Permissions state
+  const [showPermissions, setShowPermissions] = useState(false);
+  const [permissionsFile, setPermissionsFile] = useState<string | null>(null);
 
   const { data: dirData, isLoading, refetch } = trpc.ssh.listDirectory.useQuery(
     { hostId, path: currentPath },
@@ -470,6 +488,124 @@ function FileBrowserCard() {
       setNewFolderName("");
     },
   });
+
+  // Bulk delete mutation
+  const bulkDeleteMutation = trpc.ssh.bulkDelete.useMutation({
+    onSuccess: (data) => {
+      if (data.success) {
+        toast.success(data.message, { 
+          description: (data.failCount ?? 0) > 0 ? `${data.failCount} items failed` : undefined 
+        });
+        refetch();
+        setSelectedFiles(new Set());
+      } else {
+        toast.error("Bulk delete failed", { description: data.error });
+      }
+      setShowBulkDeleteConfirm(false);
+    },
+    onError: (error) => {
+      toast.error("Bulk delete failed", { description: error.message });
+      setShowBulkDeleteConfirm(false);
+    },
+  });
+
+  // Bulk move mutation
+  const bulkMoveMutation = trpc.ssh.bulkMove.useMutation({
+    onSuccess: (data) => {
+      if (data.success) {
+        toast.success(data.message, { 
+          description: (data.failCount ?? 0) > 0 ? `${data.failCount} items failed` : undefined 
+        });
+        refetch();
+        setSelectedFiles(new Set());
+      } else {
+        toast.error("Bulk move failed", { description: data.error });
+      }
+      setShowBulkMove(false);
+      setBulkMoveDestination("");
+    },
+    onError: (error) => {
+      toast.error("Bulk move failed", { description: error.message });
+      setShowBulkMove(false);
+      setBulkMoveDestination("");
+    },
+  });
+
+  // Permissions query
+  const { data: permissionsData, isLoading: isLoadingPermissions, refetch: refetchPermissions } = trpc.ssh.getFilePermissions.useQuery(
+    { hostId, path: permissionsFile || "" },
+    { enabled: !!permissionsFile && showPermissions }
+  );
+
+  // Set permissions mutation
+  const setPermissionsMutation = trpc.ssh.setFilePermissions.useMutation({
+    onSuccess: (data) => {
+      if (data.success) {
+        toast.success("Permissions updated", { description: data.message });
+        refetchPermissions();
+      } else {
+        toast.error("Failed to update permissions", { description: data.error });
+      }
+    },
+    onError: (error) => {
+      toast.error("Failed to update permissions", { description: error.message });
+    },
+  });
+
+  // Multi-select handlers
+  const toggleFileSelection = (path: string) => {
+    setSelectedFiles(prev => {
+      const newSet = new Set(prev);
+      if (newSet.has(path)) {
+        newSet.delete(path);
+      } else {
+        newSet.add(path);
+      }
+      return newSet;
+    });
+  };
+
+  const selectAllFiles = () => {
+    if (dirData?.items) {
+      setSelectedFiles(new Set(dirData.items.map((item: any) => item.path)));
+    }
+  };
+
+  const deselectAllFiles = () => {
+    setSelectedFiles(new Set());
+  };
+
+  const handleBulkDelete = () => {
+    if (selectedFiles.size > 0) {
+      setShowBulkDeleteConfirm(true);
+    }
+  };
+
+  const confirmBulkDelete = () => {
+    bulkDeleteMutation.mutate({ hostId, paths: Array.from(selectedFiles) });
+  };
+
+  const handleBulkMove = () => {
+    if (selectedFiles.size > 0) {
+      setBulkMoveDestination(currentPath);
+      setShowBulkMove(true);
+    }
+  };
+
+  const confirmBulkMove = () => {
+    if (bulkMoveDestination) {
+      bulkMoveMutation.mutate({ 
+        hostId, 
+        paths: Array.from(selectedFiles), 
+        destinationDir: bulkMoveDestination 
+      });
+    }
+  };
+
+  const handleViewPermissions = (path: string) => {
+    setPermissionsFile(path);
+    setShowPermissions(true);
+  };
 
   const handleDelete = (filePath: string) => {
     setFileToDelete(filePath);
@@ -765,6 +901,45 @@ function FileBrowserCard() {
           />
         </div>
 
+        {/* Bulk Actions Toolbar */}
+        {selectedFiles.size > 0 && (
+          <div className="flex items-center justify-between p-3 rounded-lg bg-purple-500/10 border border-purple-500/30">
+            <div className="flex items-center gap-3">
+              <Badge variant="secondary" className="bg-purple-500/20 text-purple-300">
+                {selectedFiles.size} selected
+              </Badge>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-7 text-xs"
+                onClick={deselectAllFiles}
+              >
+                Clear selection
+              </Button>
+            </div>
+            <div className="flex items-center gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-7 gap-1.5 text-xs"
+                onClick={handleBulkMove}
+              >
+                <Move className="w-3.5 h-3.5" />
+                Move
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-7 gap-1.5 text-xs text-red-400 border-red-400/50 hover:bg-red-500/10"
+                onClick={handleBulkDelete}
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+                Delete
+              </Button>
+            </div>
+          </div>
+        )}
+
         {/* Search Results */}
         {searchQuery.length > 2 && searchResults?.results && searchResults.results.length > 0 && (
           <div className="p-3 rounded-lg bg-muted/20 border border-border/50 space-y-2">
@@ -787,7 +962,14 @@ function FileBrowserCard() {
         {/* File List */}
         <div className="border border-border/50 rounded-lg overflow-hidden">
           <div className="grid grid-cols-12 gap-2 px-4 py-2 bg-muted/30 text-xs font-medium text-muted-foreground border-b border-border/50">
-            <div className="col-span-4">Name</div>
+            <div className="col-span-1 flex items-center">
+              <Checkbox
+                checked={dirData?.items && selectedFiles.size === dirData.items.length && dirData.items.length > 0}
+                onCheckedChange={(checked) => checked ? selectAllFiles() : deselectAllFiles()}
+                className="h-4 w-4"
+              />
+            </div>
+            <div className="col-span-3">Name</div>
             <div className="col-span-2">Size</div>
             <div className="col-span-2">Type</div>
             <div className="col-span-2">Modified</div>
@@ -812,12 +994,21 @@ function FileBrowserCard() {
                   key={i}
                   className={cn(
                     "w-full grid grid-cols-12 gap-2 px-4 py-2.5 text-xs hover:bg-muted/20 transition-colors text-left border-b border-border/30 last:border-0",
-                    selectedFile === item.path && "bg-purple-500/10"
+                    selectedFile === item.path && "bg-purple-500/10",
+                    selectedFiles.has(item.path) && "bg-purple-500/5"
                   )}
                 >
+                  <div className="col-span-1 flex items-center">
+                    <Checkbox
+                      checked={selectedFiles.has(item.path)}
+                      onCheckedChange={() => toggleFileSelection(item.path)}
+                      className="h-4 w-4"
+                      onClick={(e) => e.stopPropagation()}
+                    />
+                  </div>
                   <button
                     onClick={() => item.isDirectory ? navigateTo(item.path) : handleSelectDataset(item.path)}
-                    className="col-span-4 flex items-center gap-2 truncate text-left"
+                    className="col-span-3 flex items-center gap-2 truncate text-left"
                   >
                     {getFileIcon(item.fileType)}
                     <span className={cn(item.isDirectory && "font-medium")}>{item.name}</span>
@@ -842,6 +1033,18 @@ function FileBrowserCard() {
                         <Eye className="w-3.5 h-3.5" />
                       </Button>
                     )}
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-6 w-6"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleViewPermissions(item.path);
+                      }}
+                      title="Permissions"
+                    >
+                      <Shield className="w-3.5 h-3.5" />
+                    </Button>
                     <Button
                       variant="ghost"
                       size="icon"
@@ -1112,6 +1315,212 @@ function FileBrowserCard() {
                   "Create Folder"
                 )}
               </Button>
+            </div>
+          </DialogContent>
+        </Dialog>
+
+        {/* Bulk Delete Confirmation Dialog */}
+        <Dialog open={showBulkDeleteConfirm} onOpenChange={setShowBulkDeleteConfirm}>
+          <DialogContent className="max-w-md">
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2 text-red-400">
+                <Trash2 className="w-5 h-5" />
+                Delete {selectedFiles.size} Items
+              </DialogTitle>
+              <DialogDescription>
+                This action cannot be undone.
+              </DialogDescription>
+            </DialogHeader>
+            <div className="py-4">
+              <p className="text-sm text-muted-foreground mb-3">The following items will be deleted:</p>
+              <div className="max-h-40 overflow-y-auto space-y-1 p-2 bg-muted/30 rounded-lg">
+                {Array.from(selectedFiles).map((path, i) => (
+                  <p key={i} className="text-xs font-mono truncate">{path}</p>
+                ))}
+              </div>
+            </div>
+            <div className="flex justify-end gap-2">
+              <Button variant="outline" onClick={() => setShowBulkDeleteConfirm(false)}>Cancel</Button>
+              <Button 
+                variant="destructive" 
+                onClick={confirmBulkDelete}
+                disabled={bulkDeleteMutation.isPending}
+              >
+                {bulkDeleteMutation.isPending ? (
+                  <><RefreshCw className="w-4 h-4 mr-2 animate-spin" />Deleting...</>
+                ) : (
+                  `Delete ${selectedFiles.size} Items`
+                )}
+              </Button>
+            </div>
+          </DialogContent>
+        </Dialog>
+
+        {/* Bulk Move Dialog */}
+        <Dialog open={showBulkMove} onOpenChange={setShowBulkMove}>
+          <DialogContent className="max-w-md">
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2">
+                <Move className="w-5 h-5 text-purple-400" />
+                Move {selectedFiles.size} Items
+              </DialogTitle>
+            </DialogHeader>
+            <div className="py-4 space-y-4">
+              <div>
+                <p className="text-xs text-muted-foreground mb-1">Items to move:</p>
+                <div className="max-h-32 overflow-y-auto space-y-1 p-2 bg-muted/30 rounded-lg">
+                  {Array.from(selectedFiles).map((path, i) => (
+                    <p key={i} className="text-xs font-mono truncate">{path.split("/").pop()}</p>
+                  ))}
+                </div>
+              </div>
+              <div>
+                <p className="text-xs text-muted-foreground mb-1">Destination directory:</p>
+                <Input
+                  value={bulkMoveDestination}
+                  onChange={(e) => setBulkMoveDestination(e.target.value)}
+                  placeholder="/home/ubuntu/destination"
+                  className="font-mono"
+                />
+              </div>
+            </div>
+            <div className="flex justify-end gap-2">
+              <Button variant="outline" onClick={() => setShowBulkMove(false)}>Cancel</Button>
+              <Button 
+                onClick={confirmBulkMove}
+                disabled={bulkMoveMutation.isPending || !bulkMoveDestination.trim()}
+              >
+                {bulkMoveMutation.isPending ? (
+                  <><RefreshCw className="w-4 h-4 mr-2 animate-spin" />Moving...</>
+                ) : (
+                  "Move Items"
+                )}
+              </Button>
+            </div>
+          </DialogContent>
+        </Dialog>
+
+        {/* Permissions Dialog */}
+        <Dialog open={showPermissions} onOpenChange={setShowPermissions}>
+          <DialogContent className="max-w-lg">
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2">
+                <Shield className="w-5 h-5 text-green-400" />
+                File Permissions
+              </DialogTitle>
+              <DialogDescription className="font-mono text-xs truncate">
+                {permissionsFile}
+              </DialogDescription>
+            </DialogHeader>
+            <div className="py-4 space-y-4">
+              {isLoadingPermissions ? (
+                <div className="flex items-center justify-center py-8">
+                  <RefreshCw className="w-6 h-6 animate-spin text-muted-foreground" />
+                </div>
+              ) : permissionsData?.success ? (
+                <>
+                  {/* Current Permissions */}
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="p-3 rounded-lg bg-muted/30">
+                      <p className="text-xs text-muted-foreground mb-1">Octal</p>
+                      <p className="text-lg font-mono font-bold text-green-400">{permissionsData.octal}</p>
+                    </div>
+                    <div className="p-3 rounded-lg bg-muted/30">
+                      <p className="text-xs text-muted-foreground mb-1">Symbolic</p>
+                      <p className="text-lg font-mono font-bold">{permissionsData.symbolic}</p>
+                    </div>
+                  </div>
+
+                  {/* Owner/Group */}
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="p-3 rounded-lg bg-muted/30">
+                      <p className="text-xs text-muted-foreground mb-1">Owner</p>
+                      <p className="text-sm font-mono">{permissionsData.owner}</p>
+                    </div>
+                    <div className="p-3 rounded-lg bg-muted/30">
+                      <p className="text-xs text-muted-foreground mb-1">Group</p>
+                      <p className="text-sm font-mono">{permissionsData.group}</p>
+                    </div>
+                  </div>
+
+                  {/* Permission Matrix */}
+                  <div className="border border-border/50 rounded-lg overflow-hidden">
+                    <div className="grid grid-cols-4 gap-2 px-4 py-2 bg-muted/30 text-xs font-medium text-muted-foreground border-b border-border/50">
+                      <div></div>
+                      <div className="text-center">Read</div>
+                      <div className="text-center">Write</div>
+                      <div className="text-center">Execute</div>
+                    </div>
+                    {(["owner", "group", "others"] as const).map((entity) => (
+                      <div key={entity} className="grid grid-cols-4 gap-2 px-4 py-2 border-b border-border/30 last:border-0">
+                        <div className="text-xs font-medium capitalize">{entity}</div>
+                        <div className="flex justify-center">
+                          <div className={cn(
+                            "w-6 h-6 rounded flex items-center justify-center text-xs",
+                            permissionsData.permissions?.[entity]?.read 
+                              ? "bg-green-500/20 text-green-400" 
+                              : "bg-muted/30 text-muted-foreground"
+                          )}>
+                            {permissionsData.permissions?.[entity]?.read ? "r" : "-"}
+                          </div>
+                        </div>
+                        <div className="flex justify-center">
+                          <div className={cn(
+                            "w-6 h-6 rounded flex items-center justify-center text-xs",
+                            permissionsData.permissions?.[entity]?.write 
+                              ? "bg-yellow-500/20 text-yellow-400" 
+                              : "bg-muted/30 text-muted-foreground"
+                          )}>
+                            {permissionsData.permissions?.[entity]?.write ? "w" : "-"}
+                          </div>
+                        </div>
+                        <div className="flex justify-center">
+                          <div className={cn(
+                            "w-6 h-6 rounded flex items-center justify-center text-xs",
+                            permissionsData.permissions?.[entity]?.execute 
+                              ? "bg-blue-500/20 text-blue-400" 
+                              : "bg-muted/30 text-muted-foreground"
+                          )}>
+                            {permissionsData.permissions?.[entity]?.execute ? "x" : "-"}
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+
+                  {/* Quick chmod */}
+                  <div className="space-y-2">
+                    <p className="text-xs text-muted-foreground">Quick chmod:</p>
+                    <div className="flex gap-2">
+                      {["644", "755", "777", "600"].map((mode) => (
+                        <Button
+                          key={mode}
+                          variant="outline"
+                          size="sm"
+                          className="font-mono"
+                          onClick={() => {
+                            if (permissionsFile) {
+                              setPermissionsMutation.mutate({ hostId, path: permissionsFile, mode });
+                            }
+                          }}
+                          disabled={setPermissionsMutation.isPending}
+                        >
+                          {mode}
+                        </Button>
+                      ))}
+                    </div>
+                  </div>
+                </>
+              ) : (
+                <div className="flex flex-col items-center justify-center py-8 text-muted-foreground">
+                  <AlertTriangle className="w-8 h-8 mb-2" />
+                  <p className="text-sm">Failed to load permissions</p>
+                  <p className="text-xs mt-1">{permissionsData?.error}</p>
+                </div>
+              )}
+            </div>
+            <div className="flex justify-end">
+              <Button variant="outline" onClick={() => setShowPermissions(false)}>Close</Button>
             </div>
           </DialogContent>
         </Dialog>

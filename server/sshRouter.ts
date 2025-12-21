@@ -5728,4 +5728,345 @@ PIPELINE_EOF`);
         return { success: false, error: error.message };
       }
     }),
+
+  // =========================================================================
+  // Bulk File Operations
+  // =========================================================================
+
+  // Bulk delete multiple files/directories
+  bulkDelete: publicProcedure
+    .input(z.object({
+      hostId: z.enum(["alpha", "beta"]).default("alpha"),
+      paths: z.array(z.string()).min(1).max(100),
+    }))
+    .mutation(async ({ input }) => {
+      const pool = getSSHPool();
+      if (!pool) {
+        return { success: false, error: "SSH pool not initialized", results: [] };
+      }
+
+      const results: Array<{ path: string; success: boolean; error?: string }> = [];
+      const dangerousPaths = ["/", "/home", "/etc", "/var", "/usr", "/bin", "/sbin", "/root"];
+
+      for (const filePath of input.paths) {
+        try {
+          const normalizedPath = filePath.replace(/\/+$/, "");
+          
+          if (dangerousPaths.includes(normalizedPath)) {
+            results.push({ path: filePath, success: false, error: "Protected system directory" });
+            continue;
+          }
+
+          // Check if exists
+          const existsCheck = await pool.execute(
+            input.hostId,
+            `test -e "${filePath}" && echo "exists" || echo "not_exists"`
+          );
+
+          if (existsCheck.trim() === "not_exists") {
+            results.push({ path: filePath, success: false, error: "File not found" });
+            continue;
+          }
+
+          // Delete
+          await pool.execute(input.hostId, `rm -rf "${filePath}"`);
+
+          // Verify
+          const verifyCheck = await pool.execute(
+            input.hostId,
+            `test -e "${filePath}" && echo "exists" || echo "deleted"`
+          );
+
+          if (verifyCheck.trim() === "exists") {
+            results.push({ path: filePath, success: false, error: "Failed to delete" });
+          } else {
+            results.push({ path: filePath, success: true });
+          }
+        } catch (error: any) {
+          results.push({ path: filePath, success: false, error: error.message });
+        }
+      }
+
+      const successCount = results.filter(r => r.success).length;
+      return {
+        success: successCount > 0,
+        message: `Deleted ${successCount} of ${input.paths.length} items`,
+        results,
+        successCount,
+        failCount: input.paths.length - successCount,
+      };
+    }),
+
+  // Bulk move multiple files/directories
+  bulkMove: publicProcedure
+    .input(z.object({
+      hostId: z.enum(["alpha", "beta"]).default("alpha"),
+      paths: z.array(z.string()).min(1).max(100),
+      destinationDir: z.string(),
+    }))
+    .mutation(async ({ input }) => {
+      const pool = getSSHPool();
+      if (!pool) {
+        return { success: false, error: "SSH pool not initialized", results: [] };
+      }
+
+      // Verify destination exists and is a directory
+      const destCheck = await pool.execute(
+        input.hostId,
+        `test -d "${input.destinationDir}" && echo "valid" || echo "invalid"`
+      );
+
+      if (destCheck.trim() !== "valid") {
+        return { success: false, error: "Destination directory does not exist", results: [] };
+      }
+
+      const results: Array<{ path: string; success: boolean; newPath?: string; error?: string }> = [];
+
+      for (const sourcePath of input.paths) {
+        try {
+          const fileName = sourcePath.split("/").pop();
+          const newPath = `${input.destinationDir}/${fileName}`;
+
+          // Check if source exists
+          const sourceCheck = await pool.execute(
+            input.hostId,
+            `test -e "${sourcePath}" && echo "exists" || echo "not_exists"`
+          );
+
+          if (sourceCheck.trim() === "not_exists") {
+            results.push({ path: sourcePath, success: false, error: "Source not found" });
+            continue;
+          }
+
+          // Check if destination already exists
+          const destFileCheck = await pool.execute(
+            input.hostId,
+            `test -e "${newPath}" && echo "exists" || echo "not_exists"`
+          );
+
+          if (destFileCheck.trim() === "exists") {
+            results.push({ path: sourcePath, success: false, error: "File already exists at destination" });
+            continue;
+          }
+
+          // Move
+          await pool.execute(input.hostId, `mv "${sourcePath}" "${newPath}"`);
+
+          // Verify
+          const verifyCheck = await pool.execute(
+            input.hostId,
+            `test -e "${newPath}" && echo "moved" || echo "failed"`
+          );
+
+          if (verifyCheck.trim() === "moved") {
+            results.push({ path: sourcePath, success: true, newPath });
+          } else {
+            results.push({ path: sourcePath, success: false, error: "Move operation failed" });
+          }
+        } catch (error: any) {
+          results.push({ path: sourcePath, success: false, error: error.message });
+        }
+      }
+
+      const successCount = results.filter(r => r.success).length;
+      return {
+        success: successCount > 0,
+        message: `Moved ${successCount} of ${input.paths.length} items`,
+        results,
+        successCount,
+        failCount: input.paths.length - successCount,
+      };
+    }),
+
+  // =========================================================================
+  // File Permissions
+  // =========================================================================
+
+  // Get file permissions and ownership info
+  getFilePermissions: publicProcedure
+    .input(z.object({
+      hostId: z.enum(["alpha", "beta"]).default("alpha"),
+      path: z.string(),
+    }))
+    .query(async ({ input }) => {
+      const pool = getSSHPool();
+      if (!pool) {
+        return { success: false, error: "SSH pool not initialized" };
+      }
+
+      try {
+        // Get detailed file info using stat
+        const statOutput = await pool.execute(
+          input.hostId,
+          `stat -c '%a|%U|%G|%F|%s|%Y' "${input.path}" 2>/dev/null || echo "ERROR"`
+        );
+
+        if (statOutput.trim() === "ERROR" || !statOutput.includes("|")) {
+          return { success: false, error: "Failed to get file info" };
+        }
+
+        const [octal, owner, group, fileType, size, mtime] = statOutput.trim().split("|");
+
+        // Get symbolic permissions
+        const lsOutput = await pool.execute(
+          input.hostId,
+          `ls -ld "${input.path}" 2>/dev/null | awk '{print $1}'`
+        );
+        const symbolic = lsOutput.trim();
+
+        // Parse octal to individual permissions
+        const parseOctal = (digit: string) => {
+          const num = parseInt(digit);
+          return {
+            read: (num & 4) !== 0,
+            write: (num & 2) !== 0,
+            execute: (num & 1) !== 0,
+          };
+        };
+
+        const octalDigits = octal.padStart(3, "0");
+        const permissions = {
+          owner: parseOctal(octalDigits[0]),
+          group: parseOctal(octalDigits[1]),
+          others: parseOctal(octalDigits[2]),
+        };
+
+        return {
+          success: true,
+          path: input.path,
+          octal,
+          symbolic,
+          owner,
+          group,
+          fileType: fileType.toLowerCase().includes("directory") ? "directory" : "file",
+          size: parseInt(size),
+          modifiedTime: new Date(parseInt(mtime) * 1000).toISOString(),
+          permissions,
+        };
+      } catch (error: any) {
+        return { success: false, error: error.message };
+      }
+    }),
+
+  // Set file permissions (chmod)
+  setFilePermissions: publicProcedure
+    .input(z.object({
+      hostId: z.enum(["alpha", "beta"]).default("alpha"),
+      path: z.string(),
+      mode: z.string().regex(/^[0-7]{3,4}$/, "Mode must be 3-4 octal digits"),
+      recursive: z.boolean().default(false),
+    }))
+    .mutation(async ({ input }) => {
+      const pool = getSSHPool();
+      if (!pool) {
+        return { success: false, error: "SSH pool not initialized" };
+      }
+
+      try {
+        // Verify file exists
+        const existsCheck = await pool.execute(
+          input.hostId,
+          `test -e "${input.path}" && echo "exists" || echo "not_exists"`
+        );
+
+        if (existsCheck.trim() === "not_exists") {
+          return { success: false, error: "File or directory does not exist" };
+        }
+
+        // Apply chmod
+        const recursiveFlag = input.recursive ? "-R" : "";
+        await pool.execute(
+          input.hostId,
+          `chmod ${recursiveFlag} ${input.mode} "${input.path}"`
+        );
+
+        // Verify the change
+        const verifyOutput = await pool.execute(
+          input.hostId,
+          `stat -c '%a' "${input.path}"`
+        );
+
+        const newMode = verifyOutput.trim();
+        const expectedMode = input.mode.length === 4 ? input.mode.slice(1) : input.mode;
+
+        if (newMode !== expectedMode) {
+          return { 
+            success: false, 
+            error: `Permission change may have failed. Expected ${expectedMode}, got ${newMode}` 
+          };
+        }
+
+        return {
+          success: true,
+          message: `Permissions changed to ${input.mode}`,
+          path: input.path,
+          newMode: newMode,
+        };
+      } catch (error: any) {
+        return { success: false, error: error.message };
+      }
+    }),
+
+  // Change file ownership (chown)
+  setFileOwnership: publicProcedure
+    .input(z.object({
+      hostId: z.enum(["alpha", "beta"]).default("alpha"),
+      path: z.string(),
+      owner: z.string().optional(),
+      group: z.string().optional(),
+      recursive: z.boolean().default(false),
+    }))
+    .mutation(async ({ input }) => {
+      const pool = getSSHPool();
+      if (!pool) {
+        return { success: false, error: "SSH pool not initialized" };
+      }
+
+      if (!input.owner && !input.group) {
+        return { success: false, error: "Must specify owner or group" };
+      }
+
+      try {
+        // Verify file exists
+        const existsCheck = await pool.execute(
+          input.hostId,
+          `test -e "${input.path}" && echo "exists" || echo "not_exists"`
+        );
+
+        if (existsCheck.trim() === "not_exists") {
+          return { success: false, error: "File or directory does not exist" };
+        }
+
+        // Build ownership string
+        const ownershipStr = input.owner && input.group 
+          ? `${input.owner}:${input.group}`
+          : input.owner 
+            ? input.owner 
+            : `:${input.group}`;
+
+        const recursiveFlag = input.recursive ? "-R" : "";
+        
+        // Note: chown typically requires sudo
+        const result = await pool.execute(
+          input.hostId,
+          `chown ${recursiveFlag} ${ownershipStr} "${input.path}" 2>&1`
+        );
+
+        if (result.toLowerCase().includes("operation not permitted") || 
+            result.toLowerCase().includes("permission denied")) {
+          return { 
+            success: false, 
+            error: "Permission denied - ownership changes may require elevated privileges" 
+          };
+        }
+
+        return {
+          success: true,
+          message: `Ownership changed to ${ownershipStr}`,
+          path: input.path,
+        };
+      } catch (error: any) {
+        return { success: false, error: error.message };
+      }
+    }),
 });
