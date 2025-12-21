@@ -1,0 +1,57 @@
+[Unit]
+Description=NeMo Command Center - Valentine RF Infrastructure Management
+Documentation=https://github.com/valentine-rf/nemo-command-center
+After=network.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=nemo
+Group=nemo
+WorkingDirectory=/opt/nemo-command-center
+
+# Environment file
+EnvironmentFile=/etc/nemo/nemo-command-center.env
+
+# Node.js settings
+Environment=NODE_ENV=production
+Environment=NODE_OPTIONS=--max-old-space-size=4096
+
+# Application command
+ExecStart=/usr/bin/node /opt/nemo-command-center/dist/index.js
+
+# Restart policy
+Restart=always
+RestartSec=10
+StartLimitInterval=60
+StartLimitBurst=3
+
+# Security hardening
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+RestrictNamespaces=true
+
+# Allow write to specific directories
+ReadWritePaths=/var/lib/nemo
+ReadWritePaths=/var/log/nemo
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=nemo-command-center
+
+# Resource limits
+LimitNOFILE=65536
+LimitNPROC=4096
+MemoryMax=8G
+CPUQuota=400%
+
+[Install]
+WantedBy=multi-user.target

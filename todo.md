@@ -903,3 +903,21 @@
 - [x] Add extract button for archive files
 - [x] Show progress indicator for compression operations
 - [x] Add listArchiveContents endpoint for previewing archives
+
+## AI Workbench Deployment
+- [x] Create .nvwb/spec.yaml project configuration
+- [x] Create compose.yaml for multi-container setup
+- [x] Create Dockerfile with AI Workbench labels
+- [x] Create requirements.txt for Python dependencies
+- [x] Create apt.txt for system dependencies
+- [x] Create preBuild.bash and postBuild.bash scripts
+- [x] Add GPU configuration for CUDA workloads
+- [x] Create comprehensive deployment documentation
+
+## Bare Metal Deployment
+- [x] Create install.sh installation script
+- [x] Create systemd service files for process management
+- [x] Create nginx reverse proxy configuration
+- [x] Create environment configuration template
+- [x] Create uninstall.sh cleanup script
+- [x] Add deployment documentation with troubleshooting

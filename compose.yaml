@@ -1,0 +1,131 @@
+# NeMo Command Center - Docker Compose Configuration
+# For use with NVIDIA AI Workbench or standalone Docker deployment
+
+name: nemo-command-center
+
+services:
+  # Main web application
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: nemo-app
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      - NODE_ENV=production
+      - DATABASE_URL=file:/app/data/nemo.db
+      - JWT_SECRET=${JWT_SECRET}
+      - NGC_API_KEY=${NGC_API_KEY}
+      - HUGGINGFACE_TOKEN=${HUGGINGFACE_TOKEN}
+      - VLLM_API_KEY=${VLLM_API_KEY}
+      - VLLM_API_URL=${VLLM_API_URL}
+      - DGX_SSH_HOST=${DGX_SSH_HOST}
+      - DGX_SSH_USERNAME=${DGX_SSH_USERNAME}
+      - DGX_SSH_PASSWORD=${DGX_SSH_PASSWORD}
+      - DGX_SSH_PORT=${DGX_SSH_PORT:-22}
+    volumes:
+      - app-data:/app/data
+      - app-logs:/app/logs
+      - ./models:/app/models
+    networks:
+      - nemo-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+
+  # JupyterLab for interactive development
+  jupyter:
+    image: nvcr.io/nvidia/pytorch:24.10-py3
+    container_name: nemo-jupyter
+    restart: unless-stopped
+    ports:
+      - "8888:8888"
+    environment:
+      - JUPYTER_TOKEN=${JUPYTER_TOKEN:-}
+    volumes:
+      - .:/workspace
+      - app-data:/workspace/data
+      - ./models:/workspace/models
+    networks:
+      - nemo-network
+    command: >
+      jupyter lab 
+      --ip=0.0.0.0 
+      --port=8888 
+      --no-browser 
+      --allow-root
+      --NotebookApp.token='${JUPYTER_TOKEN:-}'
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+
+  # Nginx reverse proxy (optional, for production)
+  nginx:
+    image: nginx:alpine
+    container_name: nemo-nginx
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./deploy/nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./deploy/nginx/ssl:/etc/nginx/ssl:ro
+    networks:
+      - nemo-network
+    depends_on:
+      - app
+    profiles:
+      - production
+
+  # vLLM inference server (optional)
+  vllm:
+    image: vllm/vllm-openai:latest
+    container_name: nemo-vllm
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    environment:
+      - HUGGING_FACE_HUB_TOKEN=${HUGGINGFACE_TOKEN}
+    volumes:
+      - ./models:/models
+    networks:
+      - nemo-network
+    command: >
+      --model ${VLLM_MODEL:-meta-llama/Llama-2-7b-chat-hf}
+      --tensor-parallel-size 1
+      --gpu-memory-utilization 0.9
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    profiles:
+      - inference
+
+networks:
+  nemo-network:
+    driver: bridge
+
+volumes:
+  app-data:
+    driver: local
+  app-logs:
+    driver: local

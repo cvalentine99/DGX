@@ -1,0 +1,26 @@
+# System dependencies for NeMo Command Center
+# These packages are installed via apt-get during container build
+
+# Build tools
+build-essential
+pkg-config
+
+# SSL/TLS
+libssl-dev
+ca-certificates
+
+# Database
+sqlite3
+
+# Network tools
+curl
+wget
+openssh-client
+
+# Process management
+supervisor
+
+# Utilities
+git
+vim
+htop

@@ -1,0 +1,29 @@
+# Python dependencies for NeMo Command Center
+# These are installed via pip during container build
+
+# NVIDIA NeMo Framework
+nemo_toolkit[all]>=2.0.0
+
+# ML/AI Libraries
+torch>=2.1.0
+transformers>=4.35.0
+datasets>=2.14.0
+accelerate>=0.24.0
+peft>=0.6.0
+bitsandbytes>=0.41.0
+
+# vLLM for inference
+vllm>=0.2.0
+
+# HuggingFace Hub
+huggingface_hub>=0.19.0
+
+# Monitoring
+tensorboard>=2.15.0
+wandb>=0.16.0
+
+# Utilities
+pyyaml>=6.0
+python-dotenv>=1.0.0
+requests>=2.31.0
+aiohttp>=3.9.0
