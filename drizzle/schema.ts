@@ -1,4 +1,4 @@
-import { int, mysqlEnum, mysqlTable, text, timestamp, varchar } from "drizzle-orm/mysql-core";
+import { int, mysqlEnum, mysqlTable, text, timestamp, varchar, boolean } from "drizzle-orm/mysql-core";
 
 /**
  * Core user table backing auth flow.
@@ -210,3 +210,40 @@ export const trainingJobs = mysqlTable("training_jobs", {
 
 export type TrainingJob = typeof trainingJobs.$inferSelect;
 export type InsertTrainingJob = typeof trainingJobs.$inferInsert;
+
+// Training job templates for reusable configurations
+export const trainingTemplates = mysqlTable("training_templates", {
+  id: int("id").autoincrement().primaryKey(),
+  userId: int("userId").references(() => users.id),
+  
+  // Template metadata
+  name: varchar("name", { length: 256 }).notNull(),
+  description: text("description"),
+  isPublic: boolean("isPublic").default(false),
+  
+  // Training configuration
+  baseModel: varchar("baseModel", { length: 256 }).notNull(),
+  trainingType: mysqlEnum("trainingType", ["lora", "qlora", "full_sft", "full_finetune"]).notNull(),
+  datasetPath: varchar("datasetPath", { length: 512 }),
+  
+  // Hyperparameters
+  epochs: int("epochs").notNull().default(3),
+  batchSize: int("batchSize").notNull().default(4),
+  learningRate: varchar("learningRate", { length: 32 }).notNull().default("2e-5"),
+  warmupSteps: int("warmupSteps").default(100),
+  
+  // LoRA specific
+  loraRank: int("loraRank").default(16),
+  loraAlpha: int("loraAlpha").default(32),
+  
+  // Resource requirements
+  gpuCount: int("gpuCount").notNull().default(1),
+  preferredHost: varchar("preferredHost", { length: 32 }),
+  
+  // Timestamps
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
+export type TrainingTemplate = typeof trainingTemplates.$inferSelect;
+export type InsertTrainingTemplate = typeof trainingTemplates.$inferInsert;

@@ -88,6 +88,24 @@ function parseReasoningContent(content: string): { reasoning: string; answer: st
   return { reasoning: "", answer: content };
 }
 
+// In-memory model states (in production, this would be persisted)
+let modelStatesCache: Array<{
+  id: string;
+  status: "loaded" | "available" | "loading" | "unloading";
+  loadedAt?: string;
+  size: string;
+  contextLength: number;
+  type: string;
+}> = [
+  { id: "nemotron-3-nano-30b", status: "loaded", loadedAt: new Date().toISOString(), size: "30B", contextLength: 8192, type: "MoE" },
+  { id: "llama-3.1-8b-instruct", status: "available", size: "8B", contextLength: 128000, type: "Dense" },
+  { id: "mistral-7b-instruct-v0.2", status: "available", size: "7B", contextLength: 32768, type: "Dense" },
+];
+
+function getModelStates() {
+  return modelStatesCache;
+}
+
 // Make request to vLLM server
 async function callVLLM(
   config: VLLMConfig,
@@ -540,5 +558,101 @@ When answering:
           latency: Date.now() - startTime,
         };
       }
+    }),
+
+  // Load a model on the vLLM server
+  loadModel: publicProcedure
+    .input(z.object({
+      modelId: z.string(),
+    }))
+    .mutation(async ({ input }) => {
+      const config = getConfig();
+      
+      try {
+        // In a real implementation, this would call the vLLM server's model loading API
+        // For now, we simulate the loading process
+        console.log(`[vLLM] Loading model: ${input.modelId}`);
+        
+        // Simulate loading delay
+        await new Promise(resolve => setTimeout(resolve, 2000));
+        
+        // Update the model state in memory (in production, this would be persisted)
+        const modelStates = getModelStates();
+        const model = modelStates.find(m => m.id === input.modelId);
+        if (model) {
+          model.status = "loaded";
+          model.loadedAt = new Date().toISOString();
+        }
+        
+        return {
+          success: true,
+          message: `Model ${input.modelId} loaded successfully`,
+          modelId: input.modelId,
+        };
+      } catch (error) {
+        return {
+          success: false,
+          error: error instanceof Error ? error.message : "Failed to load model",
+        };
+      }
+    }),
+
+  // Unload a model from the vLLM server
+  unloadModel: publicProcedure
+    .input(z.object({
+      modelId: z.string(),
+    }))
+    .mutation(async ({ input }) => {
+      try {
+        console.log(`[vLLM] Unloading model: ${input.modelId}`);
+        
+        // Simulate unloading delay
+        await new Promise(resolve => setTimeout(resolve, 1000));
+        
+        // Update the model state in memory
+        const modelStates = getModelStates();
+        const model = modelStates.find(m => m.id === input.modelId);
+        if (model) {
+          model.status = "available";
+          model.loadedAt = undefined;
+        }
+        
+        return {
+          success: true,
+          message: `Model ${input.modelId} unloaded successfully`,
+          modelId: input.modelId,
+        };
+      } catch (error) {
+        return {
+          success: false,
+          error: error instanceof Error ? error.message : "Failed to unload model",
+        };
+      }
+    }),
+
+  // Get model loading status
+  getModelStatus: publicProcedure
+    .input(z.object({
+      modelId: z.string(),
+    }))
+    .query(async ({ input }) => {
+      const modelStates = getModelStates();
+      const model = modelStates.find(m => m.id === input.modelId);
+      
+      if (!model) {
+        return {
+          found: false,
+          status: "unknown",
+        };
+      }
+      
+      return {
+        found: true,
+        modelId: model.id,
+        status: model.status,
+        loadedAt: model.loadedAt,
+        size: model.size,
+        contextLength: model.contextLength,
+      };
     }),
 });

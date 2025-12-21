@@ -4712,4 +4712,61 @@ ENV_EOF`);
         return { success: false, error: error.message, results: [] };
       }
     }),
+
+  // Read file contents for preview
+  readFile: publicProcedure
+    .input(z.object({
+      hostId: z.enum(["alpha", "beta"]).default("alpha"),
+      path: z.string(),
+      maxSize: z.number().default(1024 * 100), // 100KB default limit
+    }))
+    .query(async ({ input }) => {
+      const pool = getSSHPool();
+      if (!pool) {
+        return { success: false, error: "SSH pool not initialized", content: null, truncated: false };
+      }
+
+      try {
+        // First check file size
+        const sizeOutput = await pool.execute(
+          input.hostId,
+          `stat -c%s "${input.path}" 2>/dev/null || echo "0"`
+        );
+        const fileSize = parseInt(sizeOutput.trim()) || 0;
+        
+        if (fileSize === 0) {
+          return { success: false, error: "File not found or empty", content: null, truncated: false };
+        }
+
+        const truncated = fileSize > input.maxSize;
+        const readSize = truncated ? input.maxSize : fileSize;
+
+        // Read file content (with size limit)
+        const content = await pool.execute(
+          input.hostId,
+          `head -c ${readSize} "${input.path}" 2>/dev/null`
+        );
+
+        // Detect file type from extension
+        const ext = input.path.split(".").pop()?.toLowerCase() || "";
+        let fileType = "text";
+        if (["json", "jsonl"].includes(ext)) fileType = "json";
+        else if (["csv", "tsv"].includes(ext)) fileType = "csv";
+        else if (["md", "markdown"].includes(ext)) fileType = "markdown";
+        else if (["py", "sh", "bash", "js", "ts"].includes(ext)) fileType = "code";
+        else if (["yaml", "yml"].includes(ext)) fileType = "yaml";
+        else if (["log", "txt"].includes(ext)) fileType = "text";
+
+        return {
+          success: true,
+          content,
+          fileType,
+          fileSize,
+          truncated,
+          truncatedAt: truncated ? input.maxSize : null,
+        };
+      } catch (error: any) {
+        return { success: false, error: error.message, content: null, truncated: false };
+      }
+    }),
 });

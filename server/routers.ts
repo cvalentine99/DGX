@@ -13,6 +13,7 @@ import { webrtcRouter } from "./webrtcRouter";
 import { settingsRouter } from "./settingsRouter";
 import { presetsRouter } from "./presetsRouter";
 import { trainingRouter } from "./trainingRouter";
+import { trainingTemplatesRouter } from "./trainingTemplatesRouter";
 
 export const appRouter = router({
     // if you need to use socket.io, read and register route in server/_core/index.ts, all api should start with '/api/' so that the gateway can route correctly
@@ -60,6 +61,9 @@ export const appRouter = router({
 
   // Training job management
   training: trainingRouter,
+
+  // Training job templates
+  trainingTemplates: trainingTemplatesRouter,
 });
 
 export type AppRouter = typeof appRouter;

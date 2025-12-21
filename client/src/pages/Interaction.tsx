@@ -31,6 +31,8 @@ import {
   XCircle,
   Loader2,
   Zap,
+  Power,
+  Download,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -459,6 +461,97 @@ function SystemPromptCard({
   );
 }
 
+// Model Loading Controls Component
+function ModelLoadingControls({ 
+  selectedModel, 
+  models 
+}: { 
+  selectedModel: string; 
+  models: Array<{ id: string; status?: string }>;
+}) {
+  const utils = trpc.useUtils();
+  
+  // Load model mutation
+  const loadModelMutation = trpc.vllm.loadModel.useMutation({
+    onSuccess: (data) => {
+      if (data.success) {
+        toast.success(data.message || "Model loaded successfully");
+        utils.vllm.listModels.invalidate();
+      } else {
+        toast.error(data.error || "Failed to load model");
+      }
+    },
+    onError: (error) => {
+      toast.error(`Failed to load model: ${error.message}`);
+    },
+  });
+
+  // Unload model mutation
+  const unloadModelMutation = trpc.vllm.unloadModel.useMutation({
+    onSuccess: (data) => {
+      if (data.success) {
+        toast.success(data.message || "Model unloaded successfully");
+        utils.vllm.listModels.invalidate();
+      } else {
+        toast.error(data.error || "Failed to unload model");
+      }
+    },
+    onError: (error) => {
+      toast.error(`Failed to unload model: ${error.message}`);
+    },
+  });
+
+  const currentModel = models.find(m => m.id === selectedModel);
+  const isLoaded = currentModel?.status === "loaded";
+  const isLoading = loadModelMutation.isPending || unloadModelMutation.isPending;
+
+  const handleLoadModel = () => {
+    loadModelMutation.mutate({ modelId: selectedModel });
+  };
+
+  const handleUnloadModel = () => {
+    unloadModelMutation.mutate({ modelId: selectedModel });
+  };
+
+  if (!selectedModel || models.length === 0) return null;
+
+  return (
+    <div className="flex items-center gap-2 pt-2">
+      {isLoaded ? (
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={handleUnloadModel}
+          disabled={isLoading}
+          className="flex-1 h-7 text-xs border-orange-500/30 text-orange-400 hover:bg-orange-500/10"
+        >
+          {unloadModelMutation.isPending ? (
+            <Loader2 className="h-3 w-3 animate-spin mr-1" />
+          ) : (
+            <Power className="h-3 w-3 mr-1" />
+          )}
+          Unload Model
+        </Button>
+      ) : (
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={handleLoadModel}
+          disabled={isLoading}
+          className="flex-1 h-7 text-xs border-green-500/30 text-green-400 hover:bg-green-500/10"
+        >
+          {loadModelMutation.isPending ? (
+            <Loader2 className="h-3 w-3 animate-spin mr-1" />
+          ) : (
+            <Download className="h-3 w-3 mr-1" />
+          )}
+          Load Model
+        </Button>
+      )}
+    </div>
+  );
+}
+
 function InferenceConfig({
   config,
   onConfigChange,
@@ -573,6 +666,11 @@ function InferenceConfig({
               {availableModels.filter((m: { status?: string }) => m.status === "loaded").length} loaded, {availableModels.length} total
             </p>
           )}
+          {/* Model Loading Controls */}
+          <ModelLoadingControls 
+            selectedModel={selectedModel} 
+            models={availableModels} 
+          />
         </div>
         
         {/* RAG Toggle */}

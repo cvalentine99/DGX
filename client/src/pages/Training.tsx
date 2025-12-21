@@ -886,6 +886,321 @@ function JobQueueCard() {
   );
 }
 
+// Training Templates Card
+function TemplatesCard() {
+  const [showCreateModal, setShowCreateModal] = useState(false);
+  const [newTemplate, setNewTemplate] = useState({
+    name: "",
+    description: "",
+    baseModel: "nemotron-3-nano-30b",
+    trainingType: "lora" as "lora" | "qlora" | "full_sft" | "full_finetune",
+    datasetPath: "/workspace/datasets/custom-instruct",
+    epochs: 3,
+    batchSize: 4,
+    learningRate: "2e-5",
+    warmupSteps: 100,
+    loraRank: 16,
+    loraAlpha: 32,
+    gpuCount: 1,
+    preferredHost: "alpha",
+    isPublic: false,
+  });
+
+  // Fetch templates
+  const { data: templates, isLoading, refetch } = trpc.trainingTemplates.getTemplates.useQuery();
+
+  // Fetch base models
+  const { data: modelsData } = trpc.training.getBaseModels.useQuery();
+
+  // Create template mutation
+  const createTemplateMutation = trpc.trainingTemplates.createTemplate.useMutation({
+    onSuccess: () => {
+      toast.success("Template created successfully");
+      setShowCreateModal(false);
+      refetch();
+      setNewTemplate({
+        name: "",
+        description: "",
+        baseModel: "nemotron-3-nano-30b",
+        trainingType: "lora",
+        datasetPath: "/workspace/datasets/custom-instruct",
+        epochs: 3,
+        batchSize: 4,
+        learningRate: "2e-5",
+        warmupSteps: 100,
+        loraRank: 16,
+        loraAlpha: 32,
+        gpuCount: 1,
+        preferredHost: "alpha",
+        isPublic: false,
+      });
+    },
+    onError: (error) => {
+      toast.error(`Failed to create template: ${error.message}`);
+    },
+  });
+
+  // Delete template mutation
+  const deleteTemplateMutation = trpc.trainingTemplates.deleteTemplate.useMutation({
+    onSuccess: () => {
+      toast.success("Template deleted");
+      refetch();
+    },
+    onError: (error) => {
+      toast.error(`Failed to delete template: ${error.message}`);
+    },
+  });
+
+  // Create job from template mutation
+  const createJobMutation = trpc.training.createJob.useMutation({
+    onSuccess: () => {
+      toast.success("Job created from template");
+    },
+    onError: (error) => {
+      toast.error(`Failed to create job: ${error.message}`);
+    },
+  });
+
+  const handleCreateTemplate = () => {
+    createTemplateMutation.mutate(newTemplate);
+  };
+
+  const handleUseTemplate = (template: any) => {
+    createJobMutation.mutate({
+      name: `${template.name} - ${new Date().toLocaleDateString()}`,
+      description: template.description || "",
+      baseModel: template.baseModel,
+      trainingType: template.trainingType,
+      datasetPath: template.datasetPath || "/workspace/datasets",
+      epochs: template.epochs,
+      batchSize: template.batchSize,
+      learningRate: template.learningRate,
+      hostId: (template.preferredHost || "alpha") as "alpha" | "beta",
+      gpuCount: template.gpuCount,
+    });
+  };
+
+  const trainingTypeLabels: Record<string, string> = {
+    lora: "LoRA",
+    qlora: "QLoRA",
+    full_sft: "Full SFT",
+    full_finetune: "Full Fine-tune",
+  };
+
+  return (
+    <>
+      <Card className="bg-card/50 border-border/50">
+        <CardHeader className="pb-3">
+          <div className="flex items-center justify-between">
+            <CardTitle className="text-sm font-medium flex items-center gap-2">
+              <FileText className="h-4 w-4 text-nvidia-green" />
+              Training Templates
+              {templates && templates.length > 0 && (
+                <Badge variant="secondary" className="ml-2">{templates.length}</Badge>
+              )}
+            </CardTitle>
+            <div className="flex items-center gap-2">
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-7 w-7"
+                onClick={() => refetch()}
+              >
+                <RefreshCw className="h-3.5 w-3.5" />
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setShowCreateModal(true)}
+                className="h-7 text-xs"
+              >
+                <Plus className="h-3 w-3 mr-1" />
+                New Template
+              </Button>
+            </div>
+          </div>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          {isLoading ? (
+            <div className="flex items-center justify-center py-6">
+              <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+            </div>
+          ) : templates && templates.length > 0 ? (
+            <div className="space-y-2 max-h-[200px] overflow-y-auto">
+              {templates.map((template) => (
+                <div
+                  key={template.id}
+                  className="p-3 rounded-lg bg-background/50 border border-border/30 hover:border-nvidia-green/30 transition-colors"
+                >
+                  <div className="flex items-start justify-between">
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2">
+                        <span className="font-medium text-sm truncate">{template.name}</span>
+                        <Badge variant="outline" className="text-[10px] px-1.5 py-0">
+                          {trainingTypeLabels[template.trainingType] || template.trainingType}
+                        </Badge>
+                      </div>
+                      <div className="text-xs text-muted-foreground mt-1 truncate">
+                        {template.baseModel} • {template.epochs} epochs • Batch {template.batchSize}
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-1 ml-2">
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-6 w-6 text-nvidia-green hover:text-nvidia-green hover:bg-nvidia-green/10"
+                        onClick={() => handleUseTemplate(template)}
+                        title="Create job from template"
+                      >
+                        <Play className="h-3 w-3" />
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-6 w-6 text-destructive hover:text-destructive hover:bg-destructive/10"
+                        onClick={() => deleteTemplateMutation.mutate({ id: template.id })}
+                        title="Delete template"
+                      >
+                        <Trash2 className="h-3 w-3" />
+                      </Button>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="text-center py-6">
+              <FileText className="h-8 w-8 text-muted-foreground/50 mx-auto mb-2" />
+              <p className="text-xs text-muted-foreground">No templates yet</p>
+              <p className="text-xs text-muted-foreground/70">Create templates to reuse training configurations</p>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* Create Template Modal */}
+      <Dialog open={showCreateModal} onOpenChange={setShowCreateModal}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Create Training Template</DialogTitle>
+            <DialogDescription>
+              Save a training configuration for quick reuse
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <div className="space-y-2">
+              <Label>Template Name</Label>
+              <Input
+                value={newTemplate.name}
+                onChange={(e) => setNewTemplate({ ...newTemplate, name: e.target.value })}
+                placeholder="My Training Template"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label>Description</Label>
+              <Textarea
+                value={newTemplate.description}
+                onChange={(e) => setNewTemplate({ ...newTemplate, description: e.target.value })}
+                placeholder="Optional description..."
+                rows={2}
+              />
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label>Base Model</Label>
+                <Select
+                  value={newTemplate.baseModel}
+                  onValueChange={(v) => setNewTemplate({ ...newTemplate, baseModel: v })}
+                >
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {modelsData?.models?.map((model) => (
+                      <SelectItem key={model.id} value={model.id}>
+                        {model.name}
+                      </SelectItem>
+                    )) || (
+                      <SelectItem value="nemotron-3-nano-30b">Nemotron-3-Nano-30B</SelectItem>
+                    )}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-2">
+                <Label>Training Type</Label>
+                <Select
+                  value={newTemplate.trainingType}
+                  onValueChange={(v) => setNewTemplate({ ...newTemplate, trainingType: v as any })}
+                >
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="lora">LoRA</SelectItem>
+                    <SelectItem value="qlora">QLoRA</SelectItem>
+                    <SelectItem value="full_sft">Full SFT</SelectItem>
+                    <SelectItem value="full_finetune">Full Fine-tune</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+            <div className="grid grid-cols-3 gap-4">
+              <div className="space-y-2">
+                <Label>Epochs</Label>
+                <Input
+                  type="number"
+                  value={newTemplate.epochs}
+                  onChange={(e) => setNewTemplate({ ...newTemplate, epochs: parseInt(e.target.value) || 3 })}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label>Batch Size</Label>
+                <Input
+                  type="number"
+                  value={newTemplate.batchSize}
+                  onChange={(e) => setNewTemplate({ ...newTemplate, batchSize: parseInt(e.target.value) || 4 })}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label>GPU Count</Label>
+                <Input
+                  type="number"
+                  value={newTemplate.gpuCount}
+                  onChange={(e) => setNewTemplate({ ...newTemplate, gpuCount: parseInt(e.target.value) || 1 })}
+                />
+              </div>
+            </div>
+            <div className="flex items-center gap-2">
+              <Switch
+                checked={newTemplate.isPublic}
+                onCheckedChange={(v) => setNewTemplate({ ...newTemplate, isPublic: v })}
+              />
+              <Label className="text-sm">Make template public</Label>
+            </div>
+          </div>
+          <div className="flex justify-end gap-2">
+            <Button variant="outline" onClick={() => setShowCreateModal(false)}>
+              Cancel
+            </Button>
+            <Button
+              onClick={handleCreateTemplate}
+              disabled={!newTemplate.name || createTemplateMutation.isPending}
+              className="bg-nvidia-green hover:bg-nvidia-green/90"
+            >
+              {createTemplateMutation.isPending ? (
+                <Loader2 className="h-4 w-4 animate-spin mr-2" />
+              ) : (
+                <Plus className="h-4 w-4 mr-2" />
+              )}
+              Create Template
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+    </>
+  );
+}
+
 export default function Training() {
   return (
     <motion.div
@@ -917,6 +1232,7 @@ export default function Training() {
         <motion.div variants={itemVariants} className="space-y-6">
           <MoEParametersCard />
           <JobQueueCard />
+          <TemplatesCard />
         </motion.div>
       </div>
     </motion.div>

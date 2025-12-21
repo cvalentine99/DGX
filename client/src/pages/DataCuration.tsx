@@ -30,6 +30,7 @@ import {
   ChevronRight,
   ArrowLeft,
   HardDrive,
+  X,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -41,6 +42,7 @@ import TrainingDataGenerator from "@/components/TrainingDataGenerator";
 import { trpc } from "@/lib/trpc";
 import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 
 // Dataset Catalog
 const DATASETS = [
@@ -362,6 +364,8 @@ function FileBrowserCard() {
   const [currentPath, setCurrentPath] = useState("/home/ubuntu");
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedFile, setSelectedFile] = useState<string | null>(null);
+  const [previewFile, setPreviewFile] = useState<string | null>(null);
+  const [showPreview, setShowPreview] = useState(false);
 
   const { data: dirData, isLoading, refetch } = trpc.ssh.listDirectory.useQuery(
     { hostId, path: currentPath },
@@ -371,6 +375,11 @@ function FileBrowserCard() {
   const { data: searchResults, isLoading: isSearching } = trpc.ssh.searchFiles.useQuery(
     { hostId, basePath: currentPath, pattern: searchQuery, maxResults: 20 },
     { enabled: searchQuery.length > 2 }
+  );
+
+  const { data: filePreview, isLoading: isLoadingPreview } = trpc.ssh.readFile.useQuery(
+    { hostId, path: previewFile || "", maxSize: 100 * 1024 },
+    { enabled: !!previewFile && showPreview }
   );
 
   const navigateTo = (path: string) => {
@@ -400,6 +409,95 @@ function FileBrowserCard() {
   const handleSelectDataset = (path: string) => {
     setSelectedFile(path);
     toast.success(`Selected: ${path}`, { description: "Use this path in your training configuration" });
+  };
+
+  const canPreview = (fileType: string) => {
+    return ["json", "csv", "text", "script", "markdown"].includes(fileType);
+  };
+
+  const handlePreviewFile = (path: string) => {
+    setPreviewFile(path);
+    setShowPreview(true);
+  };
+
+  const closePreview = () => {
+    setShowPreview(false);
+    setPreviewFile(null);
+  };
+
+  const renderPreviewContent = () => {
+    if (isLoadingPreview) {
+      return (
+        <div className="flex items-center justify-center h-64">
+          <RefreshCw className="w-6 h-6 animate-spin text-muted-foreground" />
+        </div>
+      );
+    }
+
+    if (!filePreview?.success || !filePreview.content) {
+      return (
+        <div className="flex flex-col items-center justify-center h-64 text-muted-foreground">
+          <AlertTriangle className="w-8 h-8 mb-2" />
+          <p>Failed to load file preview</p>
+          <p className="text-xs mt-1">{filePreview?.error || "Unknown error"}</p>
+        </div>
+      );
+    }
+
+    const { content, fileType, truncated, fileSize } = filePreview;
+
+    if (fileType === "json") {
+      try {
+        const parsed = JSON.parse(content);
+        return (
+          <pre className="text-xs font-mono bg-muted/30 p-4 rounded-lg overflow-auto max-h-96">
+            {JSON.stringify(parsed, null, 2)}
+          </pre>
+        );
+      } catch {
+        // JSONL format - show line by line
+        return (
+          <pre className="text-xs font-mono bg-muted/30 p-4 rounded-lg overflow-auto max-h-96 whitespace-pre-wrap">
+            {content}
+          </pre>
+        );
+      }
+    }
+
+    if (fileType === "csv") {
+      const lines = content.split("\n").filter(Boolean).slice(0, 50);
+      const headers = lines[0]?.split(",") || [];
+      const rows = lines.slice(1).map(line => line.split(","));
+      return (
+        <div className="overflow-auto max-h-96">
+          <table className="w-full text-xs">
+            <thead className="bg-muted/50 sticky top-0">
+              <tr>
+                {headers.map((h, i) => (
+                  <th key={i} className="px-3 py-2 text-left font-medium border-b border-border/50">{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((row, i) => (
+                <tr key={i} className="hover:bg-muted/20">
+                  {row.map((cell, j) => (
+                    <td key={j} className="px-3 py-1.5 border-b border-border/30 truncate max-w-[200px]">{cell}</td>
+                  ))}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      );
+    }
+
+    // Default text/code preview
+    return (
+      <pre className="text-xs font-mono bg-muted/30 p-4 rounded-lg overflow-auto max-h-96 whitespace-pre-wrap">
+        {content}
+      </pre>
+    );
   };
 
   return (
@@ -485,10 +583,11 @@ function FileBrowserCard() {
         {/* File List */}
         <div className="border border-border/50 rounded-lg overflow-hidden">
           <div className="grid grid-cols-12 gap-2 px-4 py-2 bg-muted/30 text-xs font-medium text-muted-foreground border-b border-border/50">
-            <div className="col-span-6">Name</div>
+            <div className="col-span-5">Name</div>
             <div className="col-span-2">Size</div>
             <div className="col-span-2">Type</div>
             <div className="col-span-2">Modified</div>
+            <div className="col-span-1 text-center">Preview</div>
           </div>
           <div className="max-h-[400px] overflow-y-auto">
             {isLoading ? (
@@ -505,24 +604,41 @@ function FileBrowserCard() {
                 sizeFormatted: string;
                 modified: string;
               }, i: number) => (
-                <button
+                <div
                   key={i}
-                  onClick={() => item.isDirectory ? navigateTo(item.path) : handleSelectDataset(item.path)}
                   className={cn(
                     "w-full grid grid-cols-12 gap-2 px-4 py-2.5 text-xs hover:bg-muted/20 transition-colors text-left border-b border-border/30 last:border-0",
                     selectedFile === item.path && "bg-purple-500/10"
                   )}
                 >
-                  <div className="col-span-6 flex items-center gap-2 truncate">
+                  <button
+                    onClick={() => item.isDirectory ? navigateTo(item.path) : handleSelectDataset(item.path)}
+                    className="col-span-5 flex items-center gap-2 truncate text-left"
+                  >
                     {getFileIcon(item.fileType)}
                     <span className={cn(item.isDirectory && "font-medium")}>{item.name}</span>
-                  </div>
-                  <div className="col-span-2 text-muted-foreground">{item.isDirectory ? "--" : item.sizeFormatted}</div>
-                  <div className="col-span-2">
+                  </button>
+                  <div className="col-span-2 text-muted-foreground flex items-center">{item.isDirectory ? "--" : item.sizeFormatted}</div>
+                  <div className="col-span-2 flex items-center">
                     <Badge variant="outline" className="text-[10px] h-5">{item.fileType}</Badge>
                   </div>
-                  <div className="col-span-2 text-muted-foreground">{item.modified}</div>
-                </button>
+                  <div className="col-span-2 text-muted-foreground flex items-center">{item.modified}</div>
+                  <div className="col-span-1 flex items-center justify-center">
+                    {!item.isDirectory && canPreview(item.fileType) && (
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="h-6 w-6"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handlePreviewFile(item.path);
+                        }}
+                      >
+                        <Eye className="w-3.5 h-3.5" />
+                      </Button>
+                    )}
+                  </div>
+                </div>
               ))
             ) : (
               <div className="p-8 text-center text-muted-foreground">
@@ -542,15 +658,45 @@ function FileBrowserCard() {
                 <p className="text-xs text-muted-foreground">Selected Dataset Path</p>
                 <p className="text-sm font-mono mt-1">{selectedFile}</p>
               </div>
-              <Button size="sm" onClick={() => {
-                navigator.clipboard.writeText(selectedFile);
-                toast.success("Path copied to clipboard");
-              }}>
-                Copy Path
-              </Button>
+              <div className="flex gap-2">
+                {canPreview(selectedFile.split(".").pop() || "") && (
+                  <Button size="sm" variant="outline" onClick={() => handlePreviewFile(selectedFile)}>
+                    <Eye className="w-4 h-4 mr-1" />
+                    Preview
+                  </Button>
+                )}
+                <Button size="sm" onClick={() => {
+                  navigator.clipboard.writeText(selectedFile);
+                  toast.success("Path copied to clipboard");
+                }}>
+                  Copy Path
+                </Button>
+              </div>
             </div>
           </div>
         )}
+
+        {/* File Preview Modal */}
+        <Dialog open={showPreview} onOpenChange={setShowPreview}>
+          <DialogContent className="max-w-4xl max-h-[80vh] overflow-hidden">
+            <DialogHeader>
+              <div className="flex items-center justify-between">
+                <DialogTitle className="text-sm font-mono truncate pr-4">
+                  {previewFile?.split("/").pop()}
+                </DialogTitle>
+                {filePreview?.truncated && (
+                  <Badge variant="outline" className="text-[10px] text-yellow-400 border-yellow-400/50">
+                    Truncated (showing first 100KB)
+                  </Badge>
+                )}
+              </div>
+              <p className="text-xs text-muted-foreground truncate">{previewFile}</p>
+            </DialogHeader>
+            <div className="mt-4 overflow-auto">
+              {renderPreviewContent()}
+            </div>
+          </DialogContent>
+        </Dialog>
       </CardContent>
     </Card>
   );

@@ -726,3 +726,30 @@
 - [x] Show file metadata (size, modified date, type)
 - [x] Add search/filter functionality for files (ssh.searchFiles)
 - [x] Integrate browser into Data Curation page (File Browser tab)
+
+# Feature Implementation (Dec 2024 - Part 3)
+
+## File Preview in Data Curation Browser
+- [x] Add SSH endpoint to read file contents (ssh.readFile)
+- [x] Create file preview modal/panel component
+- [x] Support JSON preview with syntax highlighting
+- [x] Support CSV preview with table rendering
+- [x] Support text file preview (txt, md, log)
+- [x] Add file size limit check before preview (100KB limit)
+- [x] Show loading state during file fetch
+
+## Training Job Templates
+- [x] Create database schema for training templates (training_templates table)
+- [x] Add trainingTemplates router with CRUD endpoints
+- [x] Add "New Template" button to Training page
+- [x] Create template creation modal with all config options
+- [x] Allow editing template name and description
+- [ ] Pre-fill job form when template is selected
+
+## Model Loading Controls
+- [x] Add vllm.loadModel endpoint to load models on server
+- [x] Add vllm.unloadModel endpoint to unload models
+- [x] Create load/unload buttons in Interaction page
+- [x] Show loading spinner during model operations
+- [x] Update model status after load/unload completes
+- [ ] Add confirmation dialog before unloading active model
