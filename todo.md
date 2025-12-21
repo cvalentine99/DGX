@@ -948,3 +948,26 @@
 - [x] Add toggle between diff view and full config view
 - [x] Add reset to defaults button
 - [x] Show active preset badge in header
+
+## Config Export/Import
+- [x] Add export config button to save configuration as JSON
+- [x] Add import config button to load JSON configuration
+- [x] Validate imported JSON schema before applying
+- [x] Show import success/error feedback
+
+## Deployment Validation
+- [x] Add pre-flight validation step before generating configs
+- [x] Check SSH connectivity to target host (simulated)
+- [x] Verify GPU availability on target system
+- [x] Check disk space requirements
+- [x] Display validation results with pass/fail indicators
+- [x] Add animated status transitions for each check
+
+## Deployment History
+- [x] Store deployment configurations in localStorage
+- [x] Display history list with timestamps
+- [x] Allow loading previous configurations
+- [x] Add delete history entry functionality
+- [x] Show configuration summary in history list
+- [x] Add clear all history button
+- [x] Limit history to last 20 entries

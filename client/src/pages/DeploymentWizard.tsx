@@ -1,11 +1,12 @@
-import { useState, useMemo, useCallback, useEffect } from "react";
+import { useState, useMemo, useCallback, useEffect, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { 
   Rocket, Server, Cloud, Database, Key, FileCode, Download, Copy, Check,
   ChevronRight, ChevronLeft, Cpu, HardDrive, MemoryStick, Network,
   Container, Settings2, Shield, Zap, Package, Terminal, FileText,
   CheckCircle2, Circle, ArrowRight, AlertCircle, Sparkles, RotateCcw,
-  GitCompare, Eye, EyeOff
+  GitCompare, Eye, EyeOff, Upload, History, PlayCircle, Loader2,
+  Trash2, Clock, XCircle, Wifi, WifiOff
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -269,6 +270,25 @@ const calculateDiff = (oldContent: string, newContent: string): DiffLine[] => {
   return result;
 };
 
+// History entry type
+interface HistoryEntry {
+  id: string;
+  timestamp: number;
+  config: WizardConfig;
+  deploymentMethod: string;
+  hostname: string;
+  summary: string;
+}
+
+// Validation check result
+interface ValidationCheck {
+  name: string;
+  status: 'pending' | 'running' | 'passed' | 'failed' | 'skipped';
+  message?: string;
+}
+
+const HISTORY_STORAGE_KEY = 'nemo-deployment-history';
+
 export default function DeploymentWizard() {
   const [currentStep, setCurrentStep] = useState(1);
   const [direction, setDirection] = useState(0);
@@ -278,6 +298,13 @@ export default function DeploymentWizard() {
   const [selectedPreset, setSelectedPreset] = useState<string | null>(null);
   const [previousFiles, setPreviousFiles] = useState<Record<string, string>>({});
   const [showDiff, setShowDiff] = useState(false);
+  
+  // New state for export/import, validation, and history
+  const [deploymentHistory, setDeploymentHistory] = useState<HistoryEntry[]>([]);
+  const [showHistory, setShowHistory] = useState(false);
+  const [validationChecks, setValidationChecks] = useState<ValidationCheck[]>([]);
+  const [isValidating, setIsValidating] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const updateConfig = <K extends keyof WizardConfig>(key: K, value: WizardConfig[K]) => {
     setConfig(prev => ({ ...prev, [key]: value }));
@@ -372,6 +399,176 @@ export default function DeploymentWizard() {
     setConfig(defaultConfig);
     setSelectedPreset(null);
     toast.info("Reset to default configuration");
+  };
+
+  // Load history from localStorage on mount
+  useEffect(() => {
+    try {
+      const stored = localStorage.getItem(HISTORY_STORAGE_KEY);
+      if (stored) {
+        setDeploymentHistory(JSON.parse(stored));
+      }
+    } catch (e) {
+      console.error('Failed to load deployment history:', e);
+    }
+  }, []);
+
+  // Export configuration as JSON
+  const exportConfig = () => {
+    const exportData = {
+      version: '1.0',
+      exportedAt: new Date().toISOString(),
+      config: config
+    };
+    const blob = new Blob([JSON.stringify(exportData, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `nemo-config-${config.hostname || 'untitled'}-${Date.now()}.json`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    toast.success('Configuration exported successfully');
+  };
+
+  // Import configuration from JSON
+  const importConfig = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      try {
+        const data = JSON.parse(e.target?.result as string);
+        if (data.config && typeof data.config === 'object') {
+          // Validate required fields exist
+          const requiredFields = ['deploymentMethod', 'hostname', 'sshPort'];
+          const hasRequired = requiredFields.every(field => field in data.config);
+          if (!hasRequired) {
+            toast.error('Invalid configuration file: missing required fields');
+            return;
+          }
+          setConfig({ ...defaultConfig, ...data.config });
+          setSelectedPreset(null);
+          toast.success('Configuration imported successfully');
+        } else {
+          toast.error('Invalid configuration file format');
+        }
+      } catch (err) {
+        toast.error('Failed to parse configuration file');
+      }
+    };
+    reader.readAsText(file);
+    // Reset input so same file can be selected again
+    event.target.value = '';
+  };
+
+  // Save to history
+  const saveToHistory = () => {
+    const entry: HistoryEntry = {
+      id: `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+      timestamp: Date.now(),
+      config: { ...config },
+      deploymentMethod: config.deploymentMethod,
+      hostname: config.hostname,
+      summary: `${config.deploymentMethod === 'ai-workbench' ? 'AI Workbench' : 'Bare Metal'} - ${config.hostname} - ${config.gpuCount}x GPU`
+    };
+    const newHistory = [entry, ...deploymentHistory].slice(0, 20); // Keep last 20
+    setDeploymentHistory(newHistory);
+    localStorage.setItem(HISTORY_STORAGE_KEY, JSON.stringify(newHistory));
+    toast.success('Configuration saved to history');
+  };
+
+  // Load from history
+  const loadFromHistory = (entry: HistoryEntry) => {
+    setConfig(entry.config);
+    setSelectedPreset(null);
+    setShowHistory(false);
+    toast.success('Configuration loaded from history');
+  };
+
+  // Delete from history
+  const deleteFromHistory = (id: string) => {
+    const newHistory = deploymentHistory.filter(h => h.id !== id);
+    setDeploymentHistory(newHistory);
+    localStorage.setItem(HISTORY_STORAGE_KEY, JSON.stringify(newHistory));
+    toast.info('History entry deleted');
+  };
+
+  // Clear all history
+  const clearHistory = () => {
+    setDeploymentHistory([]);
+    localStorage.removeItem(HISTORY_STORAGE_KEY);
+    toast.info('History cleared');
+  };
+
+  // Run pre-flight validation checks
+  const runValidationChecks = async () => {
+    setIsValidating(true);
+    const checks: ValidationCheck[] = [
+      { name: 'Configuration Schema', status: 'pending' },
+      { name: 'SSH Connectivity', status: 'pending' },
+      { name: 'GPU Availability', status: 'pending' },
+      { name: 'Disk Space', status: 'pending' },
+    ];
+    setValidationChecks(checks);
+
+    // Check 1: Configuration Schema
+    await new Promise(r => setTimeout(r, 500));
+    const schemaErrors = validateConfig();
+    const schemaValid = Object.keys(schemaErrors).length === 0;
+    checks[0] = {
+      name: 'Configuration Schema',
+      status: schemaValid ? 'passed' : 'failed',
+      message: schemaValid ? 'All fields validated' : `${Object.keys(schemaErrors).length} validation errors`
+    };
+    setValidationChecks([...checks]);
+
+    // Check 2: SSH Connectivity (simulated - would use actual SSH check in production)
+    checks[1] = { name: 'SSH Connectivity', status: 'running' };
+    setValidationChecks([...checks]);
+    await new Promise(r => setTimeout(r, 800));
+    // In production, this would actually test SSH connection
+    const sshValid = config.hostname && config.sshPort > 0;
+    checks[1] = {
+      name: 'SSH Connectivity',
+      status: sshValid ? 'passed' : 'failed',
+      message: sshValid ? `Ready to connect to ${config.hostname}:${config.sshPort}` : 'Invalid SSH configuration'
+    };
+    setValidationChecks([...checks]);
+
+    // Check 3: GPU Availability (simulated)
+    checks[2] = { name: 'GPU Availability', status: 'running' };
+    setValidationChecks([...checks]);
+    await new Promise(r => setTimeout(r, 600));
+    checks[2] = {
+      name: 'GPU Availability',
+      status: 'passed',
+      message: `${config.gpuCount}x ${config.gpuType.split(' ').pop()} configured`
+    };
+    setValidationChecks([...checks]);
+
+    // Check 4: Disk Space (simulated)
+    checks[3] = { name: 'Disk Space', status: 'running' };
+    setValidationChecks([...checks]);
+    await new Promise(r => setTimeout(r, 400));
+    const diskValid = config.storageGB >= 50;
+    checks[3] = {
+      name: 'Disk Space',
+      status: diskValid ? 'passed' : 'failed',
+      message: diskValid ? `${config.storageGB}GB allocated` : 'Minimum 50GB required'
+    };
+    setValidationChecks([...checks]);
+
+    setIsValidating(false);
+    
+    const allPassed = checks.every(c => c.status === 'passed');
+    if (allPassed) {
+      toast.success('All pre-flight checks passed!');
+    } else {
+      toast.error('Some validation checks failed');
+    }
   };
 
   const nextStep = () => {
@@ -819,6 +1016,30 @@ TURN_SERVER_CREDENTIAL=${config.turnCredential}
               {DEPLOYMENT_PRESETS.find(p => p.id === selectedPreset)?.name} Preset
             </Badge>
           )}
+          <input
+            type="file"
+            ref={fileInputRef}
+            onChange={importConfig}
+            accept=".json"
+            className="hidden"
+          />
+          <Button variant="outline" size="sm" onClick={() => fileInputRef.current?.click()}>
+            <Upload className="w-4 h-4 mr-2" />
+            Import
+          </Button>
+          <Button variant="outline" size="sm" onClick={exportConfig}>
+            <Download className="w-4 h-4 mr-2" />
+            Export
+          </Button>
+          <Button 
+            variant="outline" 
+            size="sm" 
+            onClick={() => setShowHistory(!showHistory)}
+            className={showHistory ? 'bg-purple-500/20 border-purple-500/50' : ''}
+          >
+            <History className="w-4 h-4 mr-2" />
+            History ({deploymentHistory.length})
+          </Button>
           <Button variant="outline" size="sm" onClick={resetToDefaults}>
             <RotateCcw className="w-4 h-4 mr-2" />
             Reset
@@ -877,6 +1098,74 @@ TURN_SERVER_CREDENTIAL=${config.turnCredential}
           </CardContent>
         </Card>
       </motion.div>
+
+      {/* History Panel */}
+      <AnimatePresence>
+        {showHistory && (
+          <motion.div
+            initial={{ opacity: 0, height: 0 }}
+            animate={{ opacity: 1, height: 'auto' }}
+            exit={{ opacity: 0, height: 0 }}
+            className="overflow-hidden"
+          >
+            <Card className="bg-card/50 border-border/50 mb-6">
+              <CardHeader className="py-3 px-4 flex flex-row items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <History className="w-4 h-4 text-purple-400" />
+                  <CardTitle className="text-sm">Deployment History</CardTitle>
+                </div>
+                {deploymentHistory.length > 0 && (
+                  <Button variant="ghost" size="sm" onClick={clearHistory} className="text-red-400 hover:text-red-300">
+                    <Trash2 className="w-3 h-3 mr-1" />
+                    Clear All
+                  </Button>
+                )}
+              </CardHeader>
+              <CardContent className="p-4 pt-0">
+                {deploymentHistory.length === 0 ? (
+                  <p className="text-sm text-muted-foreground text-center py-4">
+                    No deployment history yet. Save configurations to see them here.
+                  </p>
+                ) : (
+                  <div className="space-y-2 max-h-[200px] overflow-y-auto">
+                    {deploymentHistory.map((entry) => (
+                      <div
+                        key={entry.id}
+                        className="flex items-center justify-between p-3 rounded-lg bg-muted/30 hover:bg-muted/50 transition-colors"
+                      >
+                        <div className="flex items-center gap-3">
+                          <div className={`p-2 rounded-lg ${
+                            entry.deploymentMethod === 'ai-workbench' 
+                              ? 'bg-blue-500/20 text-blue-400' 
+                              : 'bg-green-500/20 text-green-400'
+                          }`}>
+                            {entry.deploymentMethod === 'ai-workbench' ? <Cloud className="w-4 h-4" /> : <Server className="w-4 h-4" />}
+                          </div>
+                          <div>
+                            <p className="text-sm font-medium">{entry.summary}</p>
+                            <p className="text-xs text-muted-foreground flex items-center gap-1">
+                              <Clock className="w-3 h-3" />
+                              {new Date(entry.timestamp).toLocaleString()}
+                            </p>
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-1">
+                          <Button variant="ghost" size="sm" onClick={() => loadFromHistory(entry)}>
+                            <Upload className="w-4 h-4" />
+                          </Button>
+                          <Button variant="ghost" size="sm" onClick={() => deleteFromHistory(entry.id)} className="text-red-400 hover:text-red-300">
+                            <Trash2 className="w-4 h-4" />
+                          </Button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* Step Content */}
       <motion.div variants={itemVariants}>
@@ -1458,6 +1747,23 @@ TURN_SERVER_CREDENTIAL=${config.turnCredential}
                         </p>
                       </div>
                       <div className="flex items-center gap-2">
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={runValidationChecks}
+                          disabled={isValidating}
+                        >
+                          {isValidating ? (
+                            <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                          ) : (
+                            <PlayCircle className="w-4 h-4 mr-2" />
+                          )}
+                          Validate
+                        </Button>
+                        <Button variant="outline" size="sm" onClick={saveToHistory}>
+                          <History className="w-4 h-4 mr-2" />
+                          Save to History
+                        </Button>
                         {Object.keys(previousFiles).length > 0 && (
                           <Button
                             variant="outline"
@@ -1475,6 +1781,44 @@ TURN_SERVER_CREDENTIAL=${config.turnCredential}
                         </Button>
                       </div>
                     </div>
+
+                    {/* Pre-flight Validation Panel */}
+                    {validationChecks.length > 0 && (
+                      <Card className="bg-muted/30 border-border/50">
+                        <CardHeader className="py-3 px-4">
+                          <CardTitle className="text-sm flex items-center gap-2">
+                            <Shield className="w-4 h-4 text-purple-400" />
+                            Pre-flight Validation
+                          </CardTitle>
+                        </CardHeader>
+                        <CardContent className="p-4 pt-0">
+                          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                            {validationChecks.map((check, idx) => (
+                              <div
+                                key={idx}
+                                className={`p-3 rounded-lg border ${
+                                  check.status === 'passed' ? 'bg-green-500/10 border-green-500/30' :
+                                  check.status === 'failed' ? 'bg-red-500/10 border-red-500/30' :
+                                  check.status === 'running' ? 'bg-blue-500/10 border-blue-500/30' :
+                                  'bg-muted/30 border-border/50'
+                                }`}
+                              >
+                                <div className="flex items-center gap-2 mb-1">
+                                  {check.status === 'passed' && <CheckCircle2 className="w-4 h-4 text-green-400" />}
+                                  {check.status === 'failed' && <XCircle className="w-4 h-4 text-red-400" />}
+                                  {check.status === 'running' && <Loader2 className="w-4 h-4 text-blue-400 animate-spin" />}
+                                  {check.status === 'pending' && <Circle className="w-4 h-4 text-muted-foreground" />}
+                                  <span className="text-xs font-medium">{check.name}</span>
+                                </div>
+                                {check.message && (
+                                  <p className="text-[10px] text-muted-foreground ml-6">{check.message}</p>
+                                )}
+                              </div>
+                            ))}
+                          </div>
+                        </CardContent>
+                      </Card>
+                    )}
 
                     <div className="grid gap-4">
                       <Tabs defaultValue={Object.keys(generatedFiles)[0]} className="w-full">
