@@ -843,5 +843,25 @@
 ## Export Features
 - [x] Add log download button to Holoscan pipeline logs
 - [x] Add metrics export (CSV/JSON) to Statistics page
-- [ ] Add inference log export capability
-- [ ] Support date range selection for exports
+- [x] Add inference log export capability
+- [x] Support date range selection for exports
+
+## Inference Log Export
+- [x] Add chat history export button to Interaction page
+- [x] Support JSON and Markdown export formats
+- [x] Include timestamps, model info, and token counts
+- [x] Add download functionality for conversation history
+
+## Date Range Filtering for Exports
+- [x] Add date range picker component to Statistics export
+- [x] Add date range picker to Holoscan log export
+- [x] Filter exported data by selected time range
+- [x] Default to last 24 hours
+
+## File Delete/Rename Operations
+- [x] Create ssh.deleteFile endpoint
+- [x] Create ssh.renameFile endpoint
+- [x] Add delete button to file browser with confirmation
+- [x] Add rename functionality with inline editing
+- [x] Handle errors gracefully (permissions, file in use)
+- [x] Add create directory endpoint and UI

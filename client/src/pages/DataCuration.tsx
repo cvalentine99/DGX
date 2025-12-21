@@ -370,6 +370,13 @@ function FileBrowserCard() {
   const [uploadProgress, setUploadProgress] = useState(0);
   const [isUploading, setIsUploading] = useState(false);
   const [dragOver, setDragOver] = useState(false);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [fileToDelete, setFileToDelete] = useState<string | null>(null);
+  const [showRename, setShowRename] = useState(false);
+  const [fileToRename, setFileToRename] = useState<string | null>(null);
+  const [newFileName, setNewFileName] = useState("");
+  const [showCreateFolder, setShowCreateFolder] = useState(false);
+  const [newFolderName, setNewFolderName] = useState("");
 
   const { data: dirData, isLoading, refetch } = trpc.ssh.listDirectory.useQuery(
     { hostId, path: currentPath },
@@ -404,6 +411,98 @@ function FileBrowserCard() {
       setUploadProgress(0);
     },
   });
+
+  // Delete file mutation
+  const deleteFileMutation = trpc.ssh.deleteFile.useMutation({
+    onSuccess: (data) => {
+      if (data.success) {
+        toast.success("Deleted successfully", { description: data.message });
+        refetch();
+      } else {
+        toast.error("Delete failed", { description: data.error });
+      }
+      setShowDeleteConfirm(false);
+      setFileToDelete(null);
+    },
+    onError: (error) => {
+      toast.error("Delete failed", { description: error.message });
+      setShowDeleteConfirm(false);
+      setFileToDelete(null);
+    },
+  });
+
+  // Rename file mutation
+  const renameFileMutation = trpc.ssh.renameFile.useMutation({
+    onSuccess: (data) => {
+      if (data.success) {
+        toast.success("Renamed successfully", { description: data.message });
+        refetch();
+      } else {
+        toast.error("Rename failed", { description: data.error });
+      }
+      setShowRename(false);
+      setFileToRename(null);
+      setNewFileName("");
+    },
+    onError: (error) => {
+      toast.error("Rename failed", { description: error.message });
+      setShowRename(false);
+      setFileToRename(null);
+      setNewFileName("");
+    },
+  });
+
+  // Create directory mutation
+  const createDirMutation = trpc.ssh.createDirectory.useMutation({
+    onSuccess: (data) => {
+      if (data.success) {
+        toast.success("Folder created", { description: data.path });
+        refetch();
+      } else {
+        toast.error("Create folder failed", { description: data.error });
+      }
+      setShowCreateFolder(false);
+      setNewFolderName("");
+    },
+    onError: (error) => {
+      toast.error("Create folder failed", { description: error.message });
+      setShowCreateFolder(false);
+      setNewFolderName("");
+    },
+  });
+
+  const handleDelete = (filePath: string) => {
+    setFileToDelete(filePath);
+    setShowDeleteConfirm(true);
+  };
+
+  const confirmDelete = () => {
+    if (fileToDelete) {
+      deleteFileMutation.mutate({ hostId, filePath: fileToDelete });
+    }
+  };
+
+  const handleRename = (filePath: string) => {
+    setFileToRename(filePath);
+    const fileName = filePath.split("/").pop() || "";
+    setNewFileName(fileName);
+    setShowRename(true);
+  };
+
+  const confirmRename = () => {
+    if (fileToRename && newFileName) {
+      const parentPath = fileToRename.substring(0, fileToRename.lastIndexOf("/"));
+      const newPath = `${parentPath}/${newFileName}`;
+      renameFileMutation.mutate({ hostId, sourcePath: fileToRename, destinationPath: newPath });
+    }
+  };
+
+  const handleCreateFolder = () => {
+    if (newFolderName) {
+      const newPath = `${currentPath}/${newFolderName}`;
+      createDirMutation.mutate({ hostId, path: newPath });
+    }
+  };
 
   const handleFileUpload = async (files: FileList | null) => {
     if (!files || files.length === 0) return;
@@ -619,6 +718,15 @@ function FileBrowserCard() {
               <Upload className="w-3.5 h-3.5" />
               Upload
             </Button>
+            <Button 
+              variant="outline" 
+              size="sm" 
+              className="h-8 gap-1.5" 
+              onClick={() => setShowCreateFolder(true)}
+            >
+              <Plus className="w-3.5 h-3.5" />
+              New Folder
+            </Button>
             <Button variant="outline" size="icon" className="h-8 w-8" onClick={() => refetch()}>
               <RefreshCw className={cn("w-4 h-4", isLoading && "animate-spin")} />
             </Button>
@@ -679,11 +787,11 @@ function FileBrowserCard() {
         {/* File List */}
         <div className="border border-border/50 rounded-lg overflow-hidden">
           <div className="grid grid-cols-12 gap-2 px-4 py-2 bg-muted/30 text-xs font-medium text-muted-foreground border-b border-border/50">
-            <div className="col-span-5">Name</div>
+            <div className="col-span-4">Name</div>
             <div className="col-span-2">Size</div>
             <div className="col-span-2">Type</div>
             <div className="col-span-2">Modified</div>
-            <div className="col-span-1 text-center">Preview</div>
+            <div className="col-span-2 text-center">Actions</div>
           </div>
           <div className="max-h-[400px] overflow-y-auto">
             {isLoading ? (
@@ -709,7 +817,7 @@ function FileBrowserCard() {
                 >
                   <button
                     onClick={() => item.isDirectory ? navigateTo(item.path) : handleSelectDataset(item.path)}
-                    className="col-span-5 flex items-center gap-2 truncate text-left"
+                    className="col-span-4 flex items-center gap-2 truncate text-left"
                   >
                     {getFileIcon(item.fileType)}
                     <span className={cn(item.isDirectory && "font-medium")}>{item.name}</span>
@@ -719,7 +827,7 @@ function FileBrowserCard() {
                     <Badge variant="outline" className="text-[10px] h-5">{item.fileType}</Badge>
                   </div>
                   <div className="col-span-2 text-muted-foreground flex items-center">{item.modified}</div>
-                  <div className="col-span-1 flex items-center justify-center">
+                  <div className="col-span-2 flex items-center justify-center gap-1">
                     {!item.isDirectory && canPreview(item.fileType) && (
                       <Button
                         variant="ghost"
@@ -729,10 +837,35 @@ function FileBrowserCard() {
                           e.stopPropagation();
                           handlePreviewFile(item.path);
                         }}
+                        title="Preview"
                       >
                         <Eye className="w-3.5 h-3.5" />
                       </Button>
                     )}
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-6 w-6"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleRename(item.path);
+                      }}
+                      title="Rename"
+                    >
+                      <FileText className="w-3.5 h-3.5" />
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-6 w-6 text-red-400 hover:text-red-300 hover:bg-red-500/10"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleDelete(item.path);
+                      }}
+                      title="Delete"
+                    >
+                      <X className="w-3.5 h-3.5" />
+                    </Button>
                   </div>
                 </div>
               ))
@@ -874,6 +1007,111 @@ function FileBrowserCard() {
             </DialogHeader>
             <div className="mt-4 overflow-auto">
               {renderPreviewContent()}
+            </div>
+          </DialogContent>
+        </Dialog>
+
+        {/* Delete Confirmation Dialog */}
+        <Dialog open={showDeleteConfirm} onOpenChange={setShowDeleteConfirm}>
+          <DialogContent className="max-w-md">
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2 text-red-400">
+                <AlertTriangle className="w-5 h-5" />
+                Confirm Delete
+              </DialogTitle>
+            </DialogHeader>
+            <div className="py-4">
+              <p className="text-sm text-muted-foreground">Are you sure you want to delete:</p>
+              <p className="text-sm font-mono mt-2 p-2 bg-muted/30 rounded truncate">{fileToDelete}</p>
+              <p className="text-xs text-red-400 mt-3">This action cannot be undone.</p>
+            </div>
+            <div className="flex justify-end gap-2">
+              <Button variant="outline" onClick={() => setShowDeleteConfirm(false)}>Cancel</Button>
+              <Button 
+                variant="destructive" 
+                onClick={confirmDelete}
+                disabled={deleteFileMutation.isPending}
+              >
+                {deleteFileMutation.isPending ? (
+                  <><RefreshCw className="w-4 h-4 mr-2 animate-spin" />Deleting...</>
+                ) : (
+                  "Delete"
+                )}
+              </Button>
+            </div>
+          </DialogContent>
+        </Dialog>
+
+        {/* Rename Dialog */}
+        <Dialog open={showRename} onOpenChange={setShowRename}>
+          <DialogContent className="max-w-md">
+            <DialogHeader>
+              <DialogTitle>Rename File</DialogTitle>
+            </DialogHeader>
+            <div className="py-4 space-y-4">
+              <div>
+                <p className="text-xs text-muted-foreground mb-1">Current name:</p>
+                <p className="text-sm font-mono p-2 bg-muted/30 rounded truncate">{fileToRename?.split("/").pop()}</p>
+              </div>
+              <div>
+                <p className="text-xs text-muted-foreground mb-1">New name:</p>
+                <Input
+                  value={newFileName}
+                  onChange={(e) => setNewFileName(e.target.value)}
+                  placeholder="Enter new name"
+                  className="font-mono"
+                />
+              </div>
+            </div>
+            <div className="flex justify-end gap-2">
+              <Button variant="outline" onClick={() => setShowRename(false)}>Cancel</Button>
+              <Button 
+                onClick={confirmRename}
+                disabled={renameFileMutation.isPending || !newFileName.trim()}
+              >
+                {renameFileMutation.isPending ? (
+                  <><RefreshCw className="w-4 h-4 mr-2 animate-spin" />Renaming...</>
+                ) : (
+                  "Rename"
+                )}
+              </Button>
+            </div>
+          </DialogContent>
+        </Dialog>
+
+        {/* Create Folder Dialog */}
+        <Dialog open={showCreateFolder} onOpenChange={setShowCreateFolder}>
+          <DialogContent className="max-w-md">
+            <DialogHeader>
+              <DialogTitle>Create New Folder</DialogTitle>
+            </DialogHeader>
+            <div className="py-4 space-y-4">
+              <div>
+                <p className="text-xs text-muted-foreground mb-1">Location:</p>
+                <p className="text-sm font-mono p-2 bg-muted/30 rounded truncate">{currentPath}</p>
+              </div>
+              <div>
+                <p className="text-xs text-muted-foreground mb-1">Folder name:</p>
+                <Input
+                  value={newFolderName}
+                  onChange={(e) => setNewFolderName(e.target.value)}
+                  placeholder="Enter folder name"
+                  className="font-mono"
+                />
+              </div>
+            </div>
+            <div className="flex justify-end gap-2">
+              <Button variant="outline" onClick={() => setShowCreateFolder(false)}>Cancel</Button>
+              <Button 
+                onClick={handleCreateFolder}
+                disabled={createDirMutation.isPending || !newFolderName.trim()}
+              >
+                {createDirMutation.isPending ? (
+                  <><RefreshCw className="w-4 h-4 mr-2 animate-spin" />Creating...</>
+                ) : (
+                  "Create Folder"
+                )}
+              </Button>
             </div>
           </DialogContent>
         </Dialog>

@@ -57,17 +57,36 @@ const itemVariants = {
   visible: { opacity: 1, y: 0 }
 };
 
+// Date range options
+const DATE_RANGES = [
+  { label: "Last Hour", value: "1h", hours: 1 },
+  { label: "Last 6 Hours", value: "6h", hours: 6 },
+  { label: "Last 24 Hours", value: "24h", hours: 24 },
+  { label: "Last 7 Days", value: "7d", hours: 168 },
+  { label: "All Time", value: "all", hours: 0 },
+];
+
 function ExportMetricsButton() {
   const { data: inferenceStats } = trpc.stats.getInferenceStats.useQuery();
   const { data: dcgmData } = trpc.dcgm.getAllMetrics.useQuery();
   const [isExporting, setIsExporting] = useState(false);
+  const [dateRange, setDateRange] = useState("24h");
+  const [showExportDialog, setShowExportDialog] = useState(false);
+
+  const getDateRangeFilter = () => {
+    const range = DATE_RANGES.find(r => r.value === dateRange);
+    if (!range || range.hours === 0) return null;
+    const now = new Date();
+    return new Date(now.getTime() - range.hours * 60 * 60 * 1000);
+  };
 
   const handleExport = (format: "json" | "csv") => {
     setIsExporting(true);
     
     try {
+      const rangeLabel = DATE_RANGES.find(r => r.value === dateRange)?.label || "All Time";
       const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
-      const filename = `metrics-export-${timestamp}.${format}`;
+      const filename = `metrics-export-${dateRange}-${timestamp}.${format}`;
       
       const exportData = {
         exportedAt: new Date().toISOString(),
@@ -131,6 +150,19 @@ function ExportMetricsButton() {
 
   return (
     <div className="flex items-center gap-2">
+      <Select value={dateRange} onValueChange={setDateRange}>
+        <SelectTrigger className="w-36 h-8 text-xs">
+          <Clock className="w-3 h-3 mr-1" />
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent>
+          {DATE_RANGES.map((range) => (
+            <SelectItem key={range.value} value={range.value}>
+              {range.label}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
       <Button
         variant="outline"
         size="sm"
@@ -139,7 +171,7 @@ function ExportMetricsButton() {
         disabled={isExporting}
       >
         <FileJson className="w-4 h-4" />
-        Export JSON
+        JSON
       </Button>
       <Button
         variant="outline"
@@ -149,7 +181,7 @@ function ExportMetricsButton() {
         disabled={isExporting}
       >
         <FileText className="w-4 h-4" />
-        Export CSV
+        CSV
       </Button>
     </div>
   );

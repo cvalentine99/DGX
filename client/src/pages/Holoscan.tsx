@@ -332,6 +332,7 @@ export default function Holoscan() {
   const [logFromLine, setLogFromLine] = useState(0);
   const [logLevel, setLogLevel] = useState<"all" | "info" | "debug" | "warning" | "error">("all");
   const [logAutoScroll, setLogAutoScroll] = useState(true);
+  const [logTimeRange, setLogTimeRange] = useState<"1h" | "6h" | "24h" | "all">("24h");
   const [showMetricsDashboard, setShowMetricsDashboard] = useState(false);
   const [showPipelineEditor, setShowPipelineEditor] = useState(false);
   const [editingPipelineCode, setEditingPipelineCode] = useState("");
@@ -1454,6 +1455,17 @@ export default function Holoscan() {
                     <SelectItem value="error">ERROR</SelectItem>
                   </SelectContent>
                 </Select>
+                <Select value={logTimeRange} onValueChange={(v: any) => setLogTimeRange(v)}>
+                  <SelectTrigger className="w-32">
+                    <SelectValue placeholder="Time" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="1h">Last Hour</SelectItem>
+                    <SelectItem value="6h">Last 6 Hours</SelectItem>
+                    <SelectItem value="24h">Last 24 Hours</SelectItem>
+                    <SelectItem value="all">All Time</SelectItem>
+                  </SelectContent>
+                </Select>
                 <Button
                   size="sm"
                   variant="outline"
@@ -1475,14 +1487,27 @@ export default function Holoscan() {
                   variant="outline"
                   onClick={() => {
                     if (pipelineLogs?.logs) {
-                      const logText = pipelineLogs.logs.map(l => `[${l.timestamp}] [${l.level.toUpperCase()}] ${l.message}`).join('\n');
+                      // Filter logs by time range
+                      const now = new Date();
+                      const rangeHours = logTimeRange === "1h" ? 1 : logTimeRange === "6h" ? 6 : logTimeRange === "24h" ? 24 : 0;
+                      const filteredLogs = rangeHours > 0 
+                        ? pipelineLogs.logs.filter(l => {
+                            const logTime = new Date(l.timestamp);
+                            return (now.getTime() - logTime.getTime()) <= rangeHours * 60 * 60 * 1000;
+                          })
+                        : pipelineLogs.logs;
+                      
+                      const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
+                      const logText = `# Pipeline Logs Export\n# Pipeline: ${selectedPipelineLogs}\n# Time Range: ${logTimeRange === "all" ? "All Time" : `Last ${logTimeRange}`}\n# Exported: ${new Date().toLocaleString()}\n# Total Entries: ${filteredLogs.length}\n\n` + 
+                        filteredLogs.map(l => `[${l.timestamp}] [${l.level.toUpperCase()}] ${l.message}`).join('\n');
                       const blob = new Blob([logText], { type: 'text/plain' });
                       const url = URL.createObjectURL(blob);
                       const a = document.createElement('a');
                       a.href = url;
-                      a.download = `${selectedPipelineLogs}-logs.txt`;
+                      a.download = `${selectedPipelineLogs}-logs-${logTimeRange}-${timestamp}.txt`;
                       a.click();
                       URL.revokeObjectURL(url);
+                      toast.success("Logs exported", { description: `${filteredLogs.length} entries` });
                     }
                   }}
                 >

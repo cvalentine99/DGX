@@ -34,6 +34,8 @@ import {
   Power,
   Download,
   AlertTriangle,
+  FileJson,
+  FileText,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -106,6 +108,113 @@ interface Message {
   };
   ragContext?: string;
   simulated?: boolean;
+}
+
+// Export chat history function
+function exportChatHistory(messages: Message[], systemPrompt: string, format: "json" | "markdown") {
+  const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
+  const filename = `chat-export-${timestamp}.${format === "json" ? "json" : "md"}`;
+  
+  let content: string;
+  let mimeType: string;
+  
+  if (format === "json") {
+    const exportData = {
+      exportedAt: new Date().toISOString(),
+      model: "Nemotron-3-Nano-30B",
+      systemPrompt,
+      totalMessages: messages.length,
+      messages: messages.map((m, idx) => ({
+        index: idx + 1,
+        role: m.role,
+        content: m.content,
+        thinking: m.thinking || null,
+        ragContext: m.ragContext || null,
+        metrics: m.metrics || null,
+        simulated: m.simulated || false,
+      })),
+      summary: {
+        userMessages: messages.filter(m => m.role === "user").length,
+        assistantMessages: messages.filter(m => m.role === "assistant").length,
+        totalThinkingTokens: messages.reduce((sum, m) => sum + (m.metrics?.thinkingTokens || 0), 0),
+        totalResponseTokens: messages.reduce((sum, m) => sum + (m.metrics?.responseTokens || 0), 0),
+        avgLatency: Math.round(
+          messages.filter(m => m.metrics?.latency).reduce((sum, m) => sum + (m.metrics?.latency || 0), 0) /
+          Math.max(1, messages.filter(m => m.metrics?.latency).length)
+        ),
+      },
+    };
+    content = JSON.stringify(exportData, null, 2);
+    mimeType = "application/json";
+  } else {
+    // Markdown format
+    const lines: string[] = [];
+    lines.push("# Chat Export");
+    lines.push("");
+    lines.push(`**Exported:** ${new Date().toLocaleString()}`);
+    lines.push(`**Model:** Nemotron-3-Nano-30B`);
+    lines.push(`**Messages:** ${messages.length}`);
+    lines.push("");
+    lines.push("## System Prompt");
+    lines.push("");
+    lines.push("> " + systemPrompt.split("\n").join("\n> "));
+    lines.push("");
+    lines.push("## Conversation");
+    lines.push("");
+    
+    messages.forEach((m, idx) => {
+      const role = m.role === "user" ? "👤 User" : "🤖 Assistant";
+      lines.push(`### ${role}`);
+      lines.push("");
+      lines.push(m.content);
+      
+      if (m.thinking) {
+        lines.push("");
+        lines.push("<details>");
+        lines.push("<summary>🧠 Reasoning Process</summary>");
+        lines.push("");
+        lines.push("```");
+        lines.push(m.thinking);
+        lines.push("```");
+        lines.push("");
+        lines.push("</details>");
+      }
+      
+      if (m.metrics) {
+        lines.push("");
+        lines.push(`*Tokens: ${m.metrics.thinkingTokens} thinking + ${m.metrics.responseTokens} response | Latency: ${m.metrics.latency}ms*`);
+      }
+      
+      lines.push("");
+      lines.push("---");
+      lines.push("");
+    });
+    
+    // Summary
+    const totalThinking = messages.reduce((sum, m) => sum + (m.metrics?.thinkingTokens || 0), 0);
+    const totalResponse = messages.reduce((sum, m) => sum + (m.metrics?.responseTokens || 0), 0);
+    lines.push("## Summary");
+    lines.push("");
+    lines.push(`- **User Messages:** ${messages.filter(m => m.role === "user").length}`);
+    lines.push(`- **Assistant Messages:** ${messages.filter(m => m.role === "assistant").length}`);
+    lines.push(`- **Total Thinking Tokens:** ${totalThinking}`);
+    lines.push(`- **Total Response Tokens:** ${totalResponse}`);
+    
+    content = lines.join("\n");
+    mimeType = "text/markdown";
+  }
+  
+  const blob = new Blob([content], { type: mimeType });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+  
+  toast.success(`Chat exported as ${format.toUpperCase()}`, { description: filename });
 }
 
 const containerVariants = {
@@ -332,6 +441,26 @@ function ChatInterface({
               toast.success("Conversation copied");
             }}>
               <Copy className="w-4 h-4" />
+            </Button>
+            <Button 
+              variant="ghost" 
+              size="icon" 
+              className="h-8 w-8" 
+              onClick={() => exportChatHistory(messages, systemPrompt, "json")}
+              disabled={messages.length === 0}
+              title="Export as JSON"
+            >
+              <FileJson className="w-4 h-4" />
+            </Button>
+            <Button 
+              variant="ghost" 
+              size="icon" 
+              className="h-8 w-8" 
+              onClick={() => exportChatHistory(messages, systemPrompt, "markdown")}
+              disabled={messages.length === 0}
+              title="Export as Markdown"
+            >
+              <FileText className="w-4 h-4" />
             </Button>
             <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => setMessages([])}>
               <RefreshCw className="w-4 h-4" />

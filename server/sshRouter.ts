@@ -5531,4 +5531,201 @@ PIPELINE_EOF`);
       
       return { success: true, metrics };
     }),
+
+  // =========================================================================
+  // File Management Endpoints
+  // =========================================================================
+
+  // Delete a file on DGX host
+  deleteFile: publicProcedure
+    .input(z.object({
+      hostId: z.enum(["alpha", "beta"]).default("alpha"),
+      filePath: z.string(),
+    }))
+    .mutation(async ({ input }) => {
+      const pool = getSSHPool();
+      if (!pool) {
+        return { success: false, error: "SSH pool not initialized" };
+      }
+
+      try {
+        // Security: Validate path to prevent dangerous deletions
+        const dangerousPaths = ["/", "/home", "/etc", "/var", "/usr", "/bin", "/sbin", "/root"];
+        const normalizedPath = input.filePath.replace(/\/+$/, ""); // Remove trailing slashes
+        
+        if (dangerousPaths.includes(normalizedPath)) {
+          return { success: false, error: "Cannot delete protected system directories" };
+        }
+
+        // Check if file exists
+        const existsCheck = await pool.execute(
+          input.hostId,
+          `test -e "${input.filePath}" && echo "exists" || echo "not_exists"`
+        );
+
+        if (existsCheck.trim() === "not_exists") {
+          return { success: false, error: "File or directory does not exist" };
+        }
+
+        // Check if it's a directory
+        const typeCheck = await pool.execute(
+          input.hostId,
+          `test -d "${input.filePath}" && echo "directory" || echo "file"`
+        );
+
+        const isDirectory = typeCheck.trim() === "directory";
+
+        // Delete file or directory
+        if (isDirectory) {
+          // For directories, check if empty first (safety measure)
+          const isEmpty = await pool.execute(
+            input.hostId,
+            `[ -z "$(ls -A "${input.filePath}")" ] && echo "empty" || echo "not_empty"`
+          );
+
+          if (isEmpty.trim() === "not_empty") {
+            // Use rm -rf for non-empty directories (with caution)
+            await pool.execute(input.hostId, `rm -rf "${input.filePath}"`);
+          } else {
+            await pool.execute(input.hostId, `rmdir "${input.filePath}"`);
+          }
+        } else {
+          await pool.execute(input.hostId, `rm -f "${input.filePath}"`);
+        }
+
+        // Verify deletion
+        const verifyCheck = await pool.execute(
+          input.hostId,
+          `test -e "${input.filePath}" && echo "exists" || echo "deleted"`
+        );
+
+        if (verifyCheck.trim() === "exists") {
+          return { success: false, error: "Failed to delete - file may be in use or protected" };
+        }
+
+        return {
+          success: true,
+          message: `Successfully deleted ${isDirectory ? "directory" : "file"}: ${input.filePath}`,
+          wasDirectory: isDirectory,
+        };
+      } catch (error: any) {
+        return { success: false, error: error.message };
+      }
+    }),
+
+  // Rename/move a file on DGX host
+  renameFile: publicProcedure
+    .input(z.object({
+      hostId: z.enum(["alpha", "beta"]).default("alpha"),
+      sourcePath: z.string(),
+      destinationPath: z.string(),
+    }))
+    .mutation(async ({ input }) => {
+      const pool = getSSHPool();
+      if (!pool) {
+        return { success: false, error: "SSH pool not initialized" };
+      }
+
+      try {
+        // Check if source exists
+        const sourceCheck = await pool.execute(
+          input.hostId,
+          `test -e "${input.sourcePath}" && echo "exists" || echo "not_exists"`
+        );
+
+        if (sourceCheck.trim() === "not_exists") {
+          return { success: false, error: "Source file or directory does not exist" };
+        }
+
+        // Check if destination already exists
+        const destCheck = await pool.execute(
+          input.hostId,
+          `test -e "${input.destinationPath}" && echo "exists" || echo "not_exists"`
+        );
+
+        if (destCheck.trim() === "exists") {
+          return { success: false, error: "Destination already exists" };
+        }
+
+        // Get source type for response
+        const typeCheck = await pool.execute(
+          input.hostId,
+          `test -d "${input.sourcePath}" && echo "directory" || echo "file"`
+        );
+        const isDirectory = typeCheck.trim() === "directory";
+
+        // Perform rename/move
+        await pool.execute(input.hostId, `mv "${input.sourcePath}" "${input.destinationPath}"`);
+
+        // Verify rename
+        const verifySource = await pool.execute(
+          input.hostId,
+          `test -e "${input.sourcePath}" && echo "exists" || echo "not_exists"`
+        );
+        const verifyDest = await pool.execute(
+          input.hostId,
+          `test -e "${input.destinationPath}" && echo "exists" || echo "not_exists"`
+        );
+
+        if (verifySource.trim() === "exists" || verifyDest.trim() === "not_exists") {
+          return { success: false, error: "Rename operation failed" };
+        }
+
+        return {
+          success: true,
+          message: `Successfully renamed ${isDirectory ? "directory" : "file"}`,
+          sourcePath: input.sourcePath,
+          destinationPath: input.destinationPath,
+          wasDirectory: isDirectory,
+        };
+      } catch (error: any) {
+        return { success: false, error: error.message };
+      }
+    }),
+
+  // Create a new directory on DGX host
+  createDirectory: publicProcedure
+    .input(z.object({
+      hostId: z.enum(["alpha", "beta"]).default("alpha"),
+      path: z.string(),
+    }))
+    .mutation(async ({ input }) => {
+      const pool = getSSHPool();
+      if (!pool) {
+        return { success: false, error: "SSH pool not initialized" };
+      }
+
+      try {
+        // Check if path already exists
+        const existsCheck = await pool.execute(
+          input.hostId,
+          `test -e "${input.path}" && echo "exists" || echo "not_exists"`
+        );
+
+        if (existsCheck.trim() === "exists") {
+          return { success: false, error: "Path already exists" };
+        }
+
+        // Create directory with parents
+        await pool.execute(input.hostId, `mkdir -p "${input.path}"`);
+
+        // Verify creation
+        const verifyCheck = await pool.execute(
+          input.hostId,
+          `test -d "${input.path}" && echo "created" || echo "failed"`
+        );
+
+        if (verifyCheck.trim() !== "created") {
+          return { success: false, error: "Failed to create directory" };
+        }
+
+        return {
+          success: true,
+          message: `Successfully created directory: ${input.path}`,
+          path: input.path,
+        };
+      } catch (error: any) {
+        return { success: false, error: error.message };
+      }
+    }),
 });
