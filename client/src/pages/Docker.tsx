@@ -29,6 +29,9 @@ import {
   Rocket,
   Zap,
   Sparkles,
+  Terminal,
+  Send,
+  ScrollText,
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -187,6 +190,24 @@ export default function Docker() {
   const [selectedTemplate, setSelectedTemplate] = useState<typeof NVIDIA_WORKSHOP_TEMPLATES[0] | null>(null);
   const [isDeploying, setIsDeploying] = useState(false);
 
+  // Exec terminal state
+  const [execModalOpen, setExecModalOpen] = useState(false);
+  const [execContainer, setExecContainer] = useState<ContainerInfo | null>(null);
+  const [execCommand, setExecCommand] = useState("");
+  const [execHistory, setExecHistory] = useState<Array<{ command: string; output: string; timestamp: Date }>>([]);
+  const [isExecuting, setIsExecuting] = useState(false);
+  const execEndRef = useRef<HTMLDivElement>(null);
+
+  // Image pull progress state
+  const [pullProgressModalOpen, setPullProgressModalOpen] = useState(false);
+  const [activePull, setActivePull] = useState<{ pullId: string; logFile: string; imageName: string; hostId: "alpha" | "beta" } | null>(null);
+
+  // Compose logs state
+  const [composeLogsModalOpen, setComposeLogsModalOpen] = useState(false);
+  const [selectedComposeProject, setSelectedComposeProject] = useState<string | null>(null);
+  const [composeLogsAutoRefresh, setComposeLogsAutoRefresh] = useState(true);
+  const composeLogsEndRef = useRef<HTMLDivElement>(null);
+
   // Container list query
   const { data: containerData, refetch: refetchContainers, isLoading: isLoadingContainers } = trpc.ssh.listAllContainers.useQuery(
     { hostId: selectedHost },
@@ -220,12 +241,62 @@ export default function Docker() {
     }
   );
 
+  // Image pull progress query
+  const { data: pullProgressData, refetch: refetchPullProgress } = trpc.ssh.getImagePullProgress.useQuery(
+    { 
+      hostId: activePull?.hostId || "alpha", 
+      logFile: activePull?.logFile || "", 
+      imageName: activePull?.imageName || "" 
+    },
+    { 
+      enabled: pullProgressModalOpen && !!activePull,
+      refetchInterval: activePull ? 2000 : false,
+    }
+  );
+
+  // Compose stack logs query
+  const { data: composeLogsData, refetch: refetchComposeLogs, isLoading: isLoadingComposeLogs } = trpc.ssh.getComposeStackLogs.useQuery(
+    { hostId: selectedHost, projectName: selectedComposeProject || "", tail: 200 },
+    { 
+      enabled: composeLogsModalOpen && !!selectedComposeProject,
+      refetchInterval: composeLogsAutoRefresh ? 3000 : false,
+    }
+  );
+
   // Auto-scroll logs
   useEffect(() => {
     if (logsEndRef.current && logsData?.logs) {
       logsEndRef.current.scrollIntoView({ behavior: "smooth" });
     }
   }, [logsData?.logs]);
+
+  // Auto-scroll exec history
+  useEffect(() => {
+    if (execEndRef.current) {
+      execEndRef.current.scrollIntoView({ behavior: "smooth" });
+    }
+  }, [execHistory]);
+
+  // Auto-scroll compose logs
+  useEffect(() => {
+    if (composeLogsEndRef.current && composeLogsData?.logs) {
+      composeLogsEndRef.current.scrollIntoView({ behavior: "smooth" });
+    }
+  }, [composeLogsData?.logs]);
+
+  // Close pull progress modal when complete
+  useEffect(() => {
+    if (pullProgressData?.status === 'completed' && pullProgressData?.progress === 100) {
+      toast.success(`Image ${activePull?.imageName} pulled successfully`);
+      refetchImages();
+      setTimeout(() => {
+        setPullProgressModalOpen(false);
+        setActivePull(null);
+      }, 2000);
+    } else if (pullProgressData?.status === 'error') {
+      toast.error(`Failed to pull image`);
+    }
+  }, [pullProgressData?.status, pullProgressData?.progress]);
 
   // Container mutations
   const startContainerMutation = trpc.ssh.startContainer.useMutation({
@@ -330,10 +401,56 @@ export default function Docker() {
     onError: (err) => toast.error(`Failed: ${err.message}`),
   });
 
+  // Start image pull with progress tracking
+  const startPullMutation = trpc.ssh.startImagePull.useMutation({
+    onSuccess: (data) => {
+      if (data.success) {
+        setActivePull({
+          pullId: data.pullId,
+          logFile: data.logFile,
+          imageName: data.imageName,
+          hostId: pullTargetHost === "both" ? "alpha" : pullTargetHost,
+        });
+        setPullProgressModalOpen(true);
+        setIsPulling(false);
+      } else {
+        toast.error(data.error || "Failed to start image pull");
+        setIsPulling(false);
+      }
+    },
+    onError: (err) => {
+      toast.error(`Failed: ${err.message}`);
+      setIsPulling(false);
+    },
+  });
+
+  // Exec command in container
+  const execCommandMutation = trpc.ssh.execContainerCommand.useMutation({
+    onSuccess: (data) => {
+      setExecHistory(prev => [...prev, {
+        command: execCommand,
+        output: data.output || (data.success ? 'Command executed successfully' : 'Command failed'),
+        timestamp: new Date(),
+      }]);
+      setExecCommand("");
+      setIsExecuting(false);
+    },
+    onError: (err) => {
+      setExecHistory(prev => [...prev, {
+        command: execCommand,
+        output: `Error: ${err.message}`,
+        timestamp: new Date(),
+      }]);
+      setExecCommand("");
+      setIsExecuting(false);
+    },
+  });
+
   const handlePullImage = () => {
     if (!pullImageTag) return;
     setIsPulling(true);
-    pullImageMutation.mutate({ hostId: pullTargetHost === "both" ? "alpha" : pullTargetHost, imageName: pullImageTag });
+    // Use the new progress-tracking pull
+    startPullMutation.mutate({ hostId: pullTargetHost === "both" ? "alpha" : pullTargetHost, imageName: pullImageTag });
   };
 
   const handlePullPlaybookImages = () => {
@@ -344,6 +461,28 @@ export default function Docker() {
   const handleOpenLogs = (container: ContainerInfo) => {
     setSelectedContainer(container);
     setLogsModalOpen(true);
+  };
+
+  const handleOpenExec = (container: ContainerInfo) => {
+    setExecContainer(container);
+    setExecHistory([]);
+    setExecCommand("");
+    setExecModalOpen(true);
+  };
+
+  const handleExecCommand = () => {
+    if (!execCommand.trim() || !execContainer) return;
+    setIsExecuting(true);
+    execCommandMutation.mutate({
+      hostId: selectedHost,
+      containerId: execContainer.id,
+      command: execCommand,
+    });
+  };
+
+  const handleOpenComposeLogs = (projectName: string) => {
+    setSelectedComposeProject(projectName);
+    setComposeLogsModalOpen(true);
   };
 
   const handleSelectTemplate = (template: typeof NVIDIA_WORKSHOP_TEMPLATES[0]) => {
@@ -488,14 +627,25 @@ export default function Docker() {
                           variant="ghost"
                           size="sm"
                           onClick={() => handleOpenLogs(container)}
+                          title="View Logs"
                         >
                           <FileText className="h-4 w-4" />
                         </Button>
                         <Button
                           variant="ghost"
                           size="sm"
+                          onClick={() => handleOpenExec(container)}
+                          title="Terminal"
+                          className="text-cyan-500 hover:text-cyan-400"
+                        >
+                          <Terminal className="h-4 w-4" />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="sm"
                           className="text-yellow-500 hover:text-yellow-400"
                           onClick={() => stopContainerMutation.mutate({ hostId: selectedHost, containerId: container.id })}
+                          title="Stop"
                         >
                           <Square className="h-4 w-4" />
                         </Button>
@@ -842,18 +992,29 @@ export default function Docker() {
                           <p className="text-xs text-gray-400">{project.status}</p>
                         </div>
                       </div>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        className="text-red-500 hover:text-red-400"
-                        onClick={() => {
-                          if (confirm(`Stop and remove stack ${project.name}?`)) {
-                            stopComposeMutation.mutate({ hostId: selectedHost, projectName: project.name });
-                          }
-                        }}
-                      >
-                        <Square className="h-4 w-4" />
-                      </Button>
+                      <div className="flex items-center gap-2">
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => handleOpenComposeLogs(project.name)}
+                          title="View Logs"
+                        >
+                          <ScrollText className="h-4 w-4" />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="text-red-500 hover:text-red-400"
+                          title="Stop Stack"
+                          onClick={() => {
+                            if (confirm(`Stop and remove stack ${project.name}?`)) {
+                              stopComposeMutation.mutate({ hostId: selectedHost, projectName: project.name });
+                            }
+                          }}
+                        >
+                          <Square className="h-4 w-4" />
+                        </Button>
+                      </div>
                     </div>
                   ))}
                 </div>
@@ -1062,6 +1223,175 @@ export default function Docker() {
                 </Button>
               </div>
             </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Exec Terminal Modal */}
+      <Dialog open={execModalOpen} onOpenChange={setExecModalOpen}>
+        <DialogContent className="max-w-3xl max-h-[80vh] bg-black/95 border-gray-800">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Terminal className="h-5 w-5 text-cyan-500" />
+              Terminal: {execContainer?.name}
+            </DialogTitle>
+            <DialogDescription>
+              Execute commands in {execContainer?.image}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="bg-black rounded-lg border border-gray-800 p-4 h-[300px] overflow-y-auto font-mono text-sm">
+            {execHistory.length === 0 ? (
+              <p className="text-gray-500">Type a command below to execute in the container...</p>
+            ) : (
+              execHistory.map((entry, idx) => (
+                <div key={idx} className="mb-4">
+                  <div className="flex items-center gap-2 text-cyan-400">
+                    <span className="text-gray-500">$</span>
+                    <span>{entry.command}</span>
+                  </div>
+                  <pre className="whitespace-pre-wrap text-gray-300 mt-1 ml-4">{entry.output}</pre>
+                </div>
+              ))
+            )}
+            <div ref={execEndRef} />
+          </div>
+          <div className="flex items-center gap-2">
+            <div className="flex-1 relative">
+              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500">$</span>
+              <Input
+                value={execCommand}
+                onChange={(e) => setExecCommand(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && !isExecuting) {
+                    handleExecCommand();
+                  }
+                }}
+                placeholder="ls -la, cat /etc/os-release, nvidia-smi..."
+                className="pl-7 bg-black/30 border-gray-700 font-mono"
+                disabled={isExecuting}
+              />
+            </div>
+            <Button
+              onClick={handleExecCommand}
+              disabled={isExecuting || !execCommand.trim()}
+              className="bg-cyan-600 hover:bg-cyan-700"
+            >
+              {isExecuting ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <Send className="h-4 w-4" />
+              )}
+            </Button>
+          </div>
+          <div className="text-xs text-gray-500">
+            Common commands: <code className="bg-gray-800 px-1 rounded">ls</code>, <code className="bg-gray-800 px-1 rounded">pwd</code>, <code className="bg-gray-800 px-1 rounded">cat</code>, <code className="bg-gray-800 px-1 rounded">nvidia-smi</code>, <code className="bg-gray-800 px-1 rounded">python --version</code>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Image Pull Progress Modal */}
+      <Dialog open={pullProgressModalOpen} onOpenChange={(open) => {
+        if (!open && pullProgressData?.status !== 'completed') {
+          // Don't close if still pulling - user can dismiss after completion
+        }
+        setPullProgressModalOpen(open);
+      }}>
+        <DialogContent className="max-w-2xl bg-black/95 border-gray-800">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Download className="h-5 w-5 text-[#76b900]" />
+              Pulling Image
+            </DialogTitle>
+            <DialogDescription>
+              {activePull?.imageName}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            {/* Progress Bar */}
+            <div className="space-y-2">
+              <div className="flex items-center justify-between text-sm">
+                <span className="text-gray-400">Progress</span>
+                <span className="text-[#76b900] font-medium">{pullProgressData?.progress || 0}%</span>
+              </div>
+              <div className="h-3 bg-gray-800 rounded-full overflow-hidden">
+                <div
+                  className="h-full bg-gradient-to-r from-[#76b900] to-[#9be22d] transition-all duration-500"
+                  style={{ width: `${pullProgressData?.progress || 0}%` }}
+                />
+              </div>
+            </div>
+            
+            {/* Status */}
+            <div className="flex items-center gap-2">
+              {pullProgressData?.status === 'completed' ? (
+                <CheckCircle2 className="h-5 w-5 text-green-500" />
+              ) : pullProgressData?.status === 'error' ? (
+                <AlertCircle className="h-5 w-5 text-red-500" />
+              ) : (
+                <Loader2 className="h-5 w-5 animate-spin text-[#76b900]" />
+              )}
+              <span className={`font-medium ${
+                pullProgressData?.status === 'completed' ? 'text-green-500' :
+                pullProgressData?.status === 'error' ? 'text-red-500' : 'text-[#76b900]'
+              }`}>
+                {pullProgressData?.status === 'completed' ? 'Download Complete' :
+                 pullProgressData?.status === 'error' ? 'Download Failed' : 'Downloading...'}
+              </span>
+            </div>
+            
+            {/* Log Output */}
+            <div className="bg-black rounded-lg border border-gray-800 p-3 h-[200px] overflow-y-auto font-mono text-xs">
+              <pre className="whitespace-pre-wrap text-gray-400">
+                {pullProgressData?.output || 'Waiting for pull to start...'}
+              </pre>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Compose Stack Logs Modal */}
+      <Dialog open={composeLogsModalOpen} onOpenChange={setComposeLogsModalOpen}>
+        <DialogContent className="max-w-4xl max-h-[80vh] bg-black/95 border-gray-800">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <ScrollText className="h-5 w-5 text-[#76b900]" />
+              Stack Logs: {selectedComposeProject}
+            </DialogTitle>
+            <DialogDescription>
+              Aggregated logs from all services in the compose stack
+              {composeLogsData?.services && composeLogsData.services.length > 0 && (
+                <span className="ml-2">
+                  Services: {composeLogsData.services.join(', ')}
+                </span>
+              )}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="flex items-center justify-between mb-2">
+            <div className="flex items-center gap-2">
+              <Button
+                variant={composeLogsAutoRefresh ? "default" : "outline"}
+                size="sm"
+                onClick={() => setComposeLogsAutoRefresh(!composeLogsAutoRefresh)}
+                className={composeLogsAutoRefresh ? "bg-[#76b900]" : ""}
+              >
+                {composeLogsAutoRefresh ? "Auto-refresh ON" : "Auto-refresh OFF"}
+              </Button>
+              <Button variant="outline" size="sm" onClick={() => refetchComposeLogs()}>
+                <RefreshCw className={`h-4 w-4 ${isLoadingComposeLogs ? 'animate-spin' : ''}`} />
+              </Button>
+            </div>
+          </div>
+          <div className="bg-black rounded-lg border border-gray-800 p-4 h-[400px] overflow-y-auto font-mono text-sm">
+            {isLoadingComposeLogs ? (
+              <div className="flex items-center justify-center h-full">
+                <Loader2 className="h-6 w-6 animate-spin text-[#76b900]" />
+              </div>
+            ) : composeLogsData?.logs ? (
+              <pre className="whitespace-pre-wrap text-gray-300">{composeLogsData.logs}</pre>
+            ) : (
+              <p className="text-gray-500">No logs available</p>
+            )}
+            <div ref={composeLogsEndRef} />
           </div>
         </DialogContent>
       </Dialog>

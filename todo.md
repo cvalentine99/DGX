@@ -578,3 +578,9 @@
 - [x] Add Docker images list view with size, tags, delete option
 - [x] Add Docker Compose support - upload and deploy stacks
 - [x] Integrate NVIDIA AI Workshop compose templates (NIM LLM, NeMo Curator, Triton, RAG Pipeline)
+
+# Docker Advanced Features
+
+- [x] Add image pull progress indicator with real-time download progress
+- [x] Add container exec terminal - interactive shell access from UI
+- [x] Add compose stack logs aggregation - combined logs from all services

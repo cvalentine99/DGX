@@ -3139,4 +3139,311 @@ ENV_EOF`);
         };
       }
     }),
+
+  // ============================================
+  // IMAGE PULL WITH PROGRESS
+  // ============================================
+
+  startImagePull: publicProcedure
+    .input(z.object({
+      hostId: z.enum(["alpha", "beta"]),
+      imageName: z.string(),
+    }))
+    .mutation(async ({ input }) => {
+      try {
+        const conn = await createSSHConnection(input.hostId);
+        
+        // Generate unique pull ID
+        const pullId = `pull-${Date.now()}-${Math.random().toString(36).substring(7)}`;
+        const logFile = `/tmp/${pullId}.log`;
+        
+        // Start pull in background with output to log file
+        await executeSSHCommand(
+          conn,
+          `nohup docker pull ${input.imageName} > ${logFile} 2>&1 &`
+        );
+        conn.end();
+        
+        return {
+          success: true,
+          pullId,
+          logFile,
+          imageName: input.imageName,
+          host: DGX_HOSTS[input.hostId],
+        };
+      } catch (error: any) {
+        return {
+          success: false,
+          error: error.message,
+          pullId: '',
+          logFile: '',
+          imageName: input.imageName,
+          host: DGX_HOSTS[input.hostId],
+        };
+      }
+    }),
+
+  getImagePullProgress: publicProcedure
+    .input(z.object({
+      hostId: z.enum(["alpha", "beta"]),
+      logFile: z.string(),
+      imageName: z.string(),
+    }))
+    .query(async ({ input }) => {
+      try {
+        const conn = await createSSHConnection(input.hostId);
+        
+        // Get the last 50 lines of the pull log
+        const result = await executeSSHCommand(
+          conn,
+          `tail -50 ${input.logFile} 2>/dev/null || echo 'Waiting for pull to start...'`
+        );
+        
+        // Check if pull is still running
+        const psResult = await executeSSHCommand(
+          conn,
+          `pgrep -f "docker pull ${input.imageName}" > /dev/null && echo "running" || echo "completed"`
+        );
+        conn.end();
+        
+        const isRunning = psResult.stdout.trim() === 'running';
+        const output = result.stdout;
+        
+        // Parse progress from docker pull output
+        const progressLines = output.split('\n').filter(line => 
+          line.includes('Downloading') || 
+          line.includes('Extracting') || 
+          line.includes('Pull complete') ||
+          line.includes('Already exists') ||
+          line.includes('Digest:') ||
+          line.includes('Status:')
+        );
+        
+        // Calculate overall progress
+        let progress = 0;
+        let status = 'pulling';
+        
+        if (output.includes('Status: Downloaded') || output.includes('Status: Image is up to date')) {
+          progress = 100;
+          status = 'completed';
+        } else if (output.includes('Error') || output.includes('error')) {
+          status = 'error';
+        } else if (progressLines.length > 0) {
+          // Estimate progress based on layers
+          const completedLayers = (output.match(/Pull complete/g) || []).length + 
+                                  (output.match(/Already exists/g) || []).length;
+          const totalLayers = (output.match(/[a-f0-9]{12}:/g) || []).length;
+          if (totalLayers > 0) {
+            progress = Math.round((completedLayers / totalLayers) * 100);
+          }
+        }
+        
+        return {
+          success: true,
+          isRunning,
+          progress,
+          status,
+          output: progressLines.slice(-10).join('\n'),
+          fullOutput: output,
+          host: DGX_HOSTS[input.hostId],
+        };
+      } catch (error: any) {
+        return {
+          success: false,
+          error: error.message,
+          isRunning: false,
+          progress: 0,
+          status: 'error',
+          output: '',
+          fullOutput: '',
+          host: DGX_HOSTS[input.hostId],
+        };
+      }
+    }),
+
+  // ============================================
+  // CONTAINER EXEC TERMINAL
+  // ============================================
+
+  execContainerCommand: publicProcedure
+    .input(z.object({
+      hostId: z.enum(["alpha", "beta"]),
+      containerId: z.string(),
+      command: z.string(),
+    }))
+    .mutation(async ({ input }) => {
+      try {
+        const conn = await createSSHConnection(input.hostId);
+        
+        // Execute command in container
+        const result = await executeSSHCommand(
+          conn,
+          `docker exec ${input.containerId} ${input.command} 2>&1`
+        );
+        conn.end();
+        
+        return {
+          success: result.code === 0,
+          output: result.stdout || result.stderr,
+          exitCode: result.code,
+          host: DGX_HOSTS[input.hostId],
+        };
+      } catch (error: any) {
+        return {
+          success: false,
+          error: error.message,
+          output: '',
+          exitCode: -1,
+          host: DGX_HOSTS[input.hostId],
+        };
+      }
+    }),
+
+  // Get container shell info (available shells)
+  getContainerShellInfo: publicProcedure
+    .input(z.object({
+      hostId: z.enum(["alpha", "beta"]),
+      containerId: z.string(),
+    }))
+    .query(async ({ input }) => {
+      try {
+        const conn = await createSSHConnection(input.hostId);
+        
+        // Check available shells
+        const bashCheck = await executeSSHCommand(
+          conn,
+          `docker exec ${input.containerId} which bash 2>/dev/null`
+        );
+        const shCheck = await executeSSHCommand(
+          conn,
+          `docker exec ${input.containerId} which sh 2>/dev/null`
+        );
+        
+        // Get container info
+        const infoResult = await executeSSHCommand(
+          conn,
+          `docker inspect ${input.containerId} --format '{{.Config.Image}} {{.Config.WorkingDir}}' 2>/dev/null`
+        );
+        conn.end();
+        
+        const [image, workingDir] = infoResult.stdout.trim().split(' ');
+        
+        return {
+          success: true,
+          hasBash: bashCheck.code === 0,
+          hasSh: shCheck.code === 0,
+          defaultShell: bashCheck.code === 0 ? '/bin/bash' : '/bin/sh',
+          image: image || '',
+          workingDir: workingDir || '/',
+          host: DGX_HOSTS[input.hostId],
+        };
+      } catch (error: any) {
+        return {
+          success: false,
+          error: error.message,
+          hasBash: false,
+          hasSh: false,
+          defaultShell: '/bin/sh',
+          image: '',
+          workingDir: '/',
+          host: DGX_HOSTS[input.hostId],
+        };
+      }
+    }),
+
+  // ============================================
+  // COMPOSE STACK LOGS
+  // ============================================
+
+  getComposeStackLogs: publicProcedure
+    .input(z.object({
+      hostId: z.enum(["alpha", "beta"]),
+      projectName: z.string(),
+      tail: z.number().optional().default(100),
+      follow: z.boolean().optional().default(false),
+    }))
+    .query(async ({ input }) => {
+      try {
+        const conn = await createSSHConnection(input.hostId);
+        
+        // Get aggregated logs from all services in the compose stack
+        const result = await executeSSHCommand(
+          conn,
+          `docker compose -p ${input.projectName} logs --tail ${input.tail} --timestamps 2>&1`
+        );
+        conn.end();
+        
+        if (result.code !== 0 && !result.stdout) {
+          return {
+            success: false,
+            error: result.stderr || 'Failed to fetch compose logs',
+            logs: '',
+            services: [],
+            host: DGX_HOSTS[input.hostId],
+          };
+        }
+        
+        // Parse logs to identify services
+        const logLines = result.stdout.split('\n');
+        const services = new Set<string>();
+        
+        logLines.forEach(line => {
+          // Docker compose logs format: service-name-1  | timestamp log message
+          const match = line.match(/^([a-zA-Z0-9_-]+)-\d+\s+\|/);
+          if (match) {
+            services.add(match[1]);
+          }
+        });
+        
+        return {
+          success: true,
+          logs: result.stdout,
+          services: Array.from(services),
+          host: DGX_HOSTS[input.hostId],
+        };
+      } catch (error: any) {
+        return {
+          success: false,
+          error: error.message,
+          logs: '',
+          services: [],
+          host: DGX_HOSTS[input.hostId],
+        };
+      }
+    }),
+
+  // Get logs for a specific service in compose stack
+  getComposeServiceLogs: publicProcedure
+    .input(z.object({
+      hostId: z.enum(["alpha", "beta"]),
+      projectName: z.string(),
+      serviceName: z.string(),
+      tail: z.number().optional().default(100),
+    }))
+    .query(async ({ input }) => {
+      try {
+        const conn = await createSSHConnection(input.hostId);
+        
+        const result = await executeSSHCommand(
+          conn,
+          `docker compose -p ${input.projectName} logs ${input.serviceName} --tail ${input.tail} --timestamps 2>&1`
+        );
+        conn.end();
+        
+        return {
+          success: result.code === 0 || !!result.stdout,
+          logs: result.stdout || result.stderr,
+          serviceName: input.serviceName,
+          host: DGX_HOSTS[input.hostId],
+        };
+      } catch (error: any) {
+        return {
+          success: false,
+          error: error.message,
+          logs: '',
+          serviceName: input.serviceName,
+          host: DGX_HOSTS[input.hostId],
+        };
+      }
+    }),
 });
