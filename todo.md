@@ -490,3 +490,20 @@
 - [x] Implement connection pre-warming on pool initialization
 - [x] Add connection reuse metrics (saved reconnections counter)
 - [x] Configure optimal pool size based on usage patterns (153 tests passing)
+
+## Settings Page - December 2024
+
+### Settings Page UI
+- [x] Create Settings.tsx page component
+- [x] Add SSH Configuration panel (host, port, username, password)
+- [x] Add vLLM Configuration panel (URL, API key)
+- [x] Add TURN Server Configuration panel
+- [x] Add Alert Thresholds settings panel
+- [x] Add System Info display (versions, status)
+- [x] Add Settings to sidebar navigation
+
+### Backend Settings Management
+- [x] Create settings database table for persistent config
+- [x] Add getSettings and updateSettings endpoints
+- [x] Validate settings before saving
+- [x] Apply settings changes without server restart where possible (166 tests passing)

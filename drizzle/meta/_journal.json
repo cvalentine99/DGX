@@ -22,6 +22,13 @@
       "when": 1766246406609,
       "tag": "0002_woozy_shen",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "5",
+      "when": 1766276522455,
+      "tag": "0003_early_mandroid",
+      "breakpoints": true
     }
   ]
 }

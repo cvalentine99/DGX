@@ -13,6 +13,7 @@ import Statistics from "./pages/Statistics";
 import KnowledgeBase from "./pages/KnowledgeBase";
 import Holoscan from "./pages/Holoscan";
 import CudaToolkit from "./pages/CudaToolkit";
+import Settings from "./pages/Settings";
 import DashboardLayout from "./components/DashboardLayout";
 function Router() {
   // make sure to consider if you need authentication for certain routes
@@ -28,6 +29,7 @@ function Router() {
         <Route path="/knowledge" component={KnowledgeBase} />
         <Route path="/holoscan" component={Holoscan} />
         <Route path="/cuda" component={CudaToolkit} />
+        <Route path="/settings" component={Settings} />
         <Route path="/404" component={NotFound} />
         <Route component={NotFound} />
       </Switch>

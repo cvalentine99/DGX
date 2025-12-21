@@ -1,0 +1,20 @@
+CREATE TABLE `system_settings` (
+	`id` int AUTO_INCREMENT NOT NULL,
+	`sshHost` varchar(256),
+	`sshPort` int,
+	`sshUsername` varchar(128),
+	`sshPassword` varchar(256),
+	`vllmUrl` varchar(512),
+	`vllmApiKey` varchar(256),
+	`turnUrl` varchar(256),
+	`turnUsername` varchar(128),
+	`turnCredential` varchar(256),
+	`tempWarning` int,
+	`tempCritical` int,
+	`powerWarning` int,
+	`memoryWarning` int,
+	`alertsEnabled` int DEFAULT 1,
+	`createdAt` timestamp NOT NULL DEFAULT (now()),
+	`updatedAt` timestamp NOT NULL DEFAULT (now()) ON UPDATE CURRENT_TIMESTAMP,
+	CONSTRAINT `system_settings_id` PRIMARY KEY(`id`)
+);

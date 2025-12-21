@@ -27,6 +27,7 @@ import {
   BookOpen,
   Workflow,
   AlertCircle,
+  Settings,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
@@ -53,6 +54,7 @@ const NAV_ITEMS = [
   { path: "/knowledge", icon: BookOpen, label: "Knowledge", description: "RAG & Documents" },
   { path: "/holoscan", icon: Workflow, label: "Holoscan", description: "Pipeline Manager" },
   { path: "/cuda", icon: Cpu, label: "CUDA", description: "Toolkit & Versions" },
+  { path: "/settings", icon: Settings, label: "Settings", description: "System Configuration" },
 ];
 
 interface HostMetrics {

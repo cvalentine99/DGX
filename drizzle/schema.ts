@@ -90,3 +90,27 @@ export const systemAlerts = mysqlTable("system_alerts", {
 
 export type SystemAlert = typeof systemAlerts.$inferSelect;
 export type InsertSystemAlert = typeof systemAlerts.$inferInsert;
+
+// System settings for configuration persistence
+export const systemSettings = mysqlTable("system_settings", {
+  id: int("id").autoincrement().primaryKey(),
+  sshHost: varchar("sshHost", { length: 256 }),
+  sshPort: int("sshPort"),
+  sshUsername: varchar("sshUsername", { length: 128 }),
+  sshPassword: varchar("sshPassword", { length: 256 }),
+  vllmUrl: varchar("vllmUrl", { length: 512 }),
+  vllmApiKey: varchar("vllmApiKey", { length: 256 }),
+  turnUrl: varchar("turnUrl", { length: 256 }),
+  turnUsername: varchar("turnUsername", { length: 128 }),
+  turnCredential: varchar("turnCredential", { length: 256 }),
+  tempWarning: int("tempWarning"),
+  tempCritical: int("tempCritical"),
+  powerWarning: int("powerWarning"),
+  memoryWarning: int("memoryWarning"),
+  alertsEnabled: int("alertsEnabled").default(1), // 1 = enabled
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
+export type SystemSettings = typeof systemSettings.$inferSelect;
+export type InsertSystemSettings = typeof systemSettings.$inferInsert;
