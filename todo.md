@@ -999,3 +999,18 @@
 - [x] Add deployment status polling with real-time updates
 - [x] Add proper error handling and cancellation support
 - [x] Add rollback endpoint for deployment cleanup
+## Bare Metal Deployment Execution
+- [x] Build production bundle
+- [x] Create deployment archive (tar.gz)
+- [x] Create one-command install script
+- [ ] User: Run deployment on DGX Spark
+- [ ] User: Configure environment variables
+- [ ] User: Start service and verify
+
+## Critical Audit Fixes
+- [x] Fix database driver mismatch - Updated deployment to use MySQL (matching app code)
+- [x] Add database migration step to deployment script
+- [x] Add MySQL server installation and configuration
+- [x] Create embedded migration script with all table schemas
+- [x] Add database user and password generation
+- [x] Update systemd service to depend on mysql.service
