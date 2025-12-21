@@ -69,6 +69,11 @@ import {
   ImageIcon,
   Mic,
   Volume2,
+  Radio,
+  Shield,
+  Rocket,
+  FileText,
+  Server,
 } from "lucide-react";
 import { toast } from "sonner";
 import { trpc } from "@/lib/trpc";
@@ -172,6 +177,30 @@ const pipelineTemplates = [
     fps: 30,
     latency: "20ms",
   },
+  {
+    id: "valentine-rf",
+    name: "Valentine RF Signal Processing",
+    description: "GPU-accelerated RF signal processing with cuSignal spectrogram",
+    icon: Radio,
+    operators: ["MockSdrSourceOp", "CuSignalProcOp", "HolovizOp"],
+    model: "cusignal",
+    fps: 60,
+    latency: "5ms",
+    category: "rf-signal",
+    deployable: true,
+  },
+  {
+    id: "netsec-forensics",
+    name: "Network Security Forensics",
+    description: "GPU-based packet parsing and traffic visualization",
+    icon: Shield,
+    operators: ["PcapLoaderOp", "GpuPacketParserOp", "HolovizOp"],
+    model: "gpu_parser",
+    fps: 30,
+    latency: "10ms",
+    category: "network",
+    deployable: true,
+  },
 ];
 
 // Simulated running applications
@@ -270,6 +299,54 @@ export default function Holoscan() {
     },
     onError: (err) => toast.error(err.message),
   });
+
+  // Pipeline deployment queries and mutations
+  const { data: deployedPipelines, refetch: refetchDeployed } = trpc.ssh.listDeployedPipelines.useQuery(
+    { hostId: selectedHost },
+    { refetchInterval: autoRefresh ? 10000 : false }
+  );
+
+  const deployPipelineMutation = trpc.ssh.deployPipeline.useMutation({
+    onSuccess: (data) => {
+      if (data.success) {
+        toast.success(data.message || "Pipeline deployed successfully");
+        refetchDeployed();
+        setShowDeployDialog(false);
+      } else {
+        toast.error(data.error || "Failed to deploy pipeline");
+      }
+    },
+    onError: (err) => toast.error(err.message),
+  });
+
+  const startDeployedPipelineMutation = trpc.ssh.startPipeline.useMutation({
+    onSuccess: (data) => {
+      if (data.success) {
+        toast.success(data.message || "Pipeline started");
+        refetchDeployed();
+      } else {
+        toast.error(data.error || "Failed to start pipeline");
+      }
+    },
+    onError: (err) => toast.error(err.message),
+  });
+
+  const stopDeployedPipelineMutation = trpc.ssh.stopPipeline.useMutation({
+    onSuccess: (data) => {
+      if (data.success) {
+        toast.success(data.message || "Pipeline stopped");
+        refetchDeployed();
+      } else {
+        toast.error(data.error || "Failed to stop pipeline");
+      }
+    },
+    onError: (err) => toast.error(err.message),
+  });
+
+  // Deployment state
+  const [deployingPipeline, setDeployingPipeline] = useState<string | null>(null);
+  const [showLogsDialog, setShowLogsDialog] = useState(false);
+  const [selectedPipelineLogs, setSelectedPipelineLogs] = useState<string | null>(null);
 
   // Update camera connection status based on API response
   useEffect(() => {
@@ -382,7 +459,22 @@ export default function Holoscan() {
       return;
     }
     
-    // Call backend to start pipeline
+    const template = pipelineTemplates.find(t => t.id === newPipeline.template);
+    
+    // Check if this is a deployable pipeline (RF or NetSec)
+    if (template && (template as any).deployable) {
+      setDeployingPipeline(newPipeline.template);
+      deployPipelineMutation.mutate({
+        hostId: selectedHost,
+        pipelineId: newPipeline.template,
+        config: {
+          windowTitle: newPipeline.name,
+        },
+      });
+      return;
+    }
+    
+    // Call backend to start pipeline (for video pipelines)
     startPipelineMutation.mutate({
       hostId: selectedHost,
       pipelineType: newPipeline.template,
@@ -395,7 +487,6 @@ export default function Holoscan() {
     });
     
     // Also add to local state for immediate UI feedback
-    const template = pipelineTemplates.find(t => t.id === newPipeline.template);
     const newApp = {
       id: `${newPipeline.template}-${Date.now()}`,
       name: newPipeline.name,
@@ -726,6 +817,94 @@ export default function Holoscan() {
                         }}
                       >
                         <Trash2 className="h-3 w-3" />
+                      </Button>
+                    </div>
+                  </motion.div>
+                ))
+              )}
+            </CardContent>
+          </Card>
+
+          {/* Deployed Pipelines from DGX */}
+          <Card className="cyber-panel mt-4">
+            <CardHeader className="pb-3">
+              <div className="flex items-center justify-between">
+                <CardTitle className="text-lg font-display flex items-center gap-2">
+                  <Server className="h-5 w-5 text-nvidia-teal" />
+                  Deployed Pipelines
+                </CardTitle>
+                <Button variant="ghost" size="sm" onClick={() => refetchDeployed()}>
+                  <RefreshCw className="h-4 w-4" />
+                </Button>
+              </div>
+              <CardDescription>Pipelines deployed to {selectedHost === 'alpha' ? 'DGX Spark Alpha' : 'DGX Spark Beta'}</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              {!deployedPipelines?.pipelines?.length ? (
+                <div className="text-center py-6 text-muted-foreground">
+                  <Rocket className="h-10 w-10 mx-auto mb-2 opacity-50" />
+                  <p className="text-sm">No pipelines deployed</p>
+                  <p className="text-xs">Deploy RF or NetSec pipelines above</p>
+                </div>
+              ) : (
+                deployedPipelines.pipelines.map((pipeline: any) => (
+                  <motion.div
+                    key={pipeline.name}
+                    initial={{ opacity: 0, y: 10 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    className="p-3 rounded-lg border border-border hover:border-nvidia-teal/50 transition-all"
+                  >
+                    <div className="flex items-center justify-between mb-2">
+                      <div className="flex items-center gap-2">
+                        {pipeline.type === 'valentine-rf' ? (
+                          <Radio className="h-4 w-4 text-nvidia-green" />
+                        ) : (
+                          <Shield className="h-4 w-4 text-nvidia-teal" />
+                        )}
+                        <span className="font-medium text-sm">{pipeline.name}</span>
+                      </div>
+                      <Badge variant={pipeline.status === 'running' ? 'default' : 'secondary'}>
+                        {pipeline.status}
+                      </Badge>
+                    </div>
+                    <div className="text-xs text-muted-foreground mb-2">
+                      {pipeline.path}
+                    </div>
+                    <div className="flex items-center gap-2">
+                      {pipeline.status !== 'running' ? (
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="h-7 text-xs"
+                          onClick={() => startDeployedPipelineMutation.mutate({ hostId: selectedHost, pipelinePath: pipeline.path })}
+                          disabled={startDeployedPipelineMutation.isPending}
+                        >
+                          <Play className="h-3 w-3 mr-1" />
+                          Start
+                        </Button>
+                      ) : (
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="h-7 text-xs text-nvidia-critical"
+                          onClick={() => stopDeployedPipelineMutation.mutate({ hostId: selectedHost, pipelinePath: pipeline.path })}
+                          disabled={stopDeployedPipelineMutation.isPending}
+                        >
+                          <Square className="h-3 w-3 mr-1" />
+                          Stop
+                        </Button>
+                      )}
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        className="h-7 text-xs"
+                        onClick={() => {
+                          setSelectedPipelineLogs(pipeline.name);
+                          setShowLogsDialog(true);
+                        }}
+                      >
+                        <Terminal className="h-3 w-3 mr-1" />
+                        Logs
                       </Button>
                     </div>
                   </motion.div>

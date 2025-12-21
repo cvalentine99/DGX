@@ -776,3 +776,26 @@
 - [x] Generate downloadable blob from file content
 - [x] Trigger browser download with correct filename
 - [ ] Show download progress for large files
+
+# Holoscan Pipeline Deployment System (Dec 2024)
+
+## Pipeline Templates
+- [x] Create ValentineRfApp pipeline template (RF Signal Processing with cuSignal)
+- [x] Create NetSecApp pipeline template (Network Security/Forensics)
+- [x] Store pipeline Python code as deployable templates (server/pipelines/)
+- [x] Add pipeline metadata (name, description, requirements, operators)
+
+## Backend Deployment Endpoints
+- [x] Create ssh.deployPipeline endpoint to push pipeline files to DGX hosts
+- [x] Create ssh.startDeployedPipeline endpoint to execute pipeline on remote host
+- [x] Create ssh.stopDeployedPipeline endpoint to terminate running pipeline
+- [x] Create ssh.getDeployedPipelines endpoint to list deployed pipelines
+- [ ] Create ssh.getPipelineLogs endpoint to stream pipeline output
+
+## Pipeline Deployment UI
+- [x] Add "Deploy Pipeline" section to Holoscan page
+- [x] Create pipeline template cards with deploy buttons (8 templates including RF & NetSec)
+- [x] Build deployment modal with host selection and configuration
+- [ ] Add real-time deployment status and log streaming
+- [x] Show running pipelines with stop/restart controls (Deployed Pipelines section)
+- [ ] Display pipeline output/visualization status

@@ -4769,4 +4769,390 @@ ENV_EOF`);
         return { success: false, error: error.message, content: null, truncated: false };
       }
     }),
+
+  // =========================================================================
+  // Pipeline Deployment Endpoints
+  // =========================================================================
+
+  // Get available pipeline templates
+  getPipelineTemplates: publicProcedure
+    .query(async () => {
+      const templates = [
+        {
+          id: "valentine-rf",
+          name: "Valentine RF Signal Processing",
+          description: "GPU-accelerated RF signal processing pipeline using cuSignal for real-time spectrogram generation from I/Q samples",
+          category: "rf-signal",
+          operators: ["MockSdrSourceOp", "CuSignalProcOp", "HolovizOp"],
+          requirements: ["holoscan", "cupy", "cusignal"],
+          visualization: "Spectrogram Heatmap",
+          inputType: "I/Q Samples (Complex64)",
+          outputType: "2D Spectrogram Tensor",
+          sampleRate: "20 MHz",
+          icon: "radio",
+        },
+        {
+          id: "netsec-forensics",
+          name: "Network Security Forensics",
+          description: "GPU-based packet parsing and traffic visualization for network security analysis and forensics",
+          category: "network",
+          operators: ["PcapLoaderOp", "GpuPacketParserOp", "HolovizOp"],
+          requirements: ["holoscan", "cupy"],
+          visualization: "Traffic Flow Heatmap",
+          inputType: "PCAP/Raw Bytes",
+          outputType: "512x512 RGBA Heatmap",
+          icon: "shield",
+        },
+      ];
+      return { success: true, templates };
+    }),
+
+  // Deploy pipeline to DGX host
+  deployPipeline: publicProcedure
+    .input(z.object({
+      hostId: z.enum(["alpha", "beta"]).default("alpha"),
+      pipelineId: z.string(),
+      deployPath: z.string().default("/home/ubuntu/holoscan-pipelines"),
+      config: z.object({
+        sampleRate: z.number().optional(),
+        pcapFile: z.string().optional(),
+        windowTitle: z.string().optional(),
+      }).optional(),
+    }))
+    .mutation(async ({ input }): Promise<{ success: boolean; error?: string; deployedPath?: string; message?: string }> => {
+      const pool = getSSHPool();
+      if (!pool) {
+        return { success: false, error: "SSH pool not initialized" };
+      }
+
+      try {
+        // Pipeline source code
+        const pipelineCode: Record<string, string> = {
+          "valentine-rf": `import holoscan
+from holoscan.core import Application, Operator, OperatorSpec
+from holoscan.operators import HolovizOp
+import cupy as cp
+import cusignal
+import numpy as np
+
+class CuSignalProcOp(Operator):
+    def __init__(self, fragment, *args, **kwargs):
+        self.nperseg = 1024
+        super().__init__(fragment, *args, **kwargs)
+
+    def setup(self, spec: OperatorSpec):
+        spec.input("rx_iq")
+        spec.output("spectrogram")
+
+    def compute(self, op_input, op_output, context):
+        iq_data = op_input.receive("rx_iq")
+        if not isinstance(iq_data, cp.ndarray):
+            iq_data = cp.asarray(iq_data)
+        window = cp.blackman(self.nperseg)
+        f, t, Sxx = cusignal.spectrogram(iq_data, fs=${input.config?.sampleRate || 20e6}, window=window, nperseg=self.nperseg)
+        Sxx_log = cp.log10(Sxx + 1e-9)
+        out_tensor = Sxx_log.reshape(Sxx_log.shape[0], Sxx_log.shape[1], 1)
+        op_output.emit(out_tensor, "spectrogram")
+
+class MockSdrSourceOp(Operator):
+    def setup(self, spec: OperatorSpec):
+        spec.output("tx_iq")
+
+    def compute(self, op_input, op_output, context):
+        t = cp.arange(20000)
+        sig = cp.exp(1j * 2 * cp.pi * 0.1 * t) + (cp.random.randn(20000) + 1j * cp.random.randn(20000)) * 0.1
+        op_output.emit(sig.astype(cp.complex64), "tx_iq")
+
+class ValentineRfApp(Application):
+    def compose(self):
+        src = MockSdrSourceOp(self, name="sdr_source")
+        dsp = CuSignalProcOp(self, name="cusignal_processor")
+        viz = HolovizOp(self, name="holoviz", tensors=[dict(name="spectrogram", type="color", opacity=1.0)], window_title="${input.config?.windowTitle || 'DGX Spark: RF Spectrum'}")
+        self.add_flow(src, dsp, {("tx_iq", "rx_iq")})
+        self.add_flow(dsp, viz, {("spectrogram", "receivers")})
+
+if __name__ == "__main__":
+    app = ValentineRfApp()
+    app.run()
+`,
+          "netsec-forensics": `import holoscan
+from holoscan.core import Application, Operator, OperatorSpec
+from holoscan.operators import HolovizOp
+import cupy as cp
+
+class GpuPacketParserOp(Operator):
+    def setup(self, spec: OperatorSpec):
+        spec.input("raw_bytes")
+        spec.output("flow_heatmap")
+
+    def compute(self, op_input, op_output, context):
+        raw_batch = op_input.receive("raw_bytes")
+        heatmap = cp.zeros((512, 512, 4), dtype=cp.float32)
+        active_flows_x = cp.random.randint(0, 512, 100)
+        active_flows_y = cp.random.randint(0, 512, 100)
+        heatmap[active_flows_x, active_flows_y, 0] = 1.0
+        heatmap[active_flows_x, active_flows_y, 3] = 1.0
+        op_output.emit(heatmap, "flow_heatmap")
+
+class PcapLoaderOp(Operator):
+    def __init__(self, fragment, pcap_file, *args, **kwargs):
+        self.pcap_file = pcap_file
+        super().__init__(fragment, *args, **kwargs)
+
+    def setup(self, spec: OperatorSpec):
+        spec.output("raw_bytes")
+
+    def compute(self, op_input, op_output, context):
+        dummy_buffer = cp.zeros(65535, dtype=cp.uint8)
+        op_output.emit(dummy_buffer, "raw_bytes")
+
+class NetSecApp(Application):
+    def compose(self):
+        pcap_src = PcapLoaderOp(self, name="pcap_loader", pcap_file="${input.config?.pcapFile || '/data/capture_01.pcap'}")
+        parser = GpuPacketParserOp(self, name="gpu_parser")
+        viz = HolovizOp(self, name="net_viz", tensors=[dict(name="flow_heatmap", type="color")], window_title="${input.config?.windowTitle || 'DGX Spark: Network Forensics'}")
+        self.add_flow(pcap_src, parser, {("raw_bytes", "raw_bytes")})
+        self.add_flow(parser, viz, {("flow_heatmap", "receivers")})
+
+if __name__ == "__main__":
+    app = NetSecApp()
+    app.run()
+`,
+        };
+
+        const code = pipelineCode[input.pipelineId];
+        if (!code) {
+          return { success: false, error: `Unknown pipeline: ${input.pipelineId}` };
+        }
+
+        // Create deployment directory
+        await pool.execute(input.hostId, `mkdir -p "${input.deployPath}"`);
+
+        // Write pipeline file
+        const filename = input.pipelineId === "valentine-rf" ? "valentine_rf_app.py" : "netsec_app.py";
+        const fullPath = `${input.deployPath}/${filename}`;
+        
+        // Escape the code for shell
+        const escapedCode = code.replace(/'/g, "'\"'\"'");
+        await pool.execute(input.hostId, `cat > "${fullPath}" << 'PIPELINE_EOF'
+${code}
+PIPELINE_EOF`);
+
+        return {
+          success: true,
+          deployedPath: fullPath,
+          message: `Pipeline deployed to ${fullPath}`,
+        };
+      } catch (error: any) {
+        return { success: false, error: error.message };
+      }
+    }),
+
+  // Start a deployed pipeline
+  startPipeline: publicProcedure
+    .input(z.object({
+      hostId: z.enum(["alpha", "beta"]).default("alpha"),
+      pipelinePath: z.string(),
+      background: z.boolean().default(true),
+    }))
+    .mutation(async ({ input }): Promise<{ success: boolean; error?: string; pid?: number; message?: string }> => {
+      const pool = getSSHPool();
+      if (!pool) {
+        return { success: false, error: "SSH pool not initialized" };
+      }
+
+      try {
+        // Check if file exists
+        const checkResult = await pool.execute(input.hostId, `test -f "${input.pipelinePath}" && echo "exists"`);
+        if (!checkResult.includes("exists")) {
+          return { success: false, error: "Pipeline file not found" };
+        }
+
+        // Start the pipeline
+        const logFile = input.pipelinePath.replace(".py", ".log");
+        const pidFile = input.pipelinePath.replace(".py", ".pid");
+        
+        if (input.background) {
+          // Run in background with nohup
+          await pool.execute(
+            input.hostId,
+            `nohup python3 "${input.pipelinePath}" > "${logFile}" 2>&1 & echo $! > "${pidFile}"`
+          );
+          
+          // Get the PID
+          const pidOutput = await pool.execute(input.hostId, `cat "${pidFile}" 2>/dev/null || echo "0"`);
+          const pid = parseInt(pidOutput.trim()) || 0;
+          
+          return {
+            success: true,
+            pid,
+            message: `Pipeline started with PID ${pid}`,
+          };
+        } else {
+          // Run in foreground (blocking)
+          const output = await pool.execute(input.hostId, `python3 "${input.pipelinePath}" 2>&1`);
+          return {
+            success: true,
+            message: output,
+          };
+        }
+      } catch (error: any) {
+        return { success: false, error: error.message };
+      }
+    }),
+
+  // Stop a running pipeline
+  stopPipeline: publicProcedure
+    .input(z.object({
+      hostId: z.enum(["alpha", "beta"]).default("alpha"),
+      pipelinePath: z.string(),
+    }))
+    .mutation(async ({ input }): Promise<{ success: boolean; error?: string; message?: string }> => {
+      const pool = getSSHPool();
+      if (!pool) {
+        return { success: false, error: "SSH pool not initialized" };
+      }
+
+      try {
+        const pidFile = input.pipelinePath.replace(".py", ".pid");
+        
+        // Get PID from file
+        const pidOutput = await pool.execute(input.hostId, `cat "${pidFile}" 2>/dev/null || echo "0"`);
+        const pid = parseInt(pidOutput.trim()) || 0;
+        
+        if (pid > 0) {
+          // Kill the process
+          await pool.execute(input.hostId, `kill ${pid} 2>/dev/null || true`);
+          // Clean up PID file
+          await pool.execute(input.hostId, `rm -f "${pidFile}"`);
+          
+          return {
+            success: true,
+            message: `Pipeline stopped (PID ${pid})`,
+          };
+        } else {
+          return {
+            success: false,
+            error: "No running pipeline found",
+          };
+        }
+      } catch (error: any) {
+        return { success: false, error: error.message };
+      }
+    }),
+
+  // Get pipeline status
+  getPipelineStatus: publicProcedure
+    .input(z.object({
+      hostId: z.enum(["alpha", "beta"]).default("alpha"),
+      pipelinePath: z.string(),
+    }))
+    .query(async ({ input }): Promise<{ success: boolean; running: boolean; pid?: number; error?: string }> => {
+      const pool = getSSHPool();
+      if (!pool) {
+        return { success: false, running: false, error: "SSH pool not initialized" };
+      }
+
+      try {
+        const pidFile = input.pipelinePath.replace(".py", ".pid");
+        
+        // Get PID from file
+        const pidOutput = await pool.execute(input.hostId, `cat "${pidFile}" 2>/dev/null || echo "0"`);
+        const pid = parseInt(pidOutput.trim()) || 0;
+        
+        if (pid > 0) {
+          // Check if process is running
+          const checkResult = await pool.execute(input.hostId, `ps -p ${pid} > /dev/null 2>&1 && echo "running" || echo "stopped"`);
+          const running = checkResult.includes("running");
+          
+          return {
+            success: true,
+            running,
+            pid: running ? pid : undefined,
+          };
+        } else {
+          return {
+            success: true,
+            running: false,
+          };
+        }
+      } catch (error: any) {
+        return { success: false, running: false, error: error.message };
+      }
+    }),
+
+  // Get pipeline logs
+  getPipelineLogs: publicProcedure
+    .input(z.object({
+      hostId: z.enum(["alpha", "beta"]).default("alpha"),
+      pipelinePath: z.string(),
+      lines: z.number().default(100),
+    }))
+    .query(async ({ input }): Promise<{ success: boolean; logs?: string; error?: string }> => {
+      const pool = getSSHPool();
+      if (!pool) {
+        return { success: false, error: "SSH pool not initialized" };
+      }
+
+      try {
+        const logFile = input.pipelinePath.replace(".py", ".log");
+        
+        // Get last N lines of log
+        const logs = await pool.execute(input.hostId, `tail -n ${input.lines} "${logFile}" 2>/dev/null || echo "No logs available"`);
+        
+        return {
+          success: true,
+          logs,
+        };
+      } catch (error: any) {
+        return { success: false, error: error.message };
+      }
+    }),
+
+  // List deployed pipelines on a host
+  listDeployedPipelines: publicProcedure
+    .input(z.object({
+      hostId: z.enum(["alpha", "beta"]).default("alpha"),
+      deployPath: z.string().default("/home/ubuntu/holoscan-pipelines"),
+    }))
+    .query(async ({ input }): Promise<{ success: boolean; pipelines: Array<{ name: string; path: string; hasLogs: boolean; hasPid: boolean }>; error?: string }> => {
+      const pool = getSSHPool();
+      if (!pool) {
+        return { success: false, pipelines: [], error: "SSH pool not initialized" };
+      }
+
+      try {
+        // List Python files in deploy directory
+        const listOutput = await pool.execute(
+          input.hostId,
+          `ls -1 "${input.deployPath}"/*.py 2>/dev/null || echo ""`
+        );
+        
+        const files = listOutput.trim().split("\n").filter(Boolean);
+        const pipelines = [];
+        
+        for (const filePath of files) {
+          const name = filePath.split("/").pop()?.replace(".py", "") || "";
+          const logFile = filePath.replace(".py", ".log");
+          const pidFile = filePath.replace(".py", ".pid");
+          
+          // Check if log and pid files exist
+          const checkResult = await pool.execute(
+            input.hostId,
+            `test -f "${logFile}" && echo "log" || true; test -f "${pidFile}" && echo "pid" || true`
+          );
+          
+          pipelines.push({
+            name,
+            path: filePath,
+            hasLogs: checkResult.includes("log"),
+            hasPid: checkResult.includes("pid"),
+          });
+        }
+        
+        return { success: true, pipelines };
+      } catch (error: any) {
+        return { success: false, pipelines: [], error: error.message };
+      }
+    }),
 });
