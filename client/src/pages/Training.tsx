@@ -530,16 +530,27 @@ function TrainingTelemetryCard() {
 
 function JobQueueCard() {
   const [showCreateModal, setShowCreateModal] = useState(false);
-  const [newJob, setNewJob] = useState({
+  const [newJob, setNewJob] = useState<{
+    name: string;
+    description: string;
+    baseModel: string;
+    trainingType: "lora" | "qlora" | "sft" | "full";
+    datasetPath: string;
+    epochs: number;
+    batchSize: number;
+    learningRate: string;
+    hostId: "alpha" | "beta";
+    gpuCount: number;
+  }>({
     name: "",
     description: "",
     baseModel: "nemotron-3-nano-30b",
-    trainingType: "lora" as const,
+    trainingType: "lora",
     datasetPath: "/workspace/datasets/custom-instruct",
     epochs: 3,
     batchSize: 4,
     learningRate: "2e-5",
-    hostId: "alpha" as const,
+    hostId: "alpha",
     gpuCount: 1,
   });
 
@@ -551,6 +562,42 @@ function JobQueueCard() {
 
   // Fetch base models
   const { data: modelsData } = trpc.training.getBaseModels.useQuery();
+
+  // Fetch training templates for auto-fill
+  const { data: templatesData } = trpc.trainingTemplates.getTemplates.useQuery();
+  const [selectedTemplateId, setSelectedTemplateId] = useState<string | null>(null);
+
+  // Handle template selection - auto-fill form
+  const handleTemplateSelect = (templateId: string) => {
+    if (templateId === "none") {
+      setSelectedTemplateId(null);
+      return;
+    }
+    const template = templatesData?.find((t) => t.id.toString() === templateId);
+    if (template) {
+      setSelectedTemplateId(templateId);
+      // Map template training type to job training type
+      const trainingTypeMap: Record<string, "lora" | "qlora" | "sft" | "full"> = {
+        "lora": "lora",
+        "qlora": "qlora",
+        "full_sft": "sft",
+        "full_finetune": "full",
+      };
+      setNewJob({
+        name: `${template.name} - ${new Date().toLocaleDateString()}`,
+        description: template.description || "",
+        baseModel: template.baseModel || "nemotron-3-nano-30b",
+        trainingType: trainingTypeMap[template.trainingType] || "lora",
+        datasetPath: template.datasetPath || "/workspace/datasets/custom-instruct",
+        epochs: template.epochs || 3,
+        batchSize: template.batchSize || 4,
+        learningRate: template.learningRate || "2e-5",
+        hostId: "alpha" as const,
+        gpuCount: template.gpuCount || 1,
+      });
+      toast.success(`Template "${template.name}" applied`, { description: "Form fields have been auto-filled" });
+    }
+  };
 
   // Fetch stats
   const { data: stats } = trpc.training.getStats.useQuery(undefined, {
@@ -735,6 +782,38 @@ function JobQueueCard() {
           </DialogHeader>
           
           <div className="space-y-4 py-4">
+            {/* Template Selector */}
+            {templatesData && templatesData.length > 0 && (
+              <div className="space-y-2 pb-4 border-b border-gray-800">
+                <Label className="flex items-center gap-2">
+                  <FileText className="h-4 w-4 text-purple-400" />
+                  Load from Template
+                </Label>
+                <Select
+                  value={selectedTemplateId || "none"}
+                  onValueChange={handleTemplateSelect}
+                >
+                  <SelectTrigger className="bg-black/50 border-gray-700">
+                    <SelectValue placeholder="Select a template to auto-fill..." />
+                  </SelectTrigger>
+                  <SelectContent className="bg-gray-900 border-gray-700">
+                    <SelectItem value="none">Start from scratch</SelectItem>
+                    {templatesData.map((template) => (
+                      <SelectItem key={template.id} value={template.id.toString()}>
+                        <div className="flex items-center gap-2">
+                          <span>{template.name}</span>
+                          <span className="text-xs text-muted-foreground">({template.trainingType})</span>
+                        </div>
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                {selectedTemplateId && (
+                  <p className="text-xs text-purple-400">Template applied - customize fields below</p>
+                )}
+              </div>
+            )}
+
             <div className="space-y-2">
               <Label>Job Name</Label>
               <Input

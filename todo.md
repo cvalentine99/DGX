@@ -753,3 +753,26 @@
 - [x] Show loading spinner during model operations
 - [x] Update model status after load/unload completes
 - [ ] Add confirmation dialog before unloading active model
+
+# Feature Implementation (Dec 2024 - Part 4)
+
+## Template Auto-Fill for Training Jobs
+- [x] Add template selector dropdown to New Job modal
+- [x] Fetch available templates from trainingTemplates.getTemplates
+- [x] Auto-fill all job configuration fields when template is selected
+- [x] Show template name and description in dropdown options
+- [x] Allow clearing template selection to start fresh ("Start from scratch" option)
+
+## Model Unload Confirmation Dialog
+- [x] Create confirmation dialog component for unload action
+- [x] Show warning about disconnecting active model
+- [x] Display model name and current status in dialog
+- [x] Add Cancel and Confirm buttons
+- [x] Only proceed with unload after user confirmation
+
+## File Download in Preview Modal
+- [x] Add Download button to file preview modal header
+- [x] Reuse ssh.readFile endpoint for download content
+- [x] Generate downloadable blob from file content
+- [x] Trigger browser download with correct filename
+- [ ] Show download progress for large files

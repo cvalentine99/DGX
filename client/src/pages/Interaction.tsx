@@ -33,6 +33,7 @@ import {
   Zap,
   Power,
   Download,
+  AlertTriangle,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -44,6 +45,16 @@ import { Switch } from "@/components/ui/switch";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { InferenceTestPanel } from "@/components/InferenceTestPanel";
 
 // System Prompt Presets
@@ -467,9 +478,10 @@ function ModelLoadingControls({
   models 
 }: { 
   selectedModel: string; 
-  models: Array<{ id: string; status?: string }>;
+  models: Array<{ id: string; name?: string; status?: string }>;
 }) {
   const utils = trpc.useUtils();
+  const [showUnloadConfirm, setShowUnloadConfirm] = useState(false);
   
   // Load model mutation
   const loadModelMutation = trpc.vllm.loadModel.useMutation({
@@ -510,12 +522,18 @@ function ModelLoadingControls({
   };
 
   const handleUnloadModel = () => {
+    setShowUnloadConfirm(true);
+  };
+
+  const confirmUnload = () => {
     unloadModelMutation.mutate({ modelId: selectedModel });
+    setShowUnloadConfirm(false);
   };
 
   if (!selectedModel || models.length === 0) return null;
 
   return (
+    <>
     <div className="flex items-center gap-2 pt-2">
       {isLoaded ? (
         <Button
@@ -549,6 +567,40 @@ function ModelLoadingControls({
         </Button>
       )}
     </div>
+
+      {/* Unload Confirmation Dialog */}
+      <AlertDialog open={showUnloadConfirm} onOpenChange={setShowUnloadConfirm}>
+        <AlertDialogContent className="bg-gray-900 border-gray-700">
+          <AlertDialogHeader>
+            <AlertDialogTitle className="flex items-center gap-2 text-orange-400">
+              <AlertTriangle className="h-5 w-5" />
+              Unload Model?
+            </AlertDialogTitle>
+            <AlertDialogDescription className="text-gray-400">
+              Are you sure you want to unload <span className="font-semibold text-foreground">{currentModel?.name || selectedModel}</span>?
+              <br /><br />
+              This will disconnect the model from the vLLM server. Any active inference requests will be interrupted.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel className="bg-transparent border-gray-700 hover:bg-gray-800">
+              Cancel
+            </AlertDialogCancel>
+            <AlertDialogAction
+              onClick={confirmUnload}
+              className="bg-orange-600 hover:bg-orange-700 text-white"
+            >
+              {unloadModelMutation.isPending ? (
+                <Loader2 className="h-4 w-4 animate-spin mr-2" />
+              ) : (
+                <Power className="h-4 w-4 mr-2" />
+              )}
+              Unload Model
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </>
   );
 }
 

@@ -684,11 +684,35 @@ function FileBrowserCard() {
                 <DialogTitle className="text-sm font-mono truncate pr-4">
                   {previewFile?.split("/").pop()}
                 </DialogTitle>
-                {filePreview?.truncated && (
-                  <Badge variant="outline" className="text-[10px] text-yellow-400 border-yellow-400/50">
-                    Truncated (showing first 100KB)
-                  </Badge>
-                )}
+                <div className="flex items-center gap-2">
+                  {filePreview?.truncated && (
+                    <Badge variant="outline" className="text-[10px] text-yellow-400 border-yellow-400/50">
+                      Truncated (showing first 100KB)
+                    </Badge>
+                  )}
+                  {filePreview?.success && filePreview.content && (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="h-7 text-xs"
+                      onClick={() => {
+                        const blob = new Blob([filePreview.content], { type: "text/plain" });
+                        const url = URL.createObjectURL(blob);
+                        const a = document.createElement("a");
+                        a.href = url;
+                        a.download = previewFile?.split("/").pop() || "download.txt";
+                        document.body.appendChild(a);
+                        a.click();
+                        document.body.removeChild(a);
+                        URL.revokeObjectURL(url);
+                        toast.success("File downloaded", { description: previewFile?.split("/").pop() });
+                      }}
+                    >
+                      <Download className="w-3 h-3 mr-1" />
+                      Download
+                    </Button>
+                  )}
+                </div>
               </div>
               <p className="text-xs text-muted-foreground truncate">{previewFile}</p>
             </DialogHeader>
