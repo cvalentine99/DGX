@@ -321,108 +321,206 @@ function MoEParametersCard() {
 }
 
 function TrainingTelemetryCard() {
-  const job = TRAINING_JOB;
-  const progress = (job.currentStep / job.totalSteps) * 100;
+  // Fetch active/running jobs from backend
+  const { data: jobsData, isLoading } = trpc.training.getJobs.useQuery(
+    { limit: 10 },
+    { refetchInterval: 3000 }
+  );
   
+  const cancelJobMutation = trpc.training.cancelJob.useMutation({
+    onSuccess: () => toast.info("Training job cancelled")
+  });
+
+  // Find the most recent running or preparing job
+  const jobs = jobsData?.jobs || [];
+  const activeJob = jobs.find((j: any) => j.status === "running" || j.status === "preparing");
+  const recentJob = activeJob || jobs[0]; // Fall back to most recent job
+  
+  // Calculate progress
+  const currentStep = recentJob?.currentStep ?? 0;
+  const totalSteps = recentJob?.totalSteps ?? 0;
+  const progress = totalSteps > 0 
+    ? (currentStep / totalSteps) * 100 
+    : recentJob?.progress || 0;
+  
+  // Calculate ETA based on progress and elapsed time
+  const getETA = () => {
+    if (!recentJob?.startedAt || totalSteps === 0 || currentStep === 0) return "--";
+    const elapsed = Date.now() - new Date(recentJob.startedAt).getTime();
+    const stepsRemaining = totalSteps - currentStep;
+    const msPerStep = elapsed / currentStep;
+    const etaMs = stepsRemaining * msPerStep;
+    const hours = Math.floor(etaMs / 3600000);
+    const minutes = Math.floor((etaMs % 3600000) / 60000);
+    return hours > 0 ? `${hours}h ${minutes}m` : `${minutes}m`;
+  };
+
+  // Get status color
+  const getStatusColor = (status: string) => {
+    switch (status) {
+      case "running": return "text-nvidia-green";
+      case "preparing": return "text-yellow-400";
+      case "completed": return "text-blue-400";
+      case "failed": return "text-red-400";
+      case "cancelled": return "text-orange-400";
+      default: return "text-muted-foreground";
+    }
+  };
+
+  // Get training type display name
+  const getTrainingTypeDisplay = (type: string) => {
+    switch (type) {
+      case "lora": return "LoRA";
+      case "qlora": return "QLoRA";
+      case "sft": return "SFT";
+      case "full": return "Full Fine-tune";
+      default: return type?.toUpperCase() || "PEFT/LoRA";
+    }
+  };
+  
+  // No jobs state - show simulated data
+  if (!isLoading && !recentJob) {
+    const simJob = TRAINING_JOB;
+    const simProgress = (simJob.currentStep / simJob.totalSteps) * 100;
+    return (
+      <Card className="cyber-panel">
+        <CardHeader>
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-lg bg-muted flex items-center justify-center">
+                <Activity className="w-5 h-5 text-muted-foreground" />
+              </div>
+              <div>
+                <CardTitle className="text-base font-display tracking-wide">Training Telemetry</CardTitle>
+                <p className="text-xs text-muted-foreground">Demo Mode - No active jobs</p>
+              </div>
+            </div>
+            <Badge variant="outline" className="text-xs">Simulated</Badge>
+          </div>
+        </CardHeader>
+        <CardContent className="space-y-6">
+          <div className="space-y-2">
+            <div className="flex items-center justify-between text-xs">
+              <span className="text-muted-foreground">Progress</span>
+              <span className="font-mono">Step {simJob.currentStep.toLocaleString()} / {simJob.totalSteps.toLocaleString()}</span>
+            </div>
+            <div className="progress-glow">
+              <div className="progress-glow-fill" style={{ width: `${simProgress}%` }} />
+            </div>
+            <div className="flex items-center justify-between text-xs text-muted-foreground">
+              <span>Epoch {simJob.currentEpoch}/{simJob.totalEpochs}</span>
+              <span className="flex items-center gap-1"><Clock className="w-3 h-3" />ETA: {simJob.eta}</span>
+            </div>
+          </div>
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+            <div className="p-3 rounded-lg bg-muted/30">
+              <div className="flex items-center gap-2 mb-1"><TrendingDown className="w-3 h-3 text-nvidia-green" /><span className="text-xs text-muted-foreground">Loss</span></div>
+              <div className="text-lg font-mono font-bold text-nvidia-green">{simJob.loss}</div>
+            </div>
+            <div className="p-3 rounded-lg bg-muted/30">
+              <div className="flex items-center gap-2 mb-1"><Zap className="w-3 h-3 text-nvidia-teal" /><span className="text-xs text-muted-foreground">Learning Rate</span></div>
+              <div className="text-lg font-mono font-bold">{simJob.learningRate}</div>
+            </div>
+            <div className="p-3 rounded-lg bg-muted/30">
+              <div className="flex items-center gap-2 mb-1"><Activity className="w-3 h-3 text-nvidia-teal" /><span className="text-xs text-muted-foreground">Throughput</span></div>
+              <div className="text-lg font-mono font-bold">{simJob.throughput} <span className="text-xs text-muted-foreground">tok/s</span></div>
+            </div>
+            <div className="p-3 rounded-lg bg-muted/30">
+              <div className="flex items-center gap-2 mb-1"><FileText className="w-3 h-3 text-muted-foreground" /><span className="text-xs text-muted-foreground">Recipe</span></div>
+              <div className="text-sm font-semibold">{simJob.recipe}</div>
+            </div>
+          </div>
+          <div className="pt-4 border-t border-border/50">
+            <div className="flex items-center justify-between mb-3">
+              <span className="text-xs font-semibold text-muted-foreground">Loss Curve</span>
+              <BarChart2 className="w-4 h-4 text-muted-foreground" />
+            </div>
+            <div className="h-24 flex items-end gap-1">
+              {LOSS_HISTORY.map((point, index) => {
+                const height = ((2.5 - point.loss) / 2.5) * 100;
+                return (<div key={index} className="flex-1 bg-nvidia-green/30 rounded-t transition-all hover:bg-nvidia-green/50" style={{ height: `${height}%` }} title={`Step ${point.step}: ${point.loss}`} />);
+              })}
+            </div>
+            <div className="flex justify-between mt-1 text-[10px] text-muted-foreground font-mono">
+              <span>0</span>
+              <span>{LOSS_HISTORY[LOSS_HISTORY.length - 1].step}</span>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+    );
+  }
+
   return (
-    <Card className="cyber-panel-glow">
+    <Card className={cn("cyber-panel", activeJob && "cyber-panel-glow")}>
       <CardHeader>
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-lg bg-nvidia-green/20 flex items-center justify-center animate-pulse">
-              <Activity className="w-5 h-5 text-nvidia-green" />
+            <div className={cn("w-10 h-10 rounded-lg flex items-center justify-center", activeJob ? "bg-nvidia-green/20 animate-pulse" : "bg-muted")}>
+              <Activity className={cn("w-5 h-5", activeJob ? "text-nvidia-green" : "text-muted-foreground")} />
             </div>
             <div>
               <CardTitle className="text-base font-display tracking-wide">Training Telemetry</CardTitle>
-              <p className="text-xs text-muted-foreground">Job: {job.id}</p>
+              <p className="text-xs text-muted-foreground">
+                {recentJob?.name || "No job selected"}
+                <span className={cn("ml-2", getStatusColor(recentJob?.status))}>
+                  • {recentJob?.status?.charAt(0).toUpperCase() + recentJob?.status?.slice(1) || "--"}
+                </span>
+              </p>
             </div>
           </div>
           <div className="flex items-center gap-2">
-            <Button variant="outline" size="icon" className="h-8 w-8" onClick={() => toast.info("Feature coming soon")}>
-              <Pause className="w-4 h-4" />
-            </Button>
-            <Button variant="outline" size="icon" className="h-8 w-8 text-nvidia-critical hover:text-nvidia-critical" onClick={() => toast.info("Feature coming soon")}>
-              <Square className="w-4 h-4" />
-            </Button>
+            {activeJob && (
+              <>
+                <Button variant="outline" size="icon" className="h-8 w-8" onClick={() => toast.info("Pause feature coming soon")}>
+                  <Pause className="w-4 h-4" />
+                </Button>
+                <Button variant="outline" size="icon" className="h-8 w-8 text-nvidia-critical hover:text-nvidia-critical" onClick={() => cancelJobMutation.mutate({ id: recentJob.id })}>
+                  <Square className="w-4 h-4" />
+                </Button>
+              </>
+            )}
           </div>
         </div>
       </CardHeader>
-      
       <CardContent className="space-y-6">
-        {/* Progress */}
         <div className="space-y-2">
           <div className="flex items-center justify-between text-xs">
             <span className="text-muted-foreground">Progress</span>
-            <span className="font-mono">
-              Step {job.currentStep.toLocaleString()} / {job.totalSteps.toLocaleString()}
-            </span>
+            <span className="font-mono">Step {(recentJob?.currentStep || 0).toLocaleString()} / {(recentJob?.totalSteps || 0).toLocaleString()}</span>
           </div>
           <div className="progress-glow">
             <div className="progress-glow-fill" style={{ width: `${progress}%` }} />
           </div>
           <div className="flex items-center justify-between text-xs text-muted-foreground">
-            <span>Epoch {job.currentEpoch}/{job.totalEpochs}</span>
-            <span className="flex items-center gap-1">
-              <Clock className="w-3 h-3" />
-              ETA: {job.eta}
-            </span>
+            <span>Epoch {recentJob?.currentEpoch || 0}/{recentJob?.epochs || 0}</span>
+            <span className="flex items-center gap-1"><Clock className="w-3 h-3" />ETA: {getETA()}</span>
           </div>
         </div>
-        
-        {/* Metrics Grid */}
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
           <div className="p-3 rounded-lg bg-muted/30">
-            <div className="flex items-center gap-2 mb-1">
-              <TrendingDown className="w-3 h-3 text-nvidia-green" />
-              <span className="text-xs text-muted-foreground">Loss</span>
-            </div>
-            <div className="text-lg font-mono font-bold text-nvidia-green">{job.loss}</div>
+            <div className="flex items-center gap-2 mb-1"><TrendingDown className="w-3 h-3 text-nvidia-green" /><span className="text-xs text-muted-foreground">Train Loss</span></div>
+            <div className="text-lg font-mono font-bold text-nvidia-green">{recentJob?.trainLoss || "--"}</div>
           </div>
           <div className="p-3 rounded-lg bg-muted/30">
-            <div className="flex items-center gap-2 mb-1">
-              <Zap className="w-3 h-3 text-nvidia-teal" />
-              <span className="text-xs text-muted-foreground">Learning Rate</span>
-            </div>
-            <div className="text-lg font-mono font-bold">{job.learningRate}</div>
+            <div className="flex items-center gap-2 mb-1"><Zap className="w-3 h-3 text-nvidia-teal" /><span className="text-xs text-muted-foreground">Learning Rate</span></div>
+            <div className="text-lg font-mono font-bold">{recentJob?.learningRate || "--"}</div>
           </div>
           <div className="p-3 rounded-lg bg-muted/30">
-            <div className="flex items-center gap-2 mb-1">
-              <Activity className="w-3 h-3 text-nvidia-teal" />
-              <span className="text-xs text-muted-foreground">Throughput</span>
-            </div>
-            <div className="text-lg font-mono font-bold">{job.throughput} <span className="text-xs text-muted-foreground">tok/s</span></div>
+            <div className="flex items-center gap-2 mb-1"><Activity className="w-3 h-3 text-nvidia-teal" /><span className="text-xs text-muted-foreground">Eval Loss</span></div>
+            <div className="text-lg font-mono font-bold">{recentJob?.evalLoss || "--"}</div>
           </div>
           <div className="p-3 rounded-lg bg-muted/30">
-            <div className="flex items-center gap-2 mb-1">
-              <FileText className="w-3 h-3 text-muted-foreground" />
-              <span className="text-xs text-muted-foreground">Recipe</span>
-            </div>
-            <div className="text-sm font-semibold">{job.recipe}</div>
+            <div className="flex items-center gap-2 mb-1"><FileText className="w-3 h-3 text-muted-foreground" /><span className="text-xs text-muted-foreground">Recipe</span></div>
+            <div className="text-sm font-semibold">{getTrainingTypeDisplay(recentJob?.trainingType)}</div>
           </div>
         </div>
-        
-        {/* Loss Chart (Simplified) */}
         <div className="pt-4 border-t border-border/50">
-          <div className="flex items-center justify-between mb-3">
-            <span className="text-xs font-semibold text-muted-foreground">Loss Curve</span>
-            <BarChart2 className="w-4 h-4 text-muted-foreground" />
-          </div>
-          <div className="h-24 flex items-end gap-1">
-            {LOSS_HISTORY.map((point, index) => {
-              const height = ((2.5 - point.loss) / 2.5) * 100;
-              return (
-                <div 
-                  key={index}
-                  className="flex-1 bg-nvidia-green/30 rounded-t transition-all hover:bg-nvidia-green/50"
-                  style={{ height: `${height}%` }}
-                  title={`Step ${point.step}: ${point.loss}`}
-                />
-              );
-            })}
-          </div>
-          <div className="flex justify-between mt-1 text-[10px] text-muted-foreground font-mono">
-            <span>0</span>
-            <span>{LOSS_HISTORY[LOSS_HISTORY.length - 1].step}</span>
+          <div className="grid grid-cols-2 gap-4 text-xs">
+            <div><span className="text-muted-foreground">Base Model:</span><span className="ml-2 font-medium">{recentJob?.baseModel || "--"}</span></div>
+            <div><span className="text-muted-foreground">Host:</span><span className="ml-2 font-medium">{recentJob?.hostId === "alpha" ? "DGX Spark Alpha" : recentJob?.hostId === "beta" ? "DGX Spark Beta" : "--"}</span></div>
+            <div><span className="text-muted-foreground">Batch Size:</span><span className="ml-2 font-medium">{recentJob?.batchSize || "--"}</span></div>
+            <div><span className="text-muted-foreground">GPU Count:</span><span className="ml-2 font-medium">{recentJob?.gpuCount || "--"}</span></div>
           </div>
         </div>
       </CardContent>

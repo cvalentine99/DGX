@@ -426,6 +426,26 @@ When answering:
   listModels: publicProcedure.query(async () => {
     const config = getConfig();
     
+    // Model metadata catalog with sizes and context lengths
+    const modelMetadata: Record<string, { size: string; contextLength: number; type: string; description: string }> = {
+      "nemotron-3-nano-30b": { size: "30B", contextLength: 8192, type: "MoE", description: "NVIDIA Nemotron-3 Nano with 30B parameters (A3B active)" },
+      "llama-3.1-8b": { size: "8B", contextLength: 128000, type: "Dense", description: "Meta Llama 3.1 8B Instruct" },
+      "mistral-7b": { size: "7B", contextLength: 32768, type: "Dense", description: "Mistral 7B Instruct v0.2" },
+      "qwen2.5-7b": { size: "7B", contextLength: 32768, type: "Dense", description: "Qwen 2.5 7B Instruct" },
+      "phi-3-mini": { size: "3.8B", contextLength: 4096, type: "Dense", description: "Microsoft Phi-3 Mini" },
+    };
+    
+    // Helper to match model ID to metadata
+    const getModelInfo = (modelId: string) => {
+      const lowerModelId = modelId.toLowerCase();
+      for (const [key, meta] of Object.entries(modelMetadata)) {
+        if (lowerModelId.includes(key.replace(/-/g, "").replace(/\./g, ""))) return meta;
+        if (lowerModelId.includes(key)) return meta;
+      }
+      // Default metadata for unknown models
+      return { size: "Unknown", contextLength: 4096, type: "Unknown", description: modelId };
+    };
+    
     try {
       const response = await fetch(`${config.apiUrl}/models`, {
         method: "GET",
@@ -435,15 +455,56 @@ When answering:
       
       if (response.ok) {
         const data = await response.json() as { data: Array<{ id: string; owned_by: string }> };
+        const loadedModels = data.data || [];
+        
+        // Enrich with metadata and status
+        const enrichedModels = loadedModels.map(model => {
+          const meta = getModelInfo(model.id);
+          return {
+            id: model.id,
+            owned_by: model.owned_by,
+            status: "loaded" as const,
+            size: meta.size,
+            contextLength: meta.contextLength,
+            type: meta.type,
+            description: meta.description,
+          };
+        });
+        
+        // Add available (not loaded) models from catalog
+        const availableModels = [
+          { id: "llama-3.1-8b-instruct", name: "Llama 3.1 8B", ...modelMetadata["llama-3.1-8b"], status: "available" as const },
+          { id: "mistral-7b-instruct-v0.2", name: "Mistral 7B", ...modelMetadata["mistral-7b"], status: "available" as const },
+          { id: "qwen2.5-7b-instruct", name: "Qwen 2.5 7B", ...modelMetadata["qwen2.5-7b"], status: "available" as const },
+        ].filter(m => !loadedModels.some(loaded => loaded.id.toLowerCase().includes(m.id.split("-")[0])));
+        
         return {
-          models: data.data || [],
+          models: [...enrichedModels, ...availableModels],
           connected: true,
+          activeModel: config.model,
         };
       }
       
-      return { models: [], connected: false };
+      // Return fallback models when not connected
+      return { 
+        models: [
+          { id: "nemotron-3-nano-30b", status: "available" as const, ...modelMetadata["nemotron-3-nano-30b"] },
+          { id: "llama-3.1-8b-instruct", status: "available" as const, ...modelMetadata["llama-3.1-8b"] },
+          { id: "mistral-7b-instruct-v0.2", status: "available" as const, ...modelMetadata["mistral-7b"] },
+        ], 
+        connected: false,
+        activeModel: null,
+      };
     } catch {
-      return { models: [], connected: false };
+      return { 
+        models: [
+          { id: "nemotron-3-nano-30b", status: "available" as const, ...modelMetadata["nemotron-3-nano-30b"] },
+          { id: "llama-3.1-8b-instruct", status: "available" as const, ...modelMetadata["llama-3.1-8b"] },
+          { id: "mistral-7b-instruct-v0.2", status: "available" as const, ...modelMetadata["mistral-7b"] },
+        ], 
+        connected: false,
+        activeModel: null,
+      };
     }
   }),
 

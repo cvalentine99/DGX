@@ -4593,4 +4593,123 @@ ENV_EOF`);
         };
       }
     }),
+
+  // List directory contents on DGX host for dataset browser
+  listDirectory: publicProcedure
+    .input(z.object({
+      hostId: z.enum(["alpha", "beta"]).default("alpha"),
+      path: z.string().default("/home/ubuntu"),
+    }))
+    .query(async ({ input }) => {
+      const pool = getSSHPool();
+      if (!pool) {
+        return {
+          success: false,
+          error: "SSH pool not initialized",
+          path: input.path,
+          items: [],
+        };
+      }
+
+      try {
+        // Get directory listing with file details
+        const stdout = await pool.execute(
+          input.hostId,
+          `ls -la "${input.path}" 2>/dev/null | tail -n +2`
+        );
+
+        const lines = stdout.trim().split("\n").filter(Boolean);
+        const items = lines.map((line: string) => {
+          const parts = line.split(/\s+/);
+          const permissions = parts[0] || "";
+          const size = parseInt(parts[4] || "0");
+          const month = parts[5] || "";
+          const day = parts[6] || "";
+          const timeOrYear = parts[7] || "";
+          const name = parts.slice(8).join(" ");
+          
+          const isDirectory = permissions.startsWith("d");
+          const isSymlink = permissions.startsWith("l");
+          
+          // Determine file type based on extension
+          let fileType = "file";
+          if (isDirectory) fileType = "directory";
+          else if (isSymlink) fileType = "symlink";
+          else if (name.match(/\.(json|jsonl)$/i)) fileType = "json";
+          else if (name.match(/\.(csv|tsv)$/i)) fileType = "csv";
+          else if (name.match(/\.(txt|md)$/i)) fileType = "text";
+          else if (name.match(/\.(py|sh|bash)$/i)) fileType = "script";
+          else if (name.match(/\.(tar|gz|zip|7z)$/i)) fileType = "archive";
+          else if (name.match(/\.(pt|pth|bin|safetensors|ckpt)$/i)) fileType = "model";
+          else if (name.match(/\.(parquet|arrow)$/i)) fileType = "parquet";
+          
+          return {
+            name,
+            path: `${input.path}/${name}`.replace(/\/+/g, "/"),
+            isDirectory,
+            isSymlink,
+            fileType,
+            size,
+            sizeFormatted: formatSize(size),
+            modified: `${month} ${day} ${timeOrYear}`,
+            permissions,
+          };
+        }).filter((item: { name: string }) => item.name && item.name !== "." && item.name !== "..");
+
+        // Define item type
+        type FileItem = typeof items[number];
+        
+        // Sort: directories first, then files alphabetically
+        items.sort((a: FileItem, b: FileItem) => {
+          if (a.isDirectory && !b.isDirectory) return -1;
+          if (!a.isDirectory && b.isDirectory) return 1;
+          return a.name.localeCompare(b.name);
+        });
+
+        return {
+          success: true,
+          path: input.path,
+          items,
+          parentPath: input.path === "/" ? null : input.path.split("/").slice(0, -1).join("/") || "/",
+        };
+      } catch (error: any) {
+        return {
+          success: false,
+          error: error.message,
+          path: input.path,
+          items: [],
+        };
+      }
+    }),
+
+  // Search for files matching pattern
+  searchFiles: publicProcedure
+    .input(z.object({
+      hostId: z.enum(["alpha", "beta"]).default("alpha"),
+      basePath: z.string().default("/home/ubuntu"),
+      pattern: z.string(),
+      maxResults: z.number().default(50),
+    }))
+    .query(async ({ input }) => {
+      const pool = getSSHPool();
+      if (!pool) {
+        return { success: false, error: "SSH pool not initialized", results: [] };
+      }
+
+      try {
+        const stdout = await pool.execute(
+          input.hostId,
+          `find "${input.basePath}" -maxdepth 5 -name "*${input.pattern}*" -type f 2>/dev/null | head -${input.maxResults}`
+        );
+
+        const files = stdout.trim().split("\n").filter(Boolean).map((filePath: string) => ({
+          path: filePath,
+          name: filePath.split("/").pop() || filePath,
+        }));
+
+        return { success: true, results: files };
+      } catch (error: any) {
+        return { success: false, error: error.message, results: [] };
+      }
+    }),
 });

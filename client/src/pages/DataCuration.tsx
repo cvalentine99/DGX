@@ -5,7 +5,7 @@
  * training data generation, and validation tools for NeMo workflows.
  */
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { motion } from "framer-motion";
 import {
   Database,
@@ -21,6 +21,15 @@ import {
   Eye,
   Plus,
   Sparkles,
+  Folder,
+  FolderOpen,
+  File,
+  FileJson,
+  FileCode,
+  FileArchive,
+  ChevronRight,
+  ArrowLeft,
+  HardDrive,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -29,6 +38,9 @@ import { Input } from "@/components/ui/input";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { toast } from "sonner";
 import TrainingDataGenerator from "@/components/TrainingDataGenerator";
+import { trpc } from "@/lib/trpc";
+import { Badge } from "@/components/ui/badge";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
 // Dataset Catalog
 const DATASETS = [
@@ -344,6 +356,206 @@ function PreprocessingPipelineCard() {
   );
 }
 
+// File Browser Card - Browse DGX filesystem for datasets
+function FileBrowserCard() {
+  const [hostId, setHostId] = useState<"alpha" | "beta">("alpha");
+  const [currentPath, setCurrentPath] = useState("/home/ubuntu");
+  const [searchQuery, setSearchQuery] = useState("");
+  const [selectedFile, setSelectedFile] = useState<string | null>(null);
+
+  const { data: dirData, isLoading, refetch } = trpc.ssh.listDirectory.useQuery(
+    { hostId, path: currentPath },
+    { refetchOnWindowFocus: false }
+  );
+
+  const { data: searchResults, isLoading: isSearching } = trpc.ssh.searchFiles.useQuery(
+    { hostId, basePath: currentPath, pattern: searchQuery, maxResults: 20 },
+    { enabled: searchQuery.length > 2 }
+  );
+
+  const navigateTo = (path: string) => {
+    setCurrentPath(path);
+    setSelectedFile(null);
+  };
+
+  const goUp = () => {
+    if (dirData?.parentPath) {
+      navigateTo(dirData.parentPath);
+    }
+  };
+
+  const getFileIcon = (fileType: string) => {
+    switch (fileType) {
+      case "directory": return <Folder className="w-4 h-4 text-yellow-400" />;
+      case "json": return <FileJson className="w-4 h-4 text-green-400" />;
+      case "csv": return <FileText className="w-4 h-4 text-blue-400" />;
+      case "parquet": return <Database className="w-4 h-4 text-purple-400" />;
+      case "model": return <HardDrive className="w-4 h-4 text-orange-400" />;
+      case "script": return <FileCode className="w-4 h-4 text-cyan-400" />;
+      case "archive": return <FileArchive className="w-4 h-4 text-red-400" />;
+      default: return <File className="w-4 h-4 text-muted-foreground" />;
+    }
+  };
+
+  const handleSelectDataset = (path: string) => {
+    setSelectedFile(path);
+    toast.success(`Selected: ${path}`, { description: "Use this path in your training configuration" });
+  };
+
+  return (
+    <Card className="cyber-panel">
+      <CardHeader>
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-lg bg-purple-500/20 flex items-center justify-center">
+              <FolderOpen className="w-5 h-5 text-purple-400" />
+            </div>
+            <div>
+              <CardTitle className="text-base font-display tracking-wide">DGX File Browser</CardTitle>
+              <p className="text-xs text-muted-foreground">Browse datasets on DGX Spark hosts</p>
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            <Select value={hostId} onValueChange={(v) => setHostId(v as "alpha" | "beta")}>
+              <SelectTrigger className="w-40 h-8 text-xs">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="alpha">DGX Spark Alpha</SelectItem>
+                <SelectItem value="beta">DGX Spark Beta</SelectItem>
+              </SelectContent>
+            </Select>
+            <Button variant="outline" size="icon" className="h-8 w-8" onClick={() => refetch()}>
+              <RefreshCw className={cn("w-4 h-4", isLoading && "animate-spin")} />
+            </Button>
+          </div>
+        </div>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        {/* Path Navigation */}
+        <div className="flex items-center gap-2">
+          <Button variant="outline" size="icon" className="h-8 w-8" onClick={goUp} disabled={currentPath === "/"}>
+            <ArrowLeft className="w-4 h-4" />
+          </Button>
+          <div className="flex-1 flex items-center gap-1 px-3 py-1.5 rounded-lg bg-muted/30 border border-border/50 overflow-x-auto">
+            {currentPath.split("/").filter(Boolean).map((segment, i, arr) => (
+              <div key={i} className="flex items-center">
+                {i > 0 && <ChevronRight className="w-3 h-3 text-muted-foreground mx-1" />}
+                <button
+                  onClick={() => navigateTo("/" + arr.slice(0, i + 1).join("/"))}
+                  className="text-xs hover:text-foreground text-muted-foreground transition-colors"
+                >
+                  {segment}
+                </button>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* Search */}
+        <div className="relative">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+          <Input
+            placeholder="Search files..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            className="pl-9 h-9 bg-muted/30"
+          />
+        </div>
+
+        {/* Search Results */}
+        {searchQuery.length > 2 && searchResults?.results && searchResults.results.length > 0 && (
+          <div className="p-3 rounded-lg bg-muted/20 border border-border/50 space-y-2">
+            <p className="text-xs text-muted-foreground">Search Results ({searchResults.results.length})</p>
+            <div className="max-h-32 overflow-y-auto space-y-1">
+              {searchResults.results.map((file: { path: string; name: string }, i: number) => (
+                <button
+                  key={i}
+                  onClick={() => handleSelectDataset(file.path)}
+                  className="w-full flex items-center gap-2 p-2 rounded hover:bg-muted/30 text-left text-xs"
+                >
+                  <File className="w-3 h-3 text-muted-foreground" />
+                  <span className="truncate">{file.path}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* File List */}
+        <div className="border border-border/50 rounded-lg overflow-hidden">
+          <div className="grid grid-cols-12 gap-2 px-4 py-2 bg-muted/30 text-xs font-medium text-muted-foreground border-b border-border/50">
+            <div className="col-span-6">Name</div>
+            <div className="col-span-2">Size</div>
+            <div className="col-span-2">Type</div>
+            <div className="col-span-2">Modified</div>
+          </div>
+          <div className="max-h-[400px] overflow-y-auto">
+            {isLoading ? (
+              <div className="p-8 text-center text-muted-foreground">
+                <RefreshCw className="w-6 h-6 animate-spin mx-auto mb-2" />
+                <p className="text-sm">Loading...</p>
+              </div>
+            ) : dirData?.items && dirData.items.length > 0 ? (
+              dirData.items.map((item: {
+                name: string;
+                path: string;
+                isDirectory: boolean;
+                fileType: string;
+                sizeFormatted: string;
+                modified: string;
+              }, i: number) => (
+                <button
+                  key={i}
+                  onClick={() => item.isDirectory ? navigateTo(item.path) : handleSelectDataset(item.path)}
+                  className={cn(
+                    "w-full grid grid-cols-12 gap-2 px-4 py-2.5 text-xs hover:bg-muted/20 transition-colors text-left border-b border-border/30 last:border-0",
+                    selectedFile === item.path && "bg-purple-500/10"
+                  )}
+                >
+                  <div className="col-span-6 flex items-center gap-2 truncate">
+                    {getFileIcon(item.fileType)}
+                    <span className={cn(item.isDirectory && "font-medium")}>{item.name}</span>
+                  </div>
+                  <div className="col-span-2 text-muted-foreground">{item.isDirectory ? "--" : item.sizeFormatted}</div>
+                  <div className="col-span-2">
+                    <Badge variant="outline" className="text-[10px] h-5">{item.fileType}</Badge>
+                  </div>
+                  <div className="col-span-2 text-muted-foreground">{item.modified}</div>
+                </button>
+              ))
+            ) : (
+              <div className="p-8 text-center text-muted-foreground">
+                <Folder className="w-8 h-8 mx-auto mb-2 opacity-50" />
+                <p className="text-sm">No files found</p>
+                <p className="text-xs mt-1">This directory is empty or inaccessible</p>
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Selected File Info */}
+        {selectedFile && (
+          <div className="p-3 rounded-lg bg-purple-500/10 border border-purple-500/30">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-xs text-muted-foreground">Selected Dataset Path</p>
+                <p className="text-sm font-mono mt-1">{selectedFile}</p>
+              </div>
+              <Button size="sm" onClick={() => {
+                navigator.clipboard.writeText(selectedFile);
+                toast.success("Path copied to clipboard");
+              }}>
+                Copy Path
+              </Button>
+            </div>
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
 export default function DataCuration() {
   const [activeTab, setActiveTab] = useState("datasets");
 
@@ -367,7 +579,7 @@ export default function DataCuration() {
       {/* Tabs */}
       <motion.div variants={itemVariants}>
         <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-          <TabsList className="grid w-full max-w-md grid-cols-2 bg-muted/30">
+          <TabsList className="grid w-full max-w-lg grid-cols-3 bg-muted/30">
             <TabsTrigger value="datasets" className="gap-2">
               <Database className="w-4 h-4" />
               Datasets
@@ -375,6 +587,10 @@ export default function DataCuration() {
             <TabsTrigger value="generator" className="gap-2">
               <Sparkles className="w-4 h-4" />
               Training Generator
+            </TabsTrigger>
+            <TabsTrigger value="browser" className="gap-2">
+              <FolderOpen className="w-4 h-4" />
+              File Browser
             </TabsTrigger>
           </TabsList>
 
@@ -391,6 +607,10 @@ export default function DataCuration() {
 
           <TabsContent value="generator" className="mt-6">
             <TrainingDataGenerator />
+          </TabsContent>
+
+          <TabsContent value="browser" className="mt-6">
+            <FileBrowserCard />
           </TabsContent>
         </Tabs>
       </motion.div>

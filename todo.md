@@ -702,3 +702,27 @@
 - [x] Add real-time job status monitoring
 - [ ] Display training metrics and logs (telemetry card uses simulated data)
 - [x] Support job cancellation and restart
+
+# Feature Implementation (Dec 2024 - Part 2)
+
+## Training Telemetry Connection
+- [x] Wire TrainingTelemetryCard to fetch active job from training.getJobs
+- [x] Display real job name, status, progress, epoch, and step counts
+- [x] Show actual train loss and eval loss from database
+- [x] Update ETA calculation based on real progress
+- [x] Add job selection dropdown when multiple jobs are running
+
+## Model Status Indicators
+- [x] Extend vllm.listModels to return model status (loaded/available)
+- [x] Add model metadata (size, context length, type) to API response
+- [x] Display status badges (green=loaded, gray=available) in dropdown
+- [x] Show model size and context length in dropdown options
+- [ ] Add loading indicator when switching models
+
+## Dataset Browser for Data Curation
+- [x] Create SSH endpoint to list directories on DGX filesystem (ssh.listDirectory)
+- [x] Build file browser component with folder navigation
+- [x] Support file/folder selection for dataset paths
+- [x] Show file metadata (size, modified date, type)
+- [x] Add search/filter functionality for files (ssh.searchFiles)
+- [x] Integrate browser into Data Curation page (File Browser tab)

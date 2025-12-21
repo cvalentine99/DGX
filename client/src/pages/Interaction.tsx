@@ -514,7 +514,7 @@ function InferenceConfig({
           </div>
         </div>
         
-        {/* Model Selector */}
+        {/* Model Selector with Status */}
         <div className="space-y-2">
           <Label className="text-xs flex items-center gap-1 text-foreground">
             <Brain className="w-3 h-3" />
@@ -526,21 +526,52 @@ function InferenceConfig({
             className="w-full bg-black/50 border border-gray-700 rounded-md px-3 py-2 text-sm text-white"
           >
             {availableModels.length > 0 ? (
-              availableModels.map((model: { id: string }) => (
+              availableModels.map((model: { id: string; status?: string; size?: string; contextLength?: number }) => (
                 <option key={model.id} value={model.id}>
-                  {model.id.split('/').pop()}
+                  {model.id.split('/').pop()} {model.status === "loaded" ? "✓" : ""} {model.size ? `(${model.size})` : ""}
                 </option>
               ))
             ) : (
               <>
-                <option value="nemotron-3-nano-30b">Nemotron-3-Nano-30B (Default)</option>
-                <option value="llama-3.1-8b">Llama 3.1 8B</option>
-                <option value="mistral-7b">Mistral 7B</option>
+                <option value="nemotron-3-nano-30b">Nemotron-3-Nano-30B (30B)</option>
+                <option value="llama-3.1-8b">Llama 3.1 8B (8B)</option>
+                <option value="mistral-7b">Mistral 7B (7B)</option>
               </>
             )}
           </select>
+          {/* Model Info Panel */}
+          {availableModels.length > 0 && (() => {
+            const currentModel = availableModels.find((m: { id: string }) => m.id === selectedModel) as { id: string; status?: string; size?: string; contextLength?: number; type?: string; description?: string } | undefined;
+            if (!currentModel) return null;
+            return (
+              <div className="p-2 rounded-lg bg-muted/20 border border-border/30 space-y-1">
+                <div className="flex items-center justify-between">
+                  <span className="text-[10px] text-muted-foreground">Status</span>
+                  {currentModel.status === "loaded" ? (
+                    <Badge className="h-4 text-[9px] bg-green-500/20 text-green-400 border-green-500/30">Loaded</Badge>
+                  ) : (
+                    <Badge className="h-4 text-[9px] bg-gray-500/20 text-gray-400 border-gray-500/30">Available</Badge>
+                  )}
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-[10px] text-muted-foreground">Size</span>
+                  <span className="text-[10px] font-mono text-foreground">{currentModel.size || "--"}</span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-[10px] text-muted-foreground">Context</span>
+                  <span className="text-[10px] font-mono text-foreground">{currentModel.contextLength?.toLocaleString() || "--"} tokens</span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-[10px] text-muted-foreground">Type</span>
+                  <span className="text-[10px] font-mono text-foreground">{currentModel.type || "--"}</span>
+                </div>
+              </div>
+            );
+          })()}
           {modelsData?.connected && availableModels.length > 0 && (
-            <p className="text-[10px] text-green-400">{availableModels.length} model(s) available</p>
+            <p className="text-[10px] text-green-400">
+              {availableModels.filter((m: { status?: string }) => m.status === "loaded").length} loaded, {availableModels.length} total
+            </p>
           )}
         </div>
         
