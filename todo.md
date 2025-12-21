@@ -934,3 +934,17 @@
 - [x] Add download button for generated configs (text archive)
 - [x] Add copy-to-clipboard for individual files
 - [x] Add navigation link to sidebar
+
+## Deployment Wizard Enhancements
+- [x] Add input validation for IP address format
+- [x] Add port range validation (1-65535)
+- [x] Add required field validation with inline error messages
+- [x] Validate JWT secret minimum length
+- [x] Add deployment presets (Development, Production, Minimal, Inference)
+- [x] Create preset selector UI with descriptions
+- [x] Auto-fill configuration based on selected preset
+- [x] Add config diff viewer to show changes
+- [x] Highlight added/removed/modified lines in diff
+- [x] Add toggle between diff view and full config view
+- [x] Add reset to defaults button
+- [x] Show active preset badge in header

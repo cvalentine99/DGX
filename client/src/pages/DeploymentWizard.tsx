@@ -1,10 +1,11 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useCallback, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { 
   Rocket, Server, Cloud, Database, Key, FileCode, Download, Copy, Check,
   ChevronRight, ChevronLeft, Cpu, HardDrive, MemoryStick, Network,
   Container, Settings2, Shield, Zap, Package, Terminal, FileText,
-  CheckCircle2, Circle, ArrowRight
+  CheckCircle2, Circle, ArrowRight, AlertCircle, Sparkles, RotateCcw,
+  GitCompare, Eye, EyeOff
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -111,18 +112,279 @@ const STEPS = [
   { id: 5, title: "Generate", icon: FileCode, description: "Review & download" }
 ];
 
+// Validation types
+interface ValidationErrors {
+  hostname?: string;
+  sshPort?: string;
+  sshUsername?: string;
+  cpuCores?: string;
+  memoryGB?: string;
+  storageGB?: string;
+  vllmPort?: string;
+  jupyterPort?: string;
+  domain?: string;
+  jwtSecret?: string;
+  databasePath?: string;
+}
+
+// Deployment presets
+interface DeploymentPreset {
+  id: string;
+  name: string;
+  description: string;
+  icon: typeof Sparkles;
+  color: string;
+  config: Partial<WizardConfig>;
+}
+
+const DEPLOYMENT_PRESETS: DeploymentPreset[] = [
+  {
+    id: "development",
+    name: "Development",
+    description: "Local development with minimal resources, JupyterLab enabled",
+    icon: Terminal,
+    color: "blue",
+    config: {
+      deploymentMethod: "ai-workbench",
+      gpuCount: 1,
+      cpuCores: 4,
+      memoryGB: 16,
+      storageGB: 100,
+      enableDatabase: true,
+      enableVllm: false,
+      enableJupyter: true,
+      enableNginx: false,
+      enableSsl: false,
+    }
+  },
+  {
+    id: "production",
+    name: "Production",
+    description: "Full production setup with all services, SSL, and high resources",
+    icon: Rocket,
+    color: "green",
+    config: {
+      deploymentMethod: "bare-metal",
+      gpuCount: 1,
+      cpuCores: 16,
+      memoryGB: 64,
+      storageGB: 1000,
+      enableDatabase: true,
+      enableVllm: true,
+      enableJupyter: false,
+      enableNginx: true,
+      enableSsl: true,
+    }
+  },
+  {
+    id: "minimal",
+    name: "Minimal",
+    description: "Bare minimum setup for testing, database only",
+    icon: Package,
+    color: "orange",
+    config: {
+      deploymentMethod: "ai-workbench",
+      gpuCount: 1,
+      cpuCores: 2,
+      memoryGB: 8,
+      storageGB: 50,
+      enableDatabase: true,
+      enableVllm: false,
+      enableJupyter: false,
+      enableNginx: false,
+      enableSsl: false,
+    }
+  },
+  {
+    id: "inference",
+    name: "Inference Server",
+    description: "Optimized for model inference with vLLM and Nginx proxy",
+    icon: Zap,
+    color: "purple",
+    config: {
+      deploymentMethod: "bare-metal",
+      gpuCount: 1,
+      cpuCores: 8,
+      memoryGB: 32,
+      storageGB: 500,
+      enableDatabase: true,
+      enableVllm: true,
+      enableJupyter: false,
+      enableNginx: true,
+      enableSsl: false,
+    }
+  }
+];
+
+// Validation helpers
+const isValidIP = (ip: string): boolean => {
+  if (ip === 'localhost') return true;
+  const ipv4Regex = /^(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)$/;
+  const hostnameRegex = /^[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(\.[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*$/;
+  return ipv4Regex.test(ip) || hostnameRegex.test(ip);
+};
+
+const isValidPort = (port: number): boolean => {
+  return Number.isInteger(port) && port >= 1 && port <= 65535;
+};
+
+const isValidPath = (path: string): boolean => {
+  return path.startsWith('/') && !path.includes('..');
+};
+
+// Diff calculation helper
+interface DiffLine {
+  type: 'added' | 'removed' | 'unchanged';
+  content: string;
+  lineNumber: number;
+}
+
+const calculateDiff = (oldContent: string, newContent: string): DiffLine[] => {
+  const oldLines = oldContent.split('\n');
+  const newLines = newContent.split('\n');
+  const result: DiffLine[] = [];
+  
+  let oldIdx = 0;
+  let newIdx = 0;
+  let lineNum = 1;
+  
+  while (oldIdx < oldLines.length || newIdx < newLines.length) {
+    if (oldIdx >= oldLines.length) {
+      result.push({ type: 'added', content: newLines[newIdx], lineNumber: lineNum++ });
+      newIdx++;
+    } else if (newIdx >= newLines.length) {
+      result.push({ type: 'removed', content: oldLines[oldIdx], lineNumber: lineNum++ });
+      oldIdx++;
+    } else if (oldLines[oldIdx] === newLines[newIdx]) {
+      result.push({ type: 'unchanged', content: newLines[newIdx], lineNumber: lineNum++ });
+      oldIdx++;
+      newIdx++;
+    } else {
+      // Simple diff: mark old as removed, new as added
+      result.push({ type: 'removed', content: oldLines[oldIdx], lineNumber: lineNum++ });
+      oldIdx++;
+    }
+  }
+  
+  return result;
+};
+
 export default function DeploymentWizard() {
   const [currentStep, setCurrentStep] = useState(1);
   const [direction, setDirection] = useState(0);
   const [config, setConfig] = useState<WizardConfig>(defaultConfig);
   const [copiedFile, setCopiedFile] = useState<string | null>(null);
+  const [errors, setErrors] = useState<ValidationErrors>({});
+  const [selectedPreset, setSelectedPreset] = useState<string | null>(null);
+  const [previousFiles, setPreviousFiles] = useState<Record<string, string>>({});
+  const [showDiff, setShowDiff] = useState(false);
 
   const updateConfig = <K extends keyof WizardConfig>(key: K, value: WizardConfig[K]) => {
     setConfig(prev => ({ ...prev, [key]: value }));
+    // Clear preset selection when manually changing config
+    setSelectedPreset(null);
+  };
+
+  // Validation function
+  const validateConfig = useCallback((): ValidationErrors => {
+    const newErrors: ValidationErrors = {};
+
+    // Hostname validation
+    if (!config.hostname) {
+      newErrors.hostname = "Hostname is required";
+    } else if (!isValidIP(config.hostname)) {
+      newErrors.hostname = "Invalid IP address or hostname format";
+    }
+
+    // SSH Port validation
+    if (!isValidPort(config.sshPort)) {
+      newErrors.sshPort = "Port must be between 1-65535";
+    }
+
+    // SSH Username validation
+    if (!config.sshUsername || config.sshUsername.length < 1) {
+      newErrors.sshUsername = "Username is required";
+    }
+
+    // Resource validation
+    if (config.cpuCores < 1 || config.cpuCores > 256) {
+      newErrors.cpuCores = "CPU cores must be between 1-256";
+    }
+    if (config.memoryGB < 1 || config.memoryGB > 2048) {
+      newErrors.memoryGB = "Memory must be between 1-2048 GB";
+    }
+    if (config.storageGB < 10 || config.storageGB > 100000) {
+      newErrors.storageGB = "Storage must be between 10-100000 GB";
+    }
+
+    // Service port validation
+    if (config.enableVllm && !isValidPort(config.vllmPort)) {
+      newErrors.vllmPort = "Port must be between 1-65535";
+    }
+    if (config.enableJupyter && !isValidPort(config.jupyterPort)) {
+      newErrors.jupyterPort = "Port must be between 1-65535";
+    }
+
+    // Domain validation
+    if (config.enableNginx && !config.domain) {
+      newErrors.domain = "Domain is required when Nginx is enabled";
+    }
+
+    // Database path validation
+    if (config.enableDatabase && !isValidPath(config.databasePath)) {
+      newErrors.databasePath = "Path must be absolute (start with /)";
+    }
+
+    // JWT Secret validation
+    if (config.jwtSecret && config.jwtSecret.length < 32) {
+      newErrors.jwtSecret = "JWT secret should be at least 32 characters";
+    }
+
+    return newErrors;
+  }, [config]);
+
+  // Run validation on config change
+  useEffect(() => {
+    const newErrors = validateConfig();
+    setErrors(newErrors);
+  }, [validateConfig]);
+
+  // Check if current step has errors
+  const stepHasErrors = useCallback((step: number): boolean => {
+    const stepFields: Record<number, (keyof ValidationErrors)[]> = {
+      2: ['hostname', 'sshPort', 'sshUsername', 'cpuCores', 'memoryGB', 'storageGB'],
+      3: ['vllmPort', 'jupyterPort', 'domain', 'databasePath'],
+      4: ['jwtSecret'],
+    };
+    const fields = stepFields[step] || [];
+    return fields.some(field => errors[field]);
+  }, [errors]);
+
+  // Apply preset
+  const applyPreset = (preset: DeploymentPreset) => {
+    setConfig(prev => ({ ...prev, ...preset.config }));
+    setSelectedPreset(preset.id);
+    toast.success(`Applied "${preset.name}" preset`);
+  };
+
+  // Reset to defaults
+  const resetToDefaults = () => {
+    setConfig(defaultConfig);
+    setSelectedPreset(null);
+    toast.info("Reset to default configuration");
   };
 
   const nextStep = () => {
+    // Validate current step before advancing
+    if (stepHasErrors(currentStep)) {
+      toast.error("Please fix validation errors before continuing");
+      return;
+    }
     if (currentStep < 5) {
+      // Save current files for diff comparison when entering step 5
+      if (currentStep === 4) {
+        setPreviousFiles({ ...generatedFiles });
+      }
       setDirection(1);
       setCurrentStep(prev => prev + 1);
     }
@@ -550,6 +812,18 @@ TURN_SERVER_CREDENTIAL=${config.turnCredential}
             Generate customized deployment configurations for your infrastructure
           </p>
         </div>
+        <div className="flex items-center gap-2">
+          {selectedPreset && (
+            <Badge variant="outline" className="text-purple-400 border-purple-400/50">
+              <Sparkles className="w-3 h-3 mr-1" />
+              {DEPLOYMENT_PRESETS.find(p => p.id === selectedPreset)?.name} Preset
+            </Badge>
+          )}
+          <Button variant="outline" size="sm" onClick={resetToDefaults}>
+            <RotateCcw className="w-4 h-4 mr-2" />
+            Reset
+          </Button>
+        </div>
       </motion.div>
 
       {/* Progress Steps */}
@@ -626,6 +900,47 @@ TURN_SERVER_CREDENTIAL=${config.turnCredential}
                       <p className="text-muted-foreground">
                         Select how you want to deploy NeMo Command Center
                       </p>
+                    </div>
+
+                    {/* Quick Start Presets */}
+                    <div className="space-y-3">
+                      <h3 className="text-sm font-medium text-muted-foreground flex items-center gap-2">
+                        <Sparkles className="w-4 h-4" />
+                        Quick Start Presets
+                      </h3>
+                      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                        {DEPLOYMENT_PRESETS.map((preset) => {
+                          const PresetIcon = preset.icon;
+                          const colorClasses = {
+                            blue: 'border-blue-500 bg-blue-500/10 text-blue-400',
+                            green: 'border-green-500 bg-green-500/10 text-green-400',
+                            orange: 'border-orange-500 bg-orange-500/10 text-orange-400',
+                            purple: 'border-purple-500 bg-purple-500/10 text-purple-400',
+                          };
+                          const isSelected = selectedPreset === preset.id;
+                          return (
+                            <button
+                              key={preset.id}
+                              onClick={() => applyPreset(preset)}
+                              className={`p-3 rounded-lg border text-left transition-all ${
+                                isSelected
+                                  ? colorClasses[preset.color as keyof typeof colorClasses]
+                                  : 'border-border hover:border-muted-foreground/50 hover:bg-muted/30'
+                              }`}
+                            >
+                              <div className="flex items-center gap-2 mb-1">
+                                <PresetIcon className={`w-4 h-4 ${isSelected ? '' : 'text-muted-foreground'}`} />
+                                <span className={`text-sm font-medium ${isSelected ? '' : 'text-foreground'}`}>
+                                  {preset.name}
+                                </span>
+                              </div>
+                              <p className="text-xs text-muted-foreground line-clamp-2">
+                                {preset.description}
+                              </p>
+                            </button>
+                          );
+                        })}
+                      </div>
                     </div>
                     
                     <div className="grid md:grid-cols-2 gap-6">
@@ -723,7 +1038,14 @@ TURN_SERVER_CREDENTIAL=${config.turnCredential}
                             value={config.hostname}
                             onChange={(e) => updateConfig('hostname', e.target.value)}
                             placeholder="192.168.50.139"
+                            className={errors.hostname ? 'border-red-500' : ''}
                           />
+                          {errors.hostname && (
+                            <p className="text-xs text-red-400 flex items-center gap-1">
+                              <AlertCircle className="w-3 h-3" />
+                              {errors.hostname}
+                            </p>
+                          )}
                         </div>
 
                         <div className="grid grid-cols-2 gap-4">
@@ -732,8 +1054,15 @@ TURN_SERVER_CREDENTIAL=${config.turnCredential}
                             <Input
                               type="number"
                               value={config.sshPort}
-                              onChange={(e) => updateConfig('sshPort', parseInt(e.target.value))}
+                              onChange={(e) => updateConfig('sshPort', parseInt(e.target.value) || 0)}
+                              className={errors.sshPort ? 'border-red-500' : ''}
                             />
+                            {errors.sshPort && (
+                              <p className="text-xs text-red-400 flex items-center gap-1">
+                                <AlertCircle className="w-3 h-3" />
+                                {errors.sshPort}
+                              </p>
+                            )}
                           </div>
                           <div className="space-y-2">
                             <Label>SSH Username</Label>
@@ -741,7 +1070,14 @@ TURN_SERVER_CREDENTIAL=${config.turnCredential}
                               value={config.sshUsername}
                               onChange={(e) => updateConfig('sshUsername', e.target.value)}
                               placeholder="ubuntu"
+                              className={errors.sshUsername ? 'border-red-500' : ''}
                             />
+                            {errors.sshUsername && (
+                              <p className="text-xs text-red-400 flex items-center gap-1">
+                                <AlertCircle className="w-3 h-3" />
+                                {errors.sshUsername}
+                              </p>
+                            )}
                           </div>
                         </div>
                       </div>
@@ -784,24 +1120,36 @@ TURN_SERVER_CREDENTIAL=${config.turnCredential}
                             <Input
                               type="number"
                               value={config.cpuCores}
-                              onChange={(e) => updateConfig('cpuCores', parseInt(e.target.value))}
+                              onChange={(e) => updateConfig('cpuCores', parseInt(e.target.value) || 0)}
+                              className={errors.cpuCores ? 'border-red-500' : ''}
                             />
+                            {errors.cpuCores && (
+                              <p className="text-[10px] text-red-400">{errors.cpuCores}</p>
+                            )}
                           </div>
                           <div className="space-y-2">
                             <Label className="text-xs">Memory (GB)</Label>
                             <Input
                               type="number"
                               value={config.memoryGB}
-                              onChange={(e) => updateConfig('memoryGB', parseInt(e.target.value))}
+                              onChange={(e) => updateConfig('memoryGB', parseInt(e.target.value) || 0)}
+                              className={errors.memoryGB ? 'border-red-500' : ''}
                             />
+                            {errors.memoryGB && (
+                              <p className="text-[10px] text-red-400">{errors.memoryGB}</p>
+                            )}
                           </div>
                           <div className="space-y-2">
                             <Label className="text-xs">Storage (GB)</Label>
                             <Input
                               type="number"
                               value={config.storageGB}
-                              onChange={(e) => updateConfig('storageGB', parseInt(e.target.value))}
+                              onChange={(e) => updateConfig('storageGB', parseInt(e.target.value) || 0)}
+                              className={errors.storageGB ? 'border-red-500' : ''}
                             />
+                            {errors.storageGB && (
+                              <p className="text-[10px] text-red-400">{errors.storageGB}</p>
+                            )}
                           </div>
                         </div>
                       </div>
@@ -841,8 +1189,11 @@ TURN_SERVER_CREDENTIAL=${config.turnCredential}
                               <Input
                                 value={config.databasePath}
                                 onChange={(e) => updateConfig('databasePath', e.target.value)}
-                                className="text-sm"
+                                className={`text-sm ${errors.databasePath ? 'border-red-500' : ''}`}
                               />
+                              {errors.databasePath && (
+                                <p className="text-[10px] text-red-400">{errors.databasePath}</p>
+                              )}
                             </div>
                           </CardContent>
                         )}
@@ -883,9 +1234,12 @@ TURN_SERVER_CREDENTIAL=${config.turnCredential}
                               <Input
                                 type="number"
                                 value={config.vllmPort}
-                                onChange={(e) => updateConfig('vllmPort', parseInt(e.target.value))}
-                                className="text-sm"
+                                onChange={(e) => updateConfig('vllmPort', parseInt(e.target.value) || 0)}
+                                className={`text-sm ${errors.vllmPort ? 'border-red-500' : ''}`}
                               />
+                              {errors.vllmPort && (
+                                <p className="text-[10px] text-red-400">{errors.vllmPort}</p>
+                              )}
                             </div>
                           </CardContent>
                         )}
@@ -912,9 +1266,12 @@ TURN_SERVER_CREDENTIAL=${config.turnCredential}
                               <Input
                                 type="number"
                                 value={config.jupyterPort}
-                                onChange={(e) => updateConfig('jupyterPort', parseInt(e.target.value))}
-                                className="text-sm"
+                                onChange={(e) => updateConfig('jupyterPort', parseInt(e.target.value) || 0)}
+                                className={`text-sm ${errors.jupyterPort ? 'border-red-500' : ''}`}
                               />
+                              {errors.jupyterPort && (
+                                <p className="text-[10px] text-red-400">{errors.jupyterPort}</p>
+                              )}
                             </div>
                           </CardContent>
                         )}
@@ -942,8 +1299,11 @@ TURN_SERVER_CREDENTIAL=${config.turnCredential}
                                 value={config.domain}
                                 onChange={(e) => updateConfig('domain', e.target.value)}
                                 placeholder="localhost"
-                                className="text-sm"
+                                className={`text-sm ${errors.domain ? 'border-red-500' : ''}`}
                               />
+                              {errors.domain && (
+                                <p className="text-[10px] text-red-400">{errors.domain}</p>
+                              )}
                             </div>
                             <div className="flex items-center gap-2">
                               <Checkbox
@@ -984,12 +1344,18 @@ TURN_SERVER_CREDENTIAL=${config.turnCredential}
                               value={config.jwtSecret}
                               onChange={(e) => updateConfig('jwtSecret', e.target.value)}
                               placeholder="Click generate to create a secure key"
-                              className="font-mono text-xs"
+                              className={`font-mono text-xs ${errors.jwtSecret ? 'border-red-500' : ''}`}
                             />
                             <Button variant="outline" onClick={generateJwtSecret}>
                               Generate
                             </Button>
                           </div>
+                          {errors.jwtSecret && (
+                            <p className="text-xs text-red-400 flex items-center gap-1">
+                              <AlertCircle className="w-3 h-3" />
+                              {errors.jwtSecret}
+                            </p>
+                          )}
                         </div>
 
                         <div className="space-y-2">
@@ -1091,54 +1457,119 @@ TURN_SERVER_CREDENTIAL=${config.turnCredential}
                           Review and download your deployment files
                         </p>
                       </div>
-                      <Button onClick={downloadAllFiles} className="bg-purple-600 hover:bg-purple-700">
-                        <Download className="w-4 h-4 mr-2" />
-                        Download All
-                      </Button>
+                      <div className="flex items-center gap-2">
+                        {Object.keys(previousFiles).length > 0 && (
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => setShowDiff(!showDiff)}
+                            className={showDiff ? 'bg-purple-500/20 border-purple-500/50' : ''}
+                          >
+                            <GitCompare className="w-4 h-4 mr-2" />
+                            {showDiff ? 'Hide Diff' : 'Show Diff'}
+                          </Button>
+                        )}
+                        <Button onClick={downloadAllFiles} className="bg-purple-600 hover:bg-purple-700">
+                          <Download className="w-4 h-4 mr-2" />
+                          Download All
+                        </Button>
+                      </div>
                     </div>
 
                     <div className="grid gap-4">
                       <Tabs defaultValue={Object.keys(generatedFiles)[0]} className="w-full">
                         <TabsList className="flex flex-wrap h-auto gap-1 bg-muted/30 p-1">
-                          {Object.keys(generatedFiles).map((filename) => (
-                            <TabsTrigger
-                              key={filename}
-                              value={filename}
-                              className="text-xs px-3 py-1.5"
-                            >
-                              <FileText className="w-3 h-3 mr-1" />
-                              {filename}
-                            </TabsTrigger>
-                          ))}
+                          {Object.keys(generatedFiles).map((filename) => {
+                            const hasChanges = previousFiles[filename] && previousFiles[filename] !== generatedFiles[filename];
+                            return (
+                              <TabsTrigger
+                                key={filename}
+                                value={filename}
+                                className={`text-xs px-3 py-1.5 ${hasChanges ? 'ring-1 ring-yellow-500/50' : ''}`}
+                              >
+                                <FileText className="w-3 h-3 mr-1" />
+                                {filename}
+                                {hasChanges && <span className="ml-1 w-2 h-2 rounded-full bg-yellow-500" />}
+                              </TabsTrigger>
+                            );
+                          })}
                         </TabsList>
-                        {Object.entries(generatedFiles).map(([filename, content]) => (
-                          <TabsContent key={filename} value={filename} className="mt-4">
-                            <Card className="bg-muted/30 border-border/50">
-                              <CardHeader className="py-3 px-4 flex flex-row items-center justify-between">
-                                <div className="flex items-center gap-2">
-                                  <FileCode className="w-4 h-4 text-purple-400" />
-                                  <span className="font-mono text-sm">{filename}</span>
-                                </div>
-                                <Button
-                                  variant="ghost"
-                                  size="sm"
-                                  onClick={() => copyToClipboard(filename, content)}
-                                >
-                                  {copiedFile === filename ? (
-                                    <Check className="w-4 h-4 text-green-400" />
+                        {Object.entries(generatedFiles).map(([filename, content]) => {
+                          const previousContent = previousFiles[filename] || '';
+                          const hasChanges = previousContent && previousContent !== content;
+                          const diffLines = hasChanges ? calculateDiff(previousContent, content) : [];
+                          
+                          return (
+                            <TabsContent key={filename} value={filename} className="mt-4">
+                              <Card className="bg-muted/30 border-border/50">
+                                <CardHeader className="py-3 px-4 flex flex-row items-center justify-between">
+                                  <div className="flex items-center gap-2">
+                                    <FileCode className="w-4 h-4 text-purple-400" />
+                                    <span className="font-mono text-sm">{filename}</span>
+                                    {hasChanges && (
+                                      <Badge variant="outline" className="text-yellow-400 border-yellow-400/50 text-[10px]">
+                                        Modified
+                                      </Badge>
+                                    )}
+                                  </div>
+                                  <div className="flex items-center gap-1">
+                                    {hasChanges && (
+                                      <Button
+                                        variant="ghost"
+                                        size="sm"
+                                        onClick={() => setShowDiff(!showDiff)}
+                                        className="text-xs"
+                                      >
+                                        {showDiff ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                                      </Button>
+                                    )}
+                                    <Button
+                                      variant="ghost"
+                                      size="sm"
+                                      onClick={() => copyToClipboard(filename, content)}
+                                    >
+                                      {copiedFile === filename ? (
+                                        <Check className="w-4 h-4 text-green-400" />
+                                      ) : (
+                                        <Copy className="w-4 h-4" />
+                                      )}
+                                    </Button>
+                                  </div>
+                                </CardHeader>
+                                <CardContent className="p-0">
+                                  {showDiff && hasChanges ? (
+                                    <pre className="p-4 overflow-x-auto text-xs font-mono bg-black/30 rounded-b-lg max-h-[400px] overflow-y-auto">
+                                      <code>
+                                        {diffLines.map((line, idx) => (
+                                          <div
+                                            key={idx}
+                                            className={`${
+                                              line.type === 'added' ? 'bg-green-500/20 text-green-300' :
+                                              line.type === 'removed' ? 'bg-red-500/20 text-red-300' :
+                                              ''
+                                            }`}
+                                          >
+                                            <span className="inline-block w-8 text-right pr-2 text-muted-foreground select-none">
+                                              {line.lineNumber}
+                                            </span>
+                                            <span className="inline-block w-4 text-center select-none">
+                                              {line.type === 'added' ? '+' : line.type === 'removed' ? '-' : ' '}
+                                            </span>
+                                            {line.content}
+                                          </div>
+                                        ))}
+                                      </code>
+                                    </pre>
                                   ) : (
-                                    <Copy className="w-4 h-4" />
+                                    <pre className="p-4 overflow-x-auto text-xs font-mono bg-black/30 rounded-b-lg max-h-[400px] overflow-y-auto">
+                                      <code>{content}</code>
+                                    </pre>
                                   )}
-                                </Button>
-                              </CardHeader>
-                              <CardContent className="p-0">
-                                <pre className="p-4 overflow-x-auto text-xs font-mono bg-black/30 rounded-b-lg max-h-[400px] overflow-y-auto">
-                                  <code>{content}</code>
-                                </pre>
-                              </CardContent>
-                            </Card>
-                          </TabsContent>
-                        ))}
+                                </CardContent>
+                              </Card>
+                            </TabsContent>
+                          );
+                        })}
                       </Tabs>
                     </div>
 
