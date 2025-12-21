@@ -366,6 +366,10 @@ function FileBrowserCard() {
   const [selectedFile, setSelectedFile] = useState<string | null>(null);
   const [previewFile, setPreviewFile] = useState<string | null>(null);
   const [showPreview, setShowPreview] = useState(false);
+  const [showUpload, setShowUpload] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState(0);
+  const [isUploading, setIsUploading] = useState(false);
+  const [dragOver, setDragOver] = useState(false);
 
   const { data: dirData, isLoading, refetch } = trpc.ssh.listDirectory.useQuery(
     { hostId, path: currentPath },
@@ -381,6 +385,89 @@ function FileBrowserCard() {
     { hostId, path: previewFile || "", maxSize: 100 * 1024 },
     { enabled: !!previewFile && showPreview }
   );
+
+  const uploadFileMutation = trpc.ssh.uploadFile.useMutation({
+    onSuccess: (data) => {
+      if (data.success) {
+        toast.success("File uploaded successfully", { description: data.path });
+        refetch();
+        setShowUpload(false);
+      } else {
+        toast.error("Upload failed", { description: data.error });
+      }
+      setIsUploading(false);
+      setUploadProgress(0);
+    },
+    onError: (error) => {
+      toast.error("Upload failed", { description: error.message });
+      setIsUploading(false);
+      setUploadProgress(0);
+    },
+  });
+
+  const handleFileUpload = async (files: FileList | null) => {
+    if (!files || files.length === 0) return;
+
+    const file = files[0];
+    const maxSize = 10 * 1024 * 1024; // 10MB limit
+
+    if (file.size > maxSize) {
+      toast.error("File too large", { description: "Maximum file size is 10MB" });
+      return;
+    }
+
+    setIsUploading(true);
+    setUploadProgress(10);
+
+    try {
+      // Read file as base64
+      const reader = new FileReader();
+      reader.onprogress = (e) => {
+        if (e.lengthComputable) {
+          setUploadProgress(Math.round((e.loaded / e.total) * 50));
+        }
+      };
+      reader.onload = async () => {
+        setUploadProgress(60);
+        const base64 = (reader.result as string).split(",")[1];
+        setUploadProgress(80);
+        
+        await uploadFileMutation.mutateAsync({
+          hostId,
+          destinationPath: currentPath,
+          fileName: file.name,
+          content: base64,
+          overwrite: false,
+        });
+        setUploadProgress(100);
+      };
+      reader.onerror = () => {
+        toast.error("Failed to read file");
+        setIsUploading(false);
+        setUploadProgress(0);
+      };
+      reader.readAsDataURL(file);
+    } catch (error: any) {
+      toast.error("Upload failed", { description: error.message });
+      setIsUploading(false);
+      setUploadProgress(0);
+    }
+  };
+
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    setDragOver(false);
+    handleFileUpload(e.dataTransfer.files);
+  };
+
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+    setDragOver(true);
+  };
+
+  const handleDragLeave = () => {
+    setDragOver(false);
+  };
 
   const navigateTo = (path: string) => {
     setCurrentPath(path);
@@ -523,6 +610,15 @@ function FileBrowserCard() {
                 <SelectItem value="beta">DGX Spark Beta</SelectItem>
               </SelectContent>
             </Select>
+            <Button 
+              variant="outline" 
+              size="sm" 
+              className="h-8 gap-1.5" 
+              onClick={() => setShowUpload(true)}
+            >
+              <Upload className="w-3.5 h-3.5" />
+              Upload
+            </Button>
             <Button variant="outline" size="icon" className="h-8 w-8" onClick={() => refetch()}>
               <RefreshCw className={cn("w-4 h-4", isLoading && "animate-spin")} />
             </Button>
@@ -675,6 +771,66 @@ function FileBrowserCard() {
             </div>
           </div>
         )}
+
+        {/* Upload Modal */}
+        <Dialog open={showUpload} onOpenChange={setShowUpload}>
+          <DialogContent className="max-w-md">
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2">
+                <Upload className="w-5 h-5 text-purple-400" />
+                Upload File to DGX
+              </DialogTitle>
+            </DialogHeader>
+            <div className="space-y-4 mt-4">
+              <div className="text-xs text-muted-foreground">
+                <span className="font-medium">Destination:</span> {currentPath}
+              </div>
+              
+              {/* Drop Zone */}
+              <div
+                onDrop={handleDrop}
+                onDragOver={handleDragOver}
+                onDragLeave={handleDragLeave}
+                className={cn(
+                  "border-2 border-dashed rounded-lg p-8 text-center transition-colors",
+                  dragOver ? "border-purple-500 bg-purple-500/10" : "border-border/50 hover:border-border",
+                  isUploading && "pointer-events-none opacity-50"
+                )}
+              >
+                {isUploading ? (
+                  <div className="space-y-3">
+                    <RefreshCw className="w-8 h-8 mx-auto animate-spin text-purple-400" />
+                    <p className="text-sm">Uploading...</p>
+                    <div className="w-full h-2 bg-muted rounded-full overflow-hidden">
+                      <div 
+                        className="h-full bg-purple-500 transition-all duration-300"
+                        style={{ width: `${uploadProgress}%` }}
+                      />
+                    </div>
+                    <p className="text-xs text-muted-foreground">{uploadProgress}%</p>
+                  </div>
+                ) : (
+                  <>
+                    <Upload className="w-8 h-8 mx-auto text-muted-foreground mb-3" />
+                    <p className="text-sm">Drag and drop a file here</p>
+                    <p className="text-xs text-muted-foreground mt-1">or</p>
+                    <label className="mt-3 inline-block">
+                      <input
+                        type="file"
+                        className="hidden"
+                        onChange={(e) => handleFileUpload(e.target.files)}
+                      />
+                      <span className="px-4 py-2 rounded-md bg-purple-500 hover:bg-purple-600 text-white text-sm cursor-pointer transition-colors">
+                        Browse Files
+                      </span>
+                    </label>
+                    <p className="text-xs text-muted-foreground mt-4">Maximum file size: 10MB</p>
+                  </>
+                )}
+              </div>
+            </div>
+          </DialogContent>
+        </Dialog>
 
         {/* File Preview Modal */}
         <Dialog open={showPreview} onOpenChange={setShowPreview}>

@@ -21,6 +21,9 @@ import {
   Grid3X3,
   RefreshCw,
   Loader2,
+  Download,
+  FileJson,
+  FileText,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -53,6 +56,104 @@ const itemVariants = {
   hidden: { opacity: 0, y: 20 },
   visible: { opacity: 1, y: 0 }
 };
+
+function ExportMetricsButton() {
+  const { data: inferenceStats } = trpc.stats.getInferenceStats.useQuery();
+  const { data: dcgmData } = trpc.dcgm.getAllMetrics.useQuery();
+  const [isExporting, setIsExporting] = useState(false);
+
+  const handleExport = (format: "json" | "csv") => {
+    setIsExporting(true);
+    
+    try {
+      const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
+      const filename = `metrics-export-${timestamp}.${format}`;
+      
+      const exportData = {
+        exportedAt: new Date().toISOString(),
+        inferenceStats: inferenceStats || {},
+        gpuMetrics: dcgmData?.hosts || [],
+      };
+
+      let content: string;
+      let mimeType: string;
+
+      if (format === "json") {
+        content = JSON.stringify(exportData, null, 2);
+        mimeType = "application/json";
+      } else {
+        // CSV format - flatten the data
+        const rows: string[] = [];
+        rows.push("Category,Metric,Value,Unit");
+        
+        // Inference stats
+        if (inferenceStats) {
+          rows.push(`Inference,Average Latency,${inferenceStats.avgLatency || 0},ms`);
+          rows.push(`Inference,Success Rate,${inferenceStats.successRate || 0},%`);
+          rows.push(`Inference,Total Requests,${inferenceStats.totalRequests || 0},count`);
+          rows.push(`Inference,Total Tokens,${inferenceStats.totalTokens || 0},tokens`);
+        }
+        
+        // GPU metrics
+        if (dcgmData?.hosts) {
+          dcgmData.hosts.forEach((host: any, hostIdx: number) => {
+            host.gpus?.forEach((gpu: any, gpuIdx: number) => {
+              const prefix = `GPU ${hostIdx}-${gpuIdx}`;
+              rows.push(`${prefix},Utilization,${gpu.utilization || 0},%`);
+              rows.push(`${prefix},Memory Used,${gpu.memoryUsed || 0},MB`);
+              rows.push(`${prefix},Temperature,${gpu.temperature || 0},°C`);
+              rows.push(`${prefix},Power,${gpu.power || 0},W`);
+            });
+          });
+        }
+        
+        content = rows.join("\n");
+        mimeType = "text/csv";
+      }
+
+      const blob = new Blob([content], { type: mimeType });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      
+      toast.success("Metrics exported", { description: filename });
+    } catch (error: any) {
+      toast.error("Export failed", { description: error.message });
+    } finally {
+      setIsExporting(false);
+    }
+  };
+
+  return (
+    <div className="flex items-center gap-2">
+      <Button
+        variant="outline"
+        size="sm"
+        className="gap-2"
+        onClick={() => handleExport("json")}
+        disabled={isExporting}
+      >
+        <FileJson className="w-4 h-4" />
+        Export JSON
+      </Button>
+      <Button
+        variant="outline"
+        size="sm"
+        className="gap-2"
+        onClick={() => handleExport("csv")}
+        disabled={isExporting}
+      >
+        <FileText className="w-4 h-4" />
+        Export CSV
+      </Button>
+    </div>
+  );
+}
 
 function VLLMTelemetryCard() {
   const { data: inferenceStats, isLoading, refetch } = trpc.stats.getInferenceStats.useQuery(
@@ -444,6 +545,7 @@ export default function Statistics() {
             Live observability metrics from DGX Spark infrastructure
           </p>
         </div>
+        <ExportMetricsButton />
       </motion.div>
       
       {/* Tabs */}

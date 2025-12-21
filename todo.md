@@ -824,5 +824,24 @@
 - [x] Add code editor component (textarea with monospace font)
 - [x] Load pipeline template code for editing (Edit button on RF/NetSec templates)
 - [x] Syntax highlighting for Python (basic styling)
-- [ ] Validate pipeline code before deployment
+- [x] Validate pipeline code before deployment
 - [x] Save custom pipeline modifications (Save & Deploy button)
+
+## File Upload to DGX Hosts
+- [x] Create ssh.uploadFile endpoint for uploading files via SFTP
+- [x] Add upload button to Data Curation file browser
+- [x] Support drag-and-drop file upload
+- [x] Show upload progress indicator
+- [x] Validate file size limits
+
+## Python Pipeline Validation
+- [x] Create ssh.validatePythonSyntax endpoint
+- [x] Add validation step before pipeline deployment
+- [x] Display syntax errors in editor with line numbers
+- [x] Show validation status indicator (valid/invalid)
+
+## Export Features
+- [x] Add log download button to Holoscan pipeline logs
+- [x] Add metrics export (CSV/JSON) to Statistics page
+- [ ] Add inference log export capability
+- [ ] Support date range selection for exports

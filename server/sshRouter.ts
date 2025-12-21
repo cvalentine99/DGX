@@ -4770,6 +4770,221 @@ ENV_EOF`);
       }
     }),
 
+  // Upload file to DGX host via base64 encoding
+  uploadFile: publicProcedure
+    .input(z.object({
+      hostId: z.enum(["alpha", "beta"]).default("alpha"),
+      destinationPath: z.string(),
+      fileName: z.string(),
+      content: z.string(), // Base64 encoded content
+      overwrite: z.boolean().default(false),
+    }))
+    .mutation(async ({ input }) => {
+      const pool = getSSHPool();
+      if (!pool) {
+        return { success: false, error: "SSH pool not initialized" };
+      }
+
+      try {
+        const fullPath = `${input.destinationPath}/${input.fileName}`;
+        
+        // Check if file exists and overwrite is false
+        if (!input.overwrite) {
+          const existsCheck = await pool.execute(
+            input.hostId,
+            `test -f "${fullPath}" && echo "exists" || echo "not_exists"`
+          );
+          if (existsCheck.trim() === "exists") {
+            return { success: false, error: "File already exists. Set overwrite=true to replace." };
+          }
+        }
+
+        // Ensure destination directory exists
+        await pool.execute(
+          input.hostId,
+          `mkdir -p "${input.destinationPath}"`
+        );
+
+        // Decode base64 and write file
+        // Using printf to handle binary data properly
+        const escapedContent = input.content.replace(/'/g, "'\"'\"'");
+        await pool.execute(
+          input.hostId,
+          `echo '${escapedContent}' | base64 -d > "${fullPath}"`
+        );
+
+        // Verify file was written
+        const sizeOutput = await pool.execute(
+          input.hostId,
+          `stat -c%s "${fullPath}" 2>/dev/null || echo "0"`
+        );
+        const fileSize = parseInt(sizeOutput.trim()) || 0;
+
+        if (fileSize === 0) {
+          return { success: false, error: "File write failed - file is empty" };
+        }
+
+        return {
+          success: true,
+          path: fullPath,
+          size: fileSize,
+          message: `File uploaded successfully to ${fullPath}`,
+        };
+      } catch (error: any) {
+        return { success: false, error: error.message };
+      }
+    }),
+
+  // Validate Python syntax
+  validatePythonSyntax: publicProcedure
+    .input(z.object({
+      hostId: z.enum(["alpha", "beta"]).default("alpha"),
+      code: z.string(),
+    }))
+    .mutation(async ({ input }) => {
+      const pool = getSSHPool();
+      if (!pool) {
+        return { success: false, valid: false, error: "SSH pool not initialized", errors: [] };
+      }
+
+      try {
+        // Create a temporary file with the code
+        const tempFile = `/tmp/validate_${Date.now()}.py`;
+        const escapedCode = input.code.replace(/'/g, "'\"'\"'").replace(/\$/g, "\\$");
+        
+        // Write code to temp file
+        await pool.execute(
+          input.hostId,
+          `cat > "${tempFile}" << 'PYTHON_EOF'
+${input.code}
+PYTHON_EOF`
+        );
+
+        // Use Python's py_compile to check syntax
+        const result = await pool.execute(
+          input.hostId,
+          `python3 -m py_compile "${tempFile}" 2>&1 && echo "VALID" || echo "INVALID"`
+        );
+
+        // Clean up temp file
+        await pool.execute(input.hostId, `rm -f "${tempFile}"`);
+
+        const output = result.trim();
+        const isValid = output.endsWith("VALID");
+
+        if (isValid) {
+          return {
+            success: true,
+            valid: true,
+            errors: [],
+          };
+        }
+
+        // Parse error messages
+        const errorLines = output.replace("INVALID", "").trim().split("\n").filter(Boolean);
+        const errors: Array<{ line: number; column: number; message: string }> = [];
+
+        for (const line of errorLines) {
+          // Try to parse Python syntax error format
+          const match = line.match(/line (\d+)/i);
+          if (match) {
+            errors.push({
+              line: parseInt(match[1]),
+              column: 0,
+              message: line,
+            });
+          } else if (line.includes("SyntaxError") || line.includes("Error")) {
+            errors.push({
+              line: 0,
+              column: 0,
+              message: line,
+            });
+          }
+        }
+
+        return {
+          success: true,
+          valid: false,
+          errors: errors.length > 0 ? errors : [{ line: 0, column: 0, message: output }],
+        };
+      } catch (error: any) {
+        return {
+          success: false,
+          valid: false,
+          error: error.message,
+          errors: [{ line: 0, column: 0, message: error.message }],
+        };
+      }
+    }),
+
+  // Export pipeline logs to downloadable format
+  exportPipelineLogs: publicProcedure
+    .input(z.object({
+      hostId: z.enum(["alpha", "beta"]).default("alpha"),
+      pipelineName: z.string(),
+      lines: z.number().default(1000),
+      format: z.enum(["text", "json"]).default("text"),
+    }))
+    .query(async ({ input }) => {
+      const pool = getSSHPool();
+      if (!pool) {
+        return { success: false, error: "SSH pool not initialized", content: null, filename: null };
+      }
+
+      try {
+        const logPath = `/home/cvalentine/holoscan-pipelines/${input.pipelineName}/logs/pipeline.log`;
+        
+        const logsOutput = await pool.execute(
+          input.hostId,
+          `tail -n ${input.lines} "${logPath}" 2>/dev/null || echo ""`
+        );
+
+        const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
+        const filename = `${input.pipelineName}-logs-${timestamp}.${input.format === "json" ? "json" : "txt"}`;
+
+        if (input.format === "json") {
+          // Parse logs into JSON format
+          const logLines = logsOutput.trim().split("\n").filter(Boolean);
+          const jsonLogs = logLines.map((line, index) => {
+            // Try to parse timestamp and level from log line
+            const match = line.match(/^\[(\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2})\]\s*\[(\w+)\]\s*(.*)$/);
+            if (match) {
+              return {
+                index,
+                timestamp: match[1],
+                level: match[2],
+                message: match[3],
+              };
+            }
+            return {
+              index,
+              timestamp: null,
+              level: "INFO",
+              message: line,
+            };
+          });
+
+          return {
+            success: true,
+            content: JSON.stringify(jsonLogs, null, 2),
+            filename,
+            mimeType: "application/json",
+            lineCount: jsonLogs.length,
+          };
+        }
+
+        return {
+          success: true,
+          content: logsOutput,
+          filename,
+          mimeType: "text/plain",
+          lineCount: logsOutput.split("\n").length,
+        };
+      } catch (error: any) {
+        return { success: false, error: error.message, content: null, filename: null };
+      }
+    }),
+
   // =========================================================================
   // Pipeline Deployment Endpoints
   // =========================================================================

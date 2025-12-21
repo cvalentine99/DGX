@@ -77,6 +77,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { trpc } from "@/lib/trpc";
+import { cn } from "@/lib/utils";
 import { WebRTCPreviewV2 } from "@/components/WebRTCPreviewV2";
 import { InferenceOverlay, useSimulatedDetections } from "@/components/InferenceOverlay";
 import { Loader2 } from "lucide-react";
@@ -335,6 +336,8 @@ export default function Holoscan() {
   const [showPipelineEditor, setShowPipelineEditor] = useState(false);
   const [editingPipelineCode, setEditingPipelineCode] = useState("");
   const [editingPipelineName, setEditingPipelineName] = useState("");
+  const [validationStatus, setValidationStatus] = useState<"idle" | "validating" | "valid" | "invalid">("idle");
+  const [validationErrors, setValidationErrors] = useState<Array<{ line: number; column: number; message: string }>>([]);
 
   // Log streaming query
   const { data: pipelineLogs, refetch: refetchLogs } = trpc.ssh.streamPipelineLogs.useQuery(
@@ -349,6 +352,59 @@ export default function Holoscan() {
       refetchInterval: showLogsDialog && logAutoScroll ? 2000 : false,
     }
   );
+
+  // Python syntax validation mutation
+  const validateSyntaxMutation = trpc.ssh.validatePythonSyntax.useMutation({
+    onSuccess: (data) => {
+      if (data.valid) {
+        setValidationStatus("valid");
+        setValidationErrors([]);
+        toast.success("Python syntax is valid");
+      } else {
+        setValidationStatus("invalid");
+        setValidationErrors(data.errors || []);
+        toast.error("Syntax errors found", { description: `${data.errors?.length || 0} error(s)` });
+      }
+    },
+    onError: (error) => {
+      setValidationStatus("invalid");
+      toast.error("Validation failed", { description: error.message });
+    },
+  });
+
+  // Log export query
+  const { data: exportedLogs, refetch: fetchExportedLogs } = trpc.ssh.exportPipelineLogs.useQuery(
+    { hostId: selectedHost, pipelineName: selectedPipelineLogs || "", lines: 1000, format: "text" },
+    { enabled: false }
+  );
+
+  const handleValidateSyntax = () => {
+    setValidationStatus("validating");
+    validateSyntaxMutation.mutate({
+      hostId: selectedHost,
+      code: editingPipelineCode,
+    });
+  };
+
+  const handleExportLogs = async () => {
+    if (!selectedPipelineLogs) return;
+    
+    const result = await fetchExportedLogs();
+    if (result.data?.success && result.data.content) {
+      const blob = new Blob([result.data.content], { type: result.data.mimeType || "text/plain" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = result.data.filename || "pipeline-logs.txt";
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      toast.success("Logs exported", { description: result.data.filename });
+    } else {
+      toast.error("Export failed", { description: result.data?.error || "Unknown error" });
+    }
+  };
 
   // Pipeline metrics query
   const { data: pipelineMetrics, refetch: refetchMetrics } = trpc.ssh.getAllPipelineMetrics.useQuery(
@@ -1579,7 +1635,13 @@ export default function Holoscan() {
       </Dialog>
 
       {/* Pipeline Editor Dialog */}
-      <Dialog open={showPipelineEditor} onOpenChange={setShowPipelineEditor}>
+      <Dialog open={showPipelineEditor} onOpenChange={(open) => {
+        setShowPipelineEditor(open);
+        if (!open) {
+          setValidationStatus("idle");
+          setValidationErrors([]);
+        }
+      }}>
         <DialogContent className="max-w-4xl max-h-[85vh]">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
@@ -1587,7 +1649,7 @@ export default function Holoscan() {
               Pipeline Editor: {editingPipelineName}
             </DialogTitle>
             <DialogDescription>
-              Modify pipeline code before deployment
+              Modify pipeline code before deployment. Validate syntax before deploying.
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4">
@@ -1595,8 +1657,16 @@ export default function Holoscan() {
             <div className="relative">
               <textarea
                 value={editingPipelineCode}
-                onChange={(e) => setEditingPipelineCode(e.target.value)}
-                className="w-full h-[400px] font-mono text-sm bg-black/50 text-green-400 p-4 rounded-md border resize-none focus:outline-none focus:ring-2 focus:ring-nvidia-green"
+                onChange={(e) => {
+                  setEditingPipelineCode(e.target.value);
+                  setValidationStatus("idle");
+                }}
+                className={cn(
+                  "w-full h-[350px] font-mono text-sm bg-black/50 text-green-400 p-4 rounded-md border resize-none focus:outline-none focus:ring-2",
+                  validationStatus === "valid" && "border-green-500 focus:ring-green-500",
+                  validationStatus === "invalid" && "border-red-500 focus:ring-red-500",
+                  validationStatus === "idle" && "focus:ring-nvidia-green"
+                )}
                 spellCheck={false}
               />
               <div className="absolute top-2 right-2 flex gap-2">
@@ -1606,33 +1676,83 @@ export default function Holoscan() {
                 <Badge variant="outline" className="bg-background">
                   {editingPipelineCode.split('\n').length} lines
                 </Badge>
+                {validationStatus === "valid" && (
+                  <Badge className="bg-green-500/20 text-green-400 border-green-500/50">
+                    <CheckCircle2 className="h-3 w-3 mr-1" />
+                    Valid
+                  </Badge>
+                )}
+                {validationStatus === "invalid" && (
+                  <Badge className="bg-red-500/20 text-red-400 border-red-500/50">
+                    <XCircle className="h-3 w-3 mr-1" />
+                    Invalid
+                  </Badge>
+                )}
+                {validationStatus === "validating" && (
+                  <Badge className="bg-yellow-500/20 text-yellow-400 border-yellow-500/50">
+                    <RefreshCw className="h-3 w-3 mr-1 animate-spin" />
+                    Validating
+                  </Badge>
+                )}
               </div>
             </div>
 
+            {/* Validation Errors */}
+            {validationStatus === "invalid" && validationErrors.length > 0 && (
+              <div className="bg-red-500/10 border border-red-500/30 rounded-md p-3 max-h-24 overflow-y-auto">
+                <div className="text-xs font-medium text-red-400 mb-2">Syntax Errors:</div>
+                {validationErrors.map((err, i) => (
+                  <div key={i} className="text-xs text-red-300 font-mono">
+                    {err.line > 0 && <span className="text-red-400">Line {err.line}: </span>}
+                    {err.message}
+                  </div>
+                ))}
+              </div>
+            )}
+
             {/* Actions */}
             <div className="flex justify-between">
-              <Button
-                variant="outline"
-                onClick={() => {
-                  // Reset to original template
-                  const template = pipelineTemplates.find(t => t.name === editingPipelineName);
-                  if (template) {
-                    // Would load original template code
-                    toast.info('Reset to original template');
-                  }
-                }}
-              >
-                <RefreshCw className="h-4 w-4 mr-1" />
-                Reset to Original
-              </Button>
+              <div className="flex gap-2">
+                <Button
+                  variant="outline"
+                  onClick={() => {
+                    // Reset to original template
+                    const template = pipelineTemplates.find(t => t.name === editingPipelineName);
+                    if (template) {
+                      toast.info('Reset to original template');
+                      setValidationStatus("idle");
+                      setValidationErrors([]);
+                    }
+                  }}
+                >
+                  <RefreshCw className="h-4 w-4 mr-1" />
+                  Reset
+                </Button>
+                <Button
+                  variant="outline"
+                  onClick={handleValidateSyntax}
+                  disabled={validationStatus === "validating"}
+                >
+                  {validationStatus === "validating" ? (
+                    <RefreshCw className="h-4 w-4 mr-1 animate-spin" />
+                  ) : (
+                    <CheckCircle2 className="h-4 w-4 mr-1" />
+                  )}
+                  Validate Syntax
+                </Button>
+              </div>
               <div className="flex gap-2">
                 <Button variant="outline" onClick={() => setShowPipelineEditor(false)}>
                   Cancel
                 </Button>
                 <Button
                   className="bg-nvidia-green hover:bg-nvidia-green/90"
+                  disabled={validationStatus === "invalid"}
                   onClick={() => {
-                    // Deploy modified pipeline
+                    if (validationStatus !== "valid") {
+                      toast.warning("Please validate syntax before deploying");
+                      return;
+                    }
                     toast.success('Pipeline code saved');
                     setShowPipelineEditor(false);
                   }}
