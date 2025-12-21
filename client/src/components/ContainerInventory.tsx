@@ -42,13 +42,13 @@ interface ContainerImage {
 
 // NGC container categories for visual grouping
 const NGC_CATEGORIES: Record<string, { color: string; label: string }> = {
-  "nvcr.io/nvidia/nemo": { color: "bg-green-500/20 text-green-400 border-green-500/30", label: "NeMo" },
+  "nvcr.io/nvidia/nemo": { color: "bg-blue-500/20 text-blue-400 border-blue-500/30", label: "NeMo" },
   "nvcr.io/nvidia/pytorch": { color: "bg-orange-500/20 text-orange-400 border-orange-500/30", label: "PyTorch" },
   "nvcr.io/nvidia/tensorflow": { color: "bg-yellow-500/20 text-yellow-400 border-yellow-500/30", label: "TensorFlow" },
   "nvcr.io/nvidia/tensorrt": { color: "bg-purple-500/20 text-purple-400 border-purple-500/30", label: "TensorRT" },
   "nvcr.io/nvidia/tritonserver": { color: "bg-blue-500/20 text-blue-400 border-blue-500/30", label: "Triton" },
   "nvcr.io/nvidia/cuda": { color: "bg-cyan-500/20 text-cyan-400 border-cyan-500/30", label: "CUDA" },
-  "nvcr.io/nvidia/vllm": { color: "bg-lime-500/20 text-lime-400 border-lime-500/30", label: "vLLM" },
+  "nvcr.io/nvidia/vllm": { color: "bg-blue-500/20 text-blue-400 border-blue-500/30", label: "vLLM" },
   "nvcr.io/nvidia/dcgm": { color: "bg-pink-500/20 text-pink-400 border-pink-500/30", label: "DCGM" },
 };
 
@@ -59,7 +59,7 @@ function getCategoryStyle(repository: string): { color: string; label: string } 
     }
   }
   if (repository.startsWith("nvcr.io")) {
-    return { color: "bg-[#76b900]/20 text-[#76b900] border-[#76b900]/30", label: "NGC" };
+    return { color: "bg-[#3b82f6]/20 text-[#3b82f6] border-[#3b82f6]/30", label: "NGC" };
   }
   return { color: "bg-gray-500/20 text-gray-400 border-gray-500/30", label: "Other" };
 }
@@ -222,10 +222,10 @@ function HostContainers({ hostId, hostName, hostIp, onActionComplete }: HostCont
     return (
       <div
         key={idx}
-        className="flex items-center justify-between p-3 bg-black/30 border border-gray-800 rounded-lg hover:border-[#76b900]/30 transition-colors group"
+        className="flex items-center justify-between p-3 bg-black/30 border border-gray-800 rounded-lg hover:border-[#3b82f6]/30 transition-colors group"
       >
         <div className="flex items-center gap-3">
-          <Container className="w-5 h-5 text-[#76b900]" />
+          <Container className="w-5 h-5 text-[#3b82f6]" />
           <div>
             <div className="flex items-center gap-2">
               <span className="font-mono text-sm text-gray-200">
@@ -258,7 +258,7 @@ function HostContainers({ hostId, hostName, hostIp, onActionComplete }: HostCont
             <Button
               variant="ghost"
               size="sm"
-              className="h-7 px-2 text-[#76b900] hover:text-[#8ed900] hover:bg-[#76b900]/10"
+              className="h-7 px-2 text-[#3b82f6] hover:text-[#8ed900] hover:bg-[#3b82f6]/10"
               onClick={() => setLogsModal({ container })}
               title="View Logs"
             >
@@ -300,7 +300,7 @@ function HostContainers({ hostId, hostName, hostIp, onActionComplete }: HostCont
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
           <div className="flex items-center gap-2">
-            <Server className="w-4 h-4 text-[#76b900]" />
+            <Server className="w-4 h-4 text-[#3b82f6]" />
             <span className="text-sm text-gray-400">{hostIp}</span>
           </div>
           {useSimulated && (
@@ -333,7 +333,7 @@ function HostContainers({ hostId, hostName, hostIp, onActionComplete }: HostCont
       {/* Loading state */}
       {isLoading && !useSimulated && (
         <div className="flex items-center justify-center py-8">
-          <Loader2 className="w-6 h-6 animate-spin text-[#76b900]" />
+          <Loader2 className="w-6 h-6 animate-spin text-[#3b82f6]" />
           <span className="ml-2 text-gray-400">Connecting to {hostName}...</span>
         </div>
       )}
@@ -352,7 +352,7 @@ function HostContainers({ hostId, hostName, hostIp, onActionComplete }: HostCont
           {ngcContainers.length > 0 && (
             <div className="space-y-2">
               <div className="flex items-center gap-2">
-                <span className="text-xs font-medium text-[#76b900] uppercase tracking-wider">NGC Containers</span>
+                <span className="text-xs font-medium text-[#3b82f6] uppercase tracking-wider">NGC Containers</span>
                 <span className="text-xs text-gray-500">({ngcContainers.length})</span>
               </div>
               <div className="grid gap-2">
@@ -458,7 +458,7 @@ function PullHistory() {
 
   const getActionIcon = (action: string) => {
     switch (action) {
-      case "pull": return <Download className="w-4 h-4 text-green-400" />;
+      case "pull": return <Download className="w-4 h-4 text-blue-400" />;
       case "update": return <ArrowUpCircle className="w-4 h-4 text-blue-400" />;
       case "remove": return <Trash2 className="w-4 h-4 text-red-400" />;
       default: return <Container className="w-4 h-4 text-gray-400" />;
@@ -468,7 +468,7 @@ function PullHistory() {
   const getStatusBadge = (status: string) => {
     switch (status) {
       case "completed":
-        return <Badge variant="outline" className="bg-green-500/10 text-green-400 border-green-500/30 text-xs"><CheckCircle2 className="w-3 h-3 mr-1" />Completed</Badge>;
+        return <Badge variant="outline" className="bg-blue-500/10 text-blue-400 border-blue-500/30 text-xs"><CheckCircle2 className="w-3 h-3 mr-1" />Completed</Badge>;
       case "failed":
         return <Badge variant="outline" className="bg-red-500/10 text-red-400 border-red-500/30 text-xs"><XCircle className="w-3 h-3 mr-1" />Failed</Badge>;
       case "started":
@@ -494,7 +494,7 @@ function PullHistory() {
     <div className="space-y-4">
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
-          <History className="w-4 h-4 text-[#76b900]" />
+          <History className="w-4 h-4 text-[#3b82f6]" />
           <span className="text-sm text-gray-400">Recent Activity</span>
         </div>
         {isSimulated && (
@@ -506,7 +506,7 @@ function PullHistory() {
 
       {isLoading && (
         <div className="flex items-center justify-center py-8">
-          <Loader2 className="w-6 h-6 animate-spin text-[#76b900]" />
+          <Loader2 className="w-6 h-6 animate-spin text-[#3b82f6]" />
         </div>
       )}
 
@@ -571,8 +571,8 @@ export function ContainerInventory() {
       <CardHeader className="pb-3">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <div className="p-2 bg-[#76b900]/10 rounded-lg">
-              <Container className="w-5 h-5 text-[#76b900]" />
+            <div className="p-2 bg-[#3b82f6]/10 rounded-lg">
+              <Container className="w-5 h-5 text-[#3b82f6]" />
             </div>
             <div>
               <CardTitle className="text-lg font-orbitron text-white">Container Inventory</CardTitle>
@@ -586,21 +586,21 @@ export function ContainerInventory() {
           <TabsList className="grid w-full grid-cols-3 bg-black/50 border border-gray-800 mb-4">
             <TabsTrigger
               value="alpha"
-              className="data-[state=active]:bg-[#76b900]/20 data-[state=active]:text-[#76b900] data-[state=active]:border-[#76b900]/30"
+              className="data-[state=active]:bg-[#3b82f6]/20 data-[state=active]:text-[#3b82f6] data-[state=active]:border-[#3b82f6]/30"
             >
               <Server className="w-4 h-4 mr-2" />
               Spark Alpha
             </TabsTrigger>
             <TabsTrigger
               value="beta"
-              className="data-[state=active]:bg-[#76b900]/20 data-[state=active]:text-[#76b900] data-[state=active]:border-[#76b900]/30"
+              className="data-[state=active]:bg-[#3b82f6]/20 data-[state=active]:text-[#3b82f6] data-[state=active]:border-[#3b82f6]/30"
             >
               <Server className="w-4 h-4 mr-2" />
               Spark Beta
             </TabsTrigger>
             <TabsTrigger
               value="history"
-              className="data-[state=active]:bg-[#76b900]/20 data-[state=active]:text-[#76b900] data-[state=active]:border-[#76b900]/30"
+              className="data-[state=active]:bg-[#3b82f6]/20 data-[state=active]:text-[#3b82f6] data-[state=active]:border-[#3b82f6]/30"
             >
               <History className="w-4 h-4 mr-2" />
               History

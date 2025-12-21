@@ -152,8 +152,8 @@ function ChatMessage({ message }: { message: Message }) {
   return (
     <div className={cn("flex gap-3", isUser ? "justify-end" : "justify-start")}>
       {!isUser && (
-        <div className="w-8 h-8 rounded-lg bg-[#76b900]/20 flex items-center justify-center shrink-0">
-          <Sparkles className="w-4 h-4 text-[#76b900]" />
+        <div className="w-8 h-8 rounded-lg bg-[#3b82f6]/20 flex items-center justify-center shrink-0">
+          <Sparkles className="w-4 h-4 text-[#3b82f6]" />
         </div>
       )}
       
@@ -176,7 +176,7 @@ function ChatMessage({ message }: { message: Message }) {
         
         {message.ragContext && (
           <div className="mt-2 pt-2 border-t border-border/30">
-            <div className="flex items-center gap-1 text-[10px] text-[#76b900]">
+            <div className="flex items-center gap-1 text-[10px] text-[#3b82f6]">
               <Database className="w-3 h-3" />
               <span>RAG Context Used</span>
             </div>
@@ -289,8 +289,8 @@ function ChatInterface({
       <CardHeader className="pb-3 border-b border-border/50">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <div className="w-8 h-8 rounded-lg bg-[#76b900]/20 flex items-center justify-center">
-              <MessageSquare className="w-4 h-4 text-[#76b900]" />
+            <div className="w-8 h-8 rounded-lg bg-[#3b82f6]/20 flex items-center justify-center">
+              <MessageSquare className="w-4 h-4 text-[#3b82f6]" />
             </div>
             <div>
               <CardTitle className="text-sm font-display tracking-wide text-foreground">Chat Interface</CardTitle>
@@ -300,7 +300,7 @@ function ChatInterface({
           <div className="flex items-center gap-2">
             <div className={cn(
               "flex items-center gap-1.5 px-2 py-1 rounded text-[10px]",
-              isConnected ? "bg-green-500/10 text-green-400" : "bg-orange-500/10 text-orange-400"
+              isConnected ? "bg-blue-500/10 text-blue-400" : "bg-orange-500/10 text-orange-400"
             )}>
               {isConnected ? (
                 <>
@@ -347,12 +347,12 @@ function ChatInterface({
           
           {chatMutation.isPending && (
             <div className="flex gap-3">
-              <div className="w-8 h-8 rounded-lg bg-[#76b900]/20 flex items-center justify-center">
-                <Sparkles className="w-4 h-4 text-[#76b900] animate-pulse" />
+              <div className="w-8 h-8 rounded-lg bg-[#3b82f6]/20 flex items-center justify-center">
+                <Sparkles className="w-4 h-4 text-[#3b82f6] animate-pulse" />
               </div>
               <div className="bg-muted/50 border border-border/50 rounded-lg p-3">
                 <div className="flex items-center gap-2">
-                  <Loader2 className="w-4 h-4 animate-spin text-[#76b900]" />
+                  <Loader2 className="w-4 h-4 animate-spin text-[#3b82f6]" />
                   <span className="text-xs text-muted-foreground">
                     {config.enableThinking ? "Thinking..." : "Generating..."}
                   </span>
@@ -380,13 +380,13 @@ function ChatInterface({
           <Button 
             onClick={handleSend}
             disabled={!input.trim() || chatMutation.isPending}
-            className="bg-[#76b900] hover:bg-[#76b900]/90 h-auto"
+            className="bg-[#3b82f6] hover:bg-[#3b82f6]/90 h-auto"
           >
             <Send className="w-4 h-4" />
           </Button>
         </div>
         {config.useRag && input.length > 10 && (
-          <div className="flex items-center gap-1 mt-2 text-[10px] text-[#76b900]">
+          <div className="flex items-center gap-1 mt-2 text-[10px] text-[#3b82f6]">
             <Database className="w-3 h-3" />
             <span>RAG context will be included</span>
           </div>
@@ -493,7 +493,7 @@ function InferenceConfigCard({
               <span className="text-xs text-foreground">vLLM Server</span>
             </div>
             {vllmHealth?.status === "connected" ? (
-              <Badge className="bg-green-500/20 text-green-400 border-green-500/30">Connected</Badge>
+              <Badge className="bg-blue-500/20 text-blue-400 border-blue-500/30">Connected</Badge>
             ) : (
               <Badge className="bg-orange-500/20 text-orange-400 border-orange-500/30">Simulated</Badge>
             )}
@@ -503,14 +503,14 @@ function InferenceConfigCard({
               <Database className="w-4 h-4 text-muted-foreground" />
               <span className="text-xs text-foreground">RAG Documents</span>
             </div>
-            <span className="text-xs font-mono text-[#76b900]">{ragStats?.totalDocuments || 0}</span>
+            <span className="text-xs font-mono text-[#3b82f6]">{ragStats?.totalDocuments || 0}</span>
           </div>
         </div>
         
         {/* RAG Toggle */}
         <div className="flex items-center justify-between p-3 rounded-lg bg-muted/30 border border-border/50">
           <div className="flex items-center gap-2">
-            <Zap className="w-4 h-4 text-[#76b900]" />
+            <Zap className="w-4 h-4 text-[#3b82f6]" />
             <span className="text-xs text-foreground">Use RAG Context</span>
           </div>
           <Switch
@@ -538,14 +538,14 @@ function InferenceConfigCard({
                 <Thermometer className="w-3 h-3" />
                 Temperature
               </Label>
-              <span className="text-xs font-mono text-[#76b900]">{config.temperature}</span>
+              <span className="text-xs font-mono text-[#3b82f6]">{config.temperature}</span>
             </div>
             <Slider 
               value={[config.temperature * 100]}
               onValueChange={([v]) => onConfigChange({ ...config, temperature: v / 100 })}
               max={200}
               step={1}
-              className="[&_[role=slider]]:bg-[#76b900]"
+              className="[&_[role=slider]]:bg-[#3b82f6]"
             />
           </div>
           

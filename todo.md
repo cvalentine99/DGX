@@ -612,3 +612,5 @@
 - [x] Update all hardcoded green values in components
 
 - [x] Update browser tab title to Valentine RF Command Center
+- [ ] Update VITE_APP_TITLE environment variable to Valentine RF Command Center
+- [x] Fix all remaining green color elements in components

@@ -119,12 +119,12 @@ export default function ValidationPanel({ examples, onValidationComplete }: Vali
                 </div>
                 <p className="text-2xl font-bold">{result.total}</p>
               </div>
-              <div className="p-3 rounded-lg bg-green-500/10 border border-green-500/20">
+              <div className="p-3 rounded-lg bg-blue-500/10 border border-blue-500/20">
                 <div className="flex items-center gap-2 mb-1">
-                  <CheckCircle2 className="w-4 h-4 text-green-400" />
-                  <span className="text-sm text-green-400">Valid</span>
+                  <CheckCircle2 className="w-4 h-4 text-blue-400" />
+                  <span className="text-sm text-blue-400">Valid</span>
                 </div>
-                <p className="text-2xl font-bold text-green-400">{result.valid}</p>
+                <p className="text-2xl font-bold text-blue-400">{result.valid}</p>
               </div>
               <div className="p-3 rounded-lg bg-red-500/10 border border-red-500/20">
                 <div className="flex items-center gap-2 mb-1">
@@ -139,7 +139,7 @@ export default function ValidationPanel({ examples, onValidationComplete }: Vali
             <div className="space-y-2">
               <div className="flex items-center justify-between text-sm">
                 <span className="text-muted-foreground">Validation Rate</span>
-                <span className={validationRate === 100 ? "text-green-400" : "text-yellow-400"}>
+                <span className={validationRate === 100 ? "text-blue-400" : "text-yellow-400"}>
                   {validationRate.toFixed(1)}%
                 </span>
               </div>
@@ -182,11 +182,11 @@ export default function ValidationPanel({ examples, onValidationComplete }: Vali
               <motion.div
                 initial={{ opacity: 0, scale: 0.95 }}
                 animate={{ opacity: 1, scale: 1 }}
-                className="flex items-center gap-3 p-4 rounded-lg bg-green-500/10 border border-green-500/20"
+                className="flex items-center gap-3 p-4 rounded-lg bg-blue-500/10 border border-blue-500/20"
               >
-                <CheckCircle2 className="w-8 h-8 text-green-400" />
+                <CheckCircle2 className="w-8 h-8 text-blue-400" />
                 <div>
-                  <p className="font-medium text-green-400">All Examples Valid</p>
+                  <p className="font-medium text-blue-400">All Examples Valid</p>
                   <p className="text-sm text-muted-foreground">
                     Training data is ready for export and fine-tuning
                   </p>

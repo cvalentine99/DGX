@@ -143,7 +143,7 @@ export function ContainerLogsModal({
       return "text-gray-500";
     }
     if (line.includes("INFO")) {
-      return "text-green-400";
+      return "text-blue-400";
     }
     return "text-gray-300";
   };
@@ -156,8 +156,8 @@ export function ContainerLogsModal({
         <DialogHeader className="flex-shrink-0">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-3">
-              <div className="p-2 bg-[#76b900]/10 rounded-lg">
-                <Terminal className="w-5 h-5 text-[#76b900]" />
+              <div className="p-2 bg-[#3b82f6]/10 rounded-lg">
+                <Terminal className="w-5 h-5 text-[#3b82f6]" />
               </div>
               <div>
                 <DialogTitle className="text-lg font-orbitron text-white">
@@ -208,11 +208,11 @@ export function ContainerLogsModal({
                 id="auto-refresh"
                 checked={autoRefresh}
                 onCheckedChange={setAutoRefresh}
-                className="data-[state=checked]:bg-[#76b900]"
+                className="data-[state=checked]:bg-[#3b82f6]"
               />
               <Label htmlFor="auto-refresh" className="text-xs text-gray-400 flex items-center gap-1">
                 {autoRefresh ? (
-                  <Play className="w-3 h-3 text-[#76b900]" />
+                  <Play className="w-3 h-3 text-[#3b82f6]" />
                 ) : (
                   <Pause className="w-3 h-3" />
                 )}
@@ -239,7 +239,7 @@ export function ContainerLogsModal({
               className="h-8"
             >
               {copied ? (
-                <Check className="w-4 h-4 mr-1 text-green-400" />
+                <Check className="w-4 h-4 mr-1 text-blue-400" />
               ) : (
                 <Copy className="w-4 h-4 mr-1" />
               )}
@@ -261,7 +261,7 @@ export function ContainerLogsModal({
         <div className="flex-1 overflow-hidden rounded-lg bg-black/50 border border-gray-800">
           {isLoading && !useSimulated ? (
             <div className="flex items-center justify-center h-full">
-              <Loader2 className="w-6 h-6 animate-spin text-[#76b900]" />
+              <Loader2 className="w-6 h-6 animate-spin text-[#3b82f6]" />
               <span className="ml-2 text-gray-400">Fetching logs...</span>
             </div>
           ) : error && !useSimulated ? (

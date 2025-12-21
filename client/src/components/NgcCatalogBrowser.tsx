@@ -576,7 +576,7 @@ export default function NgcCatalogBrowser() {
                     >
                       {tag}
                       {tag === selectedContainer.latestTag && (
-                        <Badge className="ml-1.5 text-[10px] px-1 py-0 bg-green-500/20 text-green-400 border-green-500/30">
+                        <Badge className="ml-1.5 text-[10px] px-1 py-0 bg-blue-500/20 text-blue-400 border-blue-500/30">
                           latest
                         </Badge>
                       )}
@@ -603,7 +603,7 @@ export default function NgcCatalogBrowser() {
                     }
                   >
                     {copiedCommand === getPullCommand(selectedContainer, selectedTag) ? (
-                      <Check className="w-4 h-4 text-green-500" />
+                      <Check className="w-4 h-4 text-blue-500" />
                     ) : (
                       <Copy className="w-4 h-4" />
                     )}

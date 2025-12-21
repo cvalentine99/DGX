@@ -184,7 +184,7 @@ export default function PullProgressModal({
       case "extracting":
         return { icon: <Layers className="w-3 h-3 animate-pulse" />, text: "Extracting", color: "border-purple-500/50 text-purple-400" };
       case "completed":
-        return { icon: <CheckCircle2 className="w-3 h-3" />, text: "Completed", color: "border-green-500/50 text-green-400" };
+        return { icon: <CheckCircle2 className="w-3 h-3" />, text: "Completed", color: "border-blue-500/50 text-blue-400" };
       case "failed":
         return { icon: <XCircle className="w-3 h-3" />, text: "Failed", color: "border-red-500/50 text-red-400" };
       case "cancelled":
@@ -301,7 +301,7 @@ export default function PullProgressModal({
                     className={cn(
                       "h-2 rounded-full transition-colors",
                       layer.status === "complete" || layer.status === "exists" 
-                        ? "bg-green-500" 
+                        ? "bg-blue-500" 
                         : layer.status === "downloading" 
                           ? "bg-yellow-500" 
                           : layer.status === "extracting"
@@ -346,9 +346,9 @@ export default function PullProgressModal({
                       className={cn(
                         "text-muted-foreground",
                         line.includes("✗") && "text-red-400",
-                        line.includes("✓") && "text-green-400",
+                        line.includes("✓") && "text-blue-400",
                         line.includes("⚠") && "text-yellow-400",
-                        line.includes("Pull complete") && "text-green-400",
+                        line.includes("Pull complete") && "text-blue-400",
                         line.includes("Downloading") && "text-yellow-400",
                         line.includes("Extracting") && "text-purple-400"
                       )}
@@ -412,7 +412,7 @@ export default function PullProgressModal({
                 <Button
                   variant="default"
                   onClick={() => onOpenChange(false)}
-                  className="bg-green-600 hover:bg-green-700"
+                  className="bg-blue-600 hover:bg-blue-700"
                 >
                   <CheckCircle2 className="w-4 h-4 mr-2" />
                   Done

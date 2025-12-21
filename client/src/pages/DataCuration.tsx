@@ -157,11 +157,11 @@ function DatasetCatalogCard() {
               <div className="flex items-center gap-4">
                 <div className={cn(
                   "w-10 h-10 rounded-lg flex items-center justify-center",
-                  dataset.status === "validated" ? "bg-green-500/20" : "bg-yellow-500/20"
+                  dataset.status === "validated" ? "bg-blue-500/20" : "bg-yellow-500/20"
                 )}>
                   <FileText className={cn(
                     "w-5 h-5",
-                    dataset.status === "validated" ? "text-green-400" : "text-yellow-400"
+                    dataset.status === "validated" ? "text-blue-400" : "text-yellow-400"
                   )} />
                 </div>
                 <div>
@@ -183,13 +183,13 @@ function DatasetCatalogCard() {
                 <div className="text-right">
                   <div className="flex items-center gap-1">
                     {dataset.status === "validated" ? (
-                      <CheckCircle2 className="w-3 h-3 text-green-400" />
+                      <CheckCircle2 className="w-3 h-3 text-blue-400" />
                     ) : (
                       <RefreshCw className="w-3 h-3 text-yellow-400 animate-spin" />
                     )}
                     <span className={cn(
                       "text-xs font-medium",
-                      dataset.status === "validated" ? "text-green-400" : "text-yellow-400"
+                      dataset.status === "validated" ? "text-blue-400" : "text-yellow-400"
                     )}>
                       {dataset.quality}% quality
                     </span>
@@ -239,7 +239,7 @@ function QualityMetricsCard() {
           </div>
           <div className="p-3 rounded-lg bg-muted/30">
             <div className="text-xs text-muted-foreground mb-1">Validation Rate</div>
-            <div className="text-xl font-mono font-bold text-green-400">{validationRate.toFixed(1)}%</div>
+            <div className="text-xl font-mono font-bold text-blue-400">{validationRate.toFixed(1)}%</div>
           </div>
         </div>
         
@@ -313,7 +313,7 @@ function PreprocessingPipelineCard() {
           <div key={index} className="flex items-center gap-3 p-3 rounded-lg bg-muted/30">
             <div className={cn(
               "w-6 h-6 rounded-full flex items-center justify-center text-xs font-mono",
-              pipeline.status === "active" ? "bg-green-500/20 text-green-400" :
+              pipeline.status === "active" ? "bg-blue-500/20 text-blue-400" :
               pipeline.status === "running" ? "bg-cyan-500/20 text-cyan-400" :
               "bg-muted text-muted-foreground"
             )}>
@@ -324,7 +324,7 @@ function PreprocessingPipelineCard() {
                 <span className="text-sm font-medium">{pipeline.name}</span>
                 <span className={cn(
                   "text-[10px] px-1.5 py-0.5 rounded",
-                  pipeline.status === "active" ? "bg-green-500/20 text-green-400" :
+                  pipeline.status === "active" ? "bg-blue-500/20 text-blue-400" :
                   pipeline.status === "running" ? "bg-cyan-500/20 text-cyan-400" :
                   "bg-muted text-muted-foreground"
                 )}>

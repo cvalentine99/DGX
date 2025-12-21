@@ -36,7 +36,7 @@ import { trpc } from "@/lib/trpc";
 
 // Chart colors matching NVIDIA theme
 const CHART_COLORS = {
-  utilization: "#76b900", // NVIDIA Green
+  utilization: "#3b82f6", // NVIDIA Green
   temperature: "#ff6b35", // Orange/Warning
   power: "#00bcd4", // Teal
   memory: "#9c27b0", // Purple
@@ -473,7 +473,7 @@ export function GpuHistoryComparisonChart({ className }: { className?: string })
                 type="monotone"
                 dataKey="alphaUtil"
                 name="Spark Alpha"
-                stroke="#76b900"
+                stroke="#3b82f6"
                 strokeWidth={2}
                 dot={false}
                 activeDot={{ r: 4 }}

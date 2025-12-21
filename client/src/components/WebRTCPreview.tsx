@@ -282,7 +282,7 @@ export function WebRTCPreview({
         }
 
         // Draw camera info
-        ctx.fillStyle = "#76b900";
+        ctx.fillStyle = "#3b82f6";
         ctx.font = "bold 24px monospace";
         ctx.fillText("LOGITECH BRIO - LIVE FEED", 40, 50);
         
@@ -295,7 +295,7 @@ export function WebRTCPreview({
 
         // Draw timestamp
         const now = new Date();
-        ctx.fillStyle = "#76b900";
+        ctx.fillStyle = "#3b82f6";
         ctx.font = "14px monospace";
         ctx.fillText(now.toLocaleTimeString(), width - 100, 30);
 
@@ -305,7 +305,7 @@ export function WebRTCPreview({
         ctx.fillText(`Frame: ${frameCount++}`, width - 100, height - 20);
 
         // Draw detection boxes (simulated)
-        ctx.strokeStyle = "#76b900";
+        ctx.strokeStyle = "#3b82f6";
         ctx.lineWidth = 2;
         
         // Simulated person detection
@@ -325,7 +325,7 @@ export function WebRTCPreview({
         ctx.fillText("laptop 0.89", box2X, box2Y - 5);
 
         // Draw pipeline status
-        ctx.fillStyle = "#76b900";
+        ctx.fillStyle = "#3b82f6";
         ctx.font = "bold 14px monospace";
         ctx.fillText("● PIPELINE ACTIVE", 40, height - 60);
         ctx.fillStyle = "#ffffff";

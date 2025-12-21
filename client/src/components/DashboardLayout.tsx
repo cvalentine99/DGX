@@ -147,7 +147,7 @@ function Sidebar({ expanded, onToggle }: { expanded: boolean; onToggle: () => vo
       {/* Logo Area */}
       <div className="h-14 flex items-center px-4 border-b border-sidebar-border">
         <div className="flex items-center gap-3">
-          <div className="w-8 h-8 rounded-lg bg-nvidia-green flex items-center justify-center glow-green">
+          <div className="w-8 h-8 rounded-lg bg-primary flex items-center justify-center" style={{ boxShadow: '0 0 20px oklch(0.65 0.22 250 / 0.3)' }}>
             <Activity className="w-5 h-5 text-background" />
           </div>
           <AnimatePresence>

@@ -1178,7 +1178,7 @@ docker run -d --gpus all --name vllm-server \\
                 <div className="flex items-center justify-between">
                   <div className="space-y-1">
                     <Label className="flex items-center gap-2">
-                      <Cpu className="h-4 w-4 text-green-500" />
+                      <Cpu className="h-4 w-4 text-blue-500" />
                       Inference Requests
                     </Label>
                     <p className="text-xs text-muted-foreground">LLM prompts, responses, and latency metrics</p>
@@ -1262,7 +1262,7 @@ docker run -d --gpus all --name vllm-server \\
                   {/* Running Containers */}
                   <div>
                     <h4 className="text-sm font-medium mb-3 flex items-center gap-2">
-                      <Play className="h-4 w-4 text-green-500" />
+                      <Play className="h-4 w-4 text-blue-500" />
                       Running Containers ({runningContainers.length})
                     </h4>
                     {runningContainers.length === 0 ? (
@@ -1275,8 +1275,8 @@ docker run -d --gpus all --name vllm-server \\
                             className="flex items-center justify-between p-3 rounded-lg border bg-card hover:bg-accent/50 transition-colors"
                           >
                             <div className="flex items-center gap-3">
-                              <div className="p-2 rounded-md bg-green-500/10">
-                                <Box className="h-4 w-4 text-green-500" />
+                              <div className="p-2 rounded-md bg-blue-500/10">
+                                <Box className="h-4 w-4 text-blue-500" />
                               </div>
                               <div>
                                 <p className="font-medium text-sm">{container.name}</p>
@@ -1353,7 +1353,7 @@ docker run -d --gpus all --name vllm-server \\
                                 variant="ghost"
                                 size="sm"
                                 onClick={() => handleStartContainer(container.id)}
-                                className="gap-1 text-green-500 hover:text-green-600"
+                                className="gap-1 text-blue-500 hover:text-blue-600"
                               >
                                 <Play className="h-4 w-4" />
                                 Start
@@ -1464,7 +1464,7 @@ docker run -d --gpus all --name vllm-server \\
                   </Button>
                 </div>
                 {playbookPullLog.length > 0 && (
-                  <div className="p-3 rounded-lg bg-black/90 text-green-400 font-mono text-xs max-h-48 overflow-y-auto">
+                  <div className="p-3 rounded-lg bg-black/90 text-blue-400 font-mono text-xs max-h-48 overflow-y-auto">
                     {playbookPullLog.map((line, i) => (
                       <div key={i}>{line}</div>
                     ))}

@@ -117,7 +117,7 @@ export default function KnowledgeBase() {
       case "user_guide":
         return "bg-blue-500/20 text-blue-400 border-blue-500/30";
       case "api_docs":
-        return "bg-green-500/20 text-green-400 border-green-500/30";
+        return "bg-blue-500/20 text-blue-400 border-blue-500/30";
       case "playbook":
         return "bg-orange-500/20 text-orange-400 border-orange-500/30";
       default:
@@ -131,7 +131,7 @@ export default function KnowledgeBase() {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold font-display text-foreground flex items-center gap-3">
-            <Database className="h-7 w-7 text-[#76b900]" />
+            <Database className="h-7 w-7 text-[#3b82f6]" />
             Knowledge Base
           </h1>
           <p className="text-muted-foreground mt-1">
@@ -143,7 +143,7 @@ export default function KnowledgeBase() {
             <Server className="h-4 w-4 text-muted-foreground" />
             <span className="text-sm text-muted-foreground">vLLM:</span>
             {vllmHealth?.status === "connected" ? (
-              <CheckCircle className="h-4 w-4 text-green-500" />
+              <CheckCircle className="h-4 w-4 text-blue-500" />
             ) : (
               <XCircle className="h-4 w-4 text-red-500" />
             )}
@@ -169,7 +169,7 @@ export default function KnowledgeBase() {
                 <p className="text-sm text-muted-foreground">Total Documents</p>
                 <p className="text-2xl font-bold text-foreground">{stats?.totalDocuments || 0}</p>
               </div>
-              <FileText className="h-8 w-8 text-[#76b900]/50" />
+              <FileText className="h-8 w-8 text-[#3b82f6]/50" />
             </div>
           </CardContent>
         </Card>
@@ -202,7 +202,7 @@ export default function KnowledgeBase() {
                 <p className="text-sm text-muted-foreground">API Docs</p>
                 <p className="text-2xl font-bold text-foreground">{stats?.byCategory?.api_docs || 0}</p>
               </div>
-              <Code className="h-8 w-8 text-green-500/50" />
+              <Code className="h-8 w-8 text-blue-500/50" />
             </div>
           </CardContent>
         </Card>
@@ -222,15 +222,15 @@ export default function KnowledgeBase() {
       {/* Main Content */}
       <Tabs defaultValue="documents" className="space-y-4">
         <TabsList className="bg-card border border-border">
-          <TabsTrigger value="documents" className="data-[state=active]:bg-[#76b900]/20 data-[state=active]:text-[#76b900]">
+          <TabsTrigger value="documents" className="data-[state=active]:bg-[#3b82f6]/20 data-[state=active]:text-[#3b82f6]">
             <FileText className="h-4 w-4 mr-2" />
             Documents
           </TabsTrigger>
-          <TabsTrigger value="search" className="data-[state=active]:bg-[#76b900]/20 data-[state=active]:text-[#76b900]">
+          <TabsTrigger value="search" className="data-[state=active]:bg-[#3b82f6]/20 data-[state=active]:text-[#3b82f6]">
             <Search className="h-4 w-4 mr-2" />
             Search
           </TabsTrigger>
-          <TabsTrigger value="upload" className="data-[state=active]:bg-[#76b900]/20 data-[state=active]:text-[#76b900]">
+          <TabsTrigger value="upload" className="data-[state=active]:bg-[#3b82f6]/20 data-[state=active]:text-[#3b82f6]">
             <Upload className="h-4 w-4 mr-2" />
             Add Document
           </TabsTrigger>
@@ -249,7 +249,7 @@ export default function KnowledgeBase() {
                   {documents?.map((doc) => (
                     <div
                       key={doc.id}
-                      className="flex items-center justify-between p-3 rounded-lg bg-background/50 border border-border hover:border-[#76b900]/30 transition-colors"
+                      className="flex items-center justify-between p-3 rounded-lg bg-background/50 border border-border hover:border-[#3b82f6]/30 transition-colors"
                     >
                       <div className="flex items-center gap-3">
                         {getCategoryIcon(doc.category)}
@@ -306,7 +306,7 @@ export default function KnowledgeBase() {
                 <Button
                   onClick={() => refetchSearch()}
                   disabled={searchQuery.length < 3}
-                  className="bg-[#76b900] hover:bg-[#76b900]/80"
+                  className="bg-[#3b82f6] hover:bg-[#3b82f6]/80"
                 >
                   <Search className="h-4 w-4 mr-2" />
                   Search
@@ -325,7 +325,7 @@ export default function KnowledgeBase() {
                           {getCategoryIcon(result.category)}
                           <span className="font-medium text-foreground">{result.documentTitle}</span>
                         </div>
-                        <Badge variant="outline" className="text-[#76b900] border-[#76b900]/30">
+                        <Badge variant="outline" className="text-[#3b82f6] border-[#3b82f6]/30">
                           Score: {(result.score * 100).toFixed(0)}%
                         </Badge>
                       </div>
@@ -406,7 +406,7 @@ export default function KnowledgeBase() {
                 <Button
                   onClick={handleAddDocument}
                   disabled={isUploading || !newDocTitle || !newDocContent}
-                  className="bg-[#76b900] hover:bg-[#76b900]/80"
+                  className="bg-[#3b82f6] hover:bg-[#3b82f6]/80"
                 >
                   {isUploading ? (
                     <Loader2 className="h-4 w-4 mr-2 animate-spin" />

@@ -68,7 +68,7 @@ const hostVersionData: HostVersions[] = [
         status: "compatible",
         description: "NVIDIA CUDA Toolkit for GPU-accelerated computing",
         icon: Cpu,
-        color: "text-green-400",
+        color: "text-blue-400",
         features: ["nvcc compiler", "cuBLAS", "cuFFT", "cuRAND", "cuSPARSE", "NPP"],
         lastUpdated: "2024-11-15",
       },
@@ -79,7 +79,7 @@ const hostVersionData: HostVersions[] = [
         status: "compatible",
         description: "NVIDIA CUDA Deep Neural Network library",
         icon: Layers,
-        color: "text-green-400",
+        color: "text-blue-400",
         features: ["Convolution", "Pooling", "Normalization", "Activation", "RNN", "Attention"],
         lastUpdated: "2024-11-10",
       },
@@ -90,7 +90,7 @@ const hostVersionData: HostVersions[] = [
         status: "compatible",
         description: "NVIDIA TensorRT for high-performance deep learning inference",
         icon: Zap,
-        color: "text-green-400",
+        color: "text-blue-400",
         features: ["INT8 Quantization", "FP16 Precision", "Dynamic Shapes", "Plugin API"],
         lastUpdated: "2024-11-12",
       },
@@ -101,7 +101,7 @@ const hostVersionData: HostVersions[] = [
         status: "compatible",
         description: "NVIDIA Collective Communications Library for multi-GPU",
         icon: Activity,
-        color: "text-green-400",
+        color: "text-blue-400",
         features: ["AllReduce", "Broadcast", "AllGather", "ReduceScatter"],
         lastUpdated: "2024-11-08",
       },
@@ -112,7 +112,7 @@ const hostVersionData: HostVersions[] = [
         status: "compatible",
         description: "NVIDIA GPU Driver",
         icon: HardDrive,
-        color: "text-green-400",
+        color: "text-blue-400",
         features: ["CUDA 12.4 Support", "MIG", "vGPU", "NVLink"],
         lastUpdated: "2024-11-01",
       },
@@ -129,7 +129,7 @@ const hostVersionData: HostVersions[] = [
         status: "compatible",
         description: "NVIDIA CUDA Toolkit for GPU-accelerated computing",
         icon: Cpu,
-        color: "text-green-400",
+        color: "text-blue-400",
         features: ["nvcc compiler", "cuBLAS", "cuFFT", "cuRAND", "cuSPARSE", "NPP"],
         lastUpdated: "2024-11-15",
       },
@@ -140,7 +140,7 @@ const hostVersionData: HostVersions[] = [
         status: "compatible",
         description: "NVIDIA CUDA Deep Neural Network library",
         icon: Layers,
-        color: "text-green-400",
+        color: "text-blue-400",
         features: ["Convolution", "Pooling", "Normalization", "Activation", "RNN", "Attention"],
         lastUpdated: "2024-11-10",
       },
@@ -151,7 +151,7 @@ const hostVersionData: HostVersions[] = [
         status: "compatible",
         description: "NVIDIA TensorRT for high-performance deep learning inference",
         icon: Zap,
-        color: "text-green-400",
+        color: "text-blue-400",
         features: ["INT8 Quantization", "FP16 Precision", "Dynamic Shapes", "Plugin API"],
         lastUpdated: "2024-11-12",
       },
@@ -162,7 +162,7 @@ const hostVersionData: HostVersions[] = [
         status: "compatible",
         description: "NVIDIA Collective Communications Library for multi-GPU",
         icon: Activity,
-        color: "text-green-400",
+        color: "text-blue-400",
         features: ["AllReduce", "Broadcast", "AllGather", "ReduceScatter"],
         lastUpdated: "2024-11-08",
       },
@@ -173,7 +173,7 @@ const hostVersionData: HostVersions[] = [
         status: "compatible",
         description: "NVIDIA GPU Driver",
         icon: HardDrive,
-        color: "text-green-400",
+        color: "text-blue-400",
         features: ["CUDA 12.4 Support", "MIG", "vGPU", "NVLink"],
         lastUpdated: "2024-11-01",
       },
@@ -207,7 +207,7 @@ const nemoRequirements = {
 function getStatusIcon(status: string) {
   switch (status) {
     case "compatible":
-      return <CheckCircle2 className="w-5 h-5 text-green-400" />;
+      return <CheckCircle2 className="w-5 h-5 text-blue-400" />;
     case "warning":
       return <AlertTriangle className="w-5 h-5 text-yellow-400" />;
     case "incompatible":
@@ -220,7 +220,7 @@ function getStatusIcon(status: string) {
 function getStatusBadge(status: string) {
   switch (status) {
     case "compatible":
-      return <Badge className="bg-green-500/20 text-green-400 border-green-500/30">COMPATIBLE</Badge>;
+      return <Badge className="bg-blue-500/20 text-blue-400 border-blue-500/30">COMPATIBLE</Badge>;
     case "warning":
       return <Badge className="bg-yellow-500/20 text-yellow-400 border-yellow-500/30">WARNING</Badge>;
     case "incompatible":
@@ -309,11 +309,11 @@ export default function CudaToolkit() {
                     <div className="flex items-center gap-2">
                       <div className="text-right">
                         <p className="text-sm text-muted-foreground">Compatibility</p>
-                        <p className="text-lg font-bold text-green-400">
+                        <p className="text-lg font-bold text-blue-400">
                           {host.versions.filter(v => v.status === "compatible").length}/{host.versions.length}
                         </p>
                       </div>
-                      <CheckCircle2 className="w-6 h-6 text-green-400" />
+                      <CheckCircle2 className="w-6 h-6 text-blue-400" />
                     </div>
                   </div>
                 </CardContent>
@@ -356,10 +356,10 @@ export default function CudaToolkit() {
                   <div className="flex items-center justify-between">
                     <div>
                       <p className="text-sm text-muted-foreground">Overall Status</p>
-                      <p className="text-2xl font-bold text-green-400">All Compatible</p>
+                      <p className="text-2xl font-bold text-blue-400">All Compatible</p>
                     </div>
-                    <div className="w-12 h-12 rounded-lg bg-green-500/10 flex items-center justify-center">
-                      <CheckCircle2 className="w-6 h-6 text-green-400" />
+                    <div className="w-12 h-12 rounded-lg bg-blue-500/10 flex items-center justify-center">
+                      <CheckCircle2 className="w-6 h-6 text-blue-400" />
                     </div>
                   </div>
                   <Progress value={(compatibleCount / totalCount) * 100} className="mt-3 h-2" />
@@ -499,7 +499,7 @@ export default function CudaToolkit() {
                         <tr
                           key={index}
                           className={`border-b border-white/5 ${
-                            index === 0 ? "bg-green-500/5" : ""
+                            index === 0 ? "bg-blue-500/5" : ""
                           }`}
                         >
                           <td className="p-3 font-mono">{row.cuda}</td>
@@ -509,7 +509,7 @@ export default function CudaToolkit() {
                           <td className="p-3 font-mono">{row.tensorflow}</td>
                           <td className="p-3">
                             {index === 0 ? (
-                              <Badge className="bg-green-500/20 text-green-400 border-green-500/30 gap-1">
+                              <Badge className="bg-blue-500/20 text-blue-400 border-blue-500/30 gap-1">
                                 <CheckCircle2 className="w-3 h-3" />
                                 INSTALLED
                               </Badge>
@@ -537,15 +537,15 @@ export default function CudaToolkit() {
               </CardHeader>
               <CardContent>
                 <div className="space-y-3">
-                  <div className="flex items-center gap-4 p-3 rounded-lg bg-green-500/5 border border-green-500/20">
-                    <CheckCircle2 className="w-5 h-5 text-green-400" />
+                  <div className="flex items-center gap-4 p-3 rounded-lg bg-blue-500/5 border border-blue-500/20">
+                    <CheckCircle2 className="w-5 h-5 text-blue-400" />
                     <div className="flex-1">
                       <p className="font-medium">Current Stack (Recommended)</p>
                       <p className="text-sm text-muted-foreground">
                         CUDA 12.4 + cuDNN 8.9.7 + TensorRT 10.2.0
                       </p>
                     </div>
-                    <Badge className="bg-green-500/20 text-green-400">Active</Badge>
+                    <Badge className="bg-blue-500/20 text-blue-400">Active</Badge>
                   </div>
                   <div className="flex items-center gap-4 p-3 rounded-lg bg-blue-500/5 border border-blue-500/20">
                     <Download className="w-5 h-5 text-blue-400" />
@@ -576,7 +576,7 @@ export default function CudaToolkit() {
                       Software requirements for NeMo training and inference
                     </CardDescription>
                   </div>
-                  <Badge className="bg-green-500/20 text-green-400 border-green-500/30 gap-1">
+                  <Badge className="bg-blue-500/20 text-blue-400 border-blue-500/30 gap-1">
                     <CheckCircle2 className="w-3 h-3" />
                     All Requirements Met
                   </Badge>
@@ -669,7 +669,7 @@ export default function CudaToolkit() {
             <Card className="bg-card/50 border-border">
               <CardHeader>
                 <CardTitle className="flex items-center gap-2">
-                  <Layers className="h-5 w-5 text-[#76b900]" />
+                  <Layers className="h-5 w-5 text-[#3b82f6]" />
                   HuggingFace Model Hub
                 </CardTitle>
                 <CardDescription>

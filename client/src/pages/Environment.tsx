@@ -315,16 +315,16 @@ function HardwareTopologyCard() {
                 <svg className="w-full h-2 overflow-visible">
                   <defs>
                     <linearGradient id="lineGradient" x1="0%" y1="0%" x2="100%" y2="0%">
-                      <stop offset="0%" stopColor="#76b900" />
+                      <stop offset="0%" stopColor="#3b82f6" />
                       <stop offset="50%" stopColor="#00cccc" />
-                      <stop offset="100%" stopColor="#76b900" />
+                      <stop offset="100%" stopColor="#3b82f6" />
                     </linearGradient>
                   </defs>
                   <line x1="0" y1="4" x2="100%" y2="4" stroke="url(#lineGradient)" strokeWidth="3" strokeLinecap="round" />
                   {/* Animated data packets */}
                   {isAnimating && (
                     <>
-                      <circle r="4" fill="#76b900">
+                      <circle r="4" fill="#3b82f6">
                         <animateMotion dur="1.5s" repeatCount="indefinite" path="M0,4 L128,4" />
                       </circle>
                       <circle r="4" fill="#00cccc">

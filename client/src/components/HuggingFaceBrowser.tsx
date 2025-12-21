@@ -310,7 +310,7 @@ export function HuggingFaceBrowser() {
             placeholder="Search models..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            className="pl-10 bg-black/30 border-[#76b900]/30"
+            className="pl-10 bg-black/30 border-[#3b82f6]/30"
           />
         </div>
 
@@ -324,8 +324,8 @@ export function HuggingFaceBrowser() {
               onClick={() => setSelectedCategory(category.id)}
               className={
                 selectedCategory === category.id
-                  ? "bg-[#76b900] hover:bg-[#76b900]/90 text-black"
-                  : "border-[#76b900]/30 hover:border-[#76b900] hover:bg-[#76b900]/10"
+                  ? "bg-[#3b82f6] hover:bg-[#3b82f6]/90 text-black"
+                  : "border-[#3b82f6]/30 hover:border-[#3b82f6] hover:bg-[#3b82f6]/10"
               }
             >
               <category.icon className="h-3 w-3 mr-1" />
@@ -343,15 +343,15 @@ export function HuggingFaceBrowser() {
                 onClick={() => setSelectedModel(model)}
                 className={`p-3 rounded-lg border cursor-pointer transition-all ${
                   selectedModel?.id === model.id
-                    ? "border-[#76b900] bg-[#76b900]/10"
-                    : "border-[#76b900]/20 hover:border-[#76b900]/50 bg-black/20"
+                    ? "border-[#3b82f6] bg-[#3b82f6]/10"
+                    : "border-[#3b82f6]/20 hover:border-[#3b82f6]/50 bg-black/20"
                 }`}
               >
                 <div className="flex items-start justify-between gap-2">
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2">
                       <h4 className="font-semibold text-white truncate">{model.name}</h4>
-                      <Badge variant="outline" className="text-xs border-[#76b900]/50 text-[#76b900]">
+                      <Badge variant="outline" className="text-xs border-[#3b82f6]/50 text-[#3b82f6]">
                         {model.publisher}
                       </Badge>
                       {model.gated && (
@@ -386,14 +386,14 @@ export function HuggingFaceBrowser() {
       </div>
 
       {/* Model Details */}
-      <div className="col-span-7 border border-[#76b900]/30 rounded-lg bg-black/20 p-4 flex flex-col">
+      <div className="col-span-7 border border-[#3b82f6]/30 rounded-lg bg-black/20 p-4 flex flex-col">
         {selectedModel ? (
           <>
             <div className="flex items-start justify-between mb-4">
               <div>
                 <div className="flex items-center gap-2">
-                  <h3 className="text-xl font-bold text-[#76b900]">{selectedModel.name}</h3>
-                  <Badge className="bg-[#76b900]/20 text-[#76b900] border-[#76b900]/50">
+                  <h3 className="text-xl font-bold text-[#3b82f6]">{selectedModel.name}</h3>
+                  <Badge className="bg-[#3b82f6]/20 text-[#3b82f6] border-[#3b82f6]/50">
                     {selectedModel.publisher}
                   </Badge>
                 </div>
@@ -404,7 +404,7 @@ export function HuggingFaceBrowser() {
             {/* Tags */}
             <div className="flex flex-wrap gap-2 mb-4">
               {selectedModel.tags.map((tag) => (
-                <Badge key={tag} variant="secondary" className="bg-[#76b900]/10 text-[#76b900]">
+                <Badge key={tag} variant="secondary" className="bg-[#3b82f6]/10 text-[#3b82f6]">
                   {tag}
                 </Badge>
               ))}
@@ -412,23 +412,23 @@ export function HuggingFaceBrowser() {
 
             {/* Stats */}
             <div className="grid grid-cols-4 gap-4 mb-4">
-              <div className="text-center p-3 bg-black/30 rounded-lg border border-[#76b900]/20">
-                <Download className="h-5 w-5 mx-auto mb-1 text-[#76b900]" />
+              <div className="text-center p-3 bg-black/30 rounded-lg border border-[#3b82f6]/20">
+                <Download className="h-5 w-5 mx-auto mb-1 text-[#3b82f6]" />
                 <div className="text-lg font-bold text-white">{selectedModel.downloads}</div>
                 <div className="text-xs text-muted-foreground">Downloads</div>
               </div>
-              <div className="text-center p-3 bg-black/30 rounded-lg border border-[#76b900]/20">
-                <Star className="h-5 w-5 mx-auto mb-1 text-[#76b900]" />
+              <div className="text-center p-3 bg-black/30 rounded-lg border border-[#3b82f6]/20">
+                <Star className="h-5 w-5 mx-auto mb-1 text-[#3b82f6]" />
                 <div className="text-lg font-bold text-white">{selectedModel.likes}</div>
                 <div className="text-xs text-muted-foreground">Likes</div>
               </div>
-              <div className="text-center p-3 bg-black/30 rounded-lg border border-[#76b900]/20">
-                <HardDrive className="h-5 w-5 mx-auto mb-1 text-[#76b900]" />
+              <div className="text-center p-3 bg-black/30 rounded-lg border border-[#3b82f6]/20">
+                <HardDrive className="h-5 w-5 mx-auto mb-1 text-[#3b82f6]" />
                 <div className="text-lg font-bold text-white">{selectedModel.size}</div>
                 <div className="text-xs text-muted-foreground">Size</div>
               </div>
-              <div className="text-center p-3 bg-black/30 rounded-lg border border-[#76b900]/20">
-                <Clock className="h-5 w-5 mx-auto mb-1 text-[#76b900]" />
+              <div className="text-center p-3 bg-black/30 rounded-lg border border-[#3b82f6]/20">
+                <Clock className="h-5 w-5 mx-auto mb-1 text-[#3b82f6]" />
                 <div className="text-lg font-bold text-white">{selectedModel.lastUpdated.split("-").slice(1).join("/")}</div>
                 <div className="text-xs text-muted-foreground">Updated</div>
               </div>
@@ -440,17 +440,17 @@ export function HuggingFaceBrowser() {
                 Download Command
               </label>
               <div className="flex items-center gap-2">
-                <code className="flex-1 bg-black/50 border border-[#76b900]/30 rounded px-3 py-2 text-sm font-mono text-[#76b900] overflow-x-auto">
+                <code className="flex-1 bg-black/50 border border-[#3b82f6]/30 rounded px-3 py-2 text-sm font-mono text-[#3b82f6] overflow-x-auto">
                   {downloadCommand}
                 </code>
                 <Button
                   variant="outline"
                   size="icon"
                   onClick={() => handleCopyCommand(downloadCommand)}
-                  className="border-[#76b900]/30 hover:border-[#76b900] hover:bg-[#76b900]/10"
+                  className="border-[#3b82f6]/30 hover:border-[#3b82f6] hover:bg-[#3b82f6]/10"
                 >
                   {copiedCommand ? (
-                    <Check className="h-4 w-4 text-[#76b900]" />
+                    <Check className="h-4 w-4 text-[#3b82f6]" />
                   ) : (
                     <Copy className="h-4 w-4" />
                   )}
@@ -470,14 +470,14 @@ export function HuggingFaceBrowser() {
                   if (host) setSelectedHost(host);
                 }}
               >
-                <SelectTrigger className="bg-black/30 border-[#76b900]/30">
+                <SelectTrigger className="bg-black/30 border-[#3b82f6]/30">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
                   {DGX_HOSTS.map((host) => (
                     <SelectItem key={host.id} value={host.id}>
                       <div className="flex items-center gap-2">
-                        <Cpu className="h-4 w-4 text-[#76b900]" />
+                        <Cpu className="h-4 w-4 text-[#3b82f6]" />
                         <span>{host.name}</span>
                         <span className="text-muted-foreground">({host.ip})</span>
                       </div>
@@ -491,7 +491,7 @@ export function HuggingFaceBrowser() {
             <div className="flex gap-2 mt-auto">
               <Button
                 onClick={() => handleDownload(selectedModel)}
-                className="flex-1 bg-[#76b900] hover:bg-[#76b900]/90 text-black"
+                className="flex-1 bg-[#3b82f6] hover:bg-[#3b82f6]/90 text-black"
               >
                 <Download className="h-4 w-4 mr-2" />
                 Download to {selectedHost.name}
@@ -499,7 +499,7 @@ export function HuggingFaceBrowser() {
               <Button
                 variant="outline"
                 onClick={() => window.open(`https://huggingface.co/${selectedModel.id}`, "_blank")}
-                className="border-[#76b900]/30 hover:border-[#76b900] hover:bg-[#76b900]/10"
+                className="border-[#3b82f6]/30 hover:border-[#3b82f6] hover:bg-[#3b82f6]/10"
               >
                 <ExternalLink className="h-4 w-4 mr-2" />
                 View on HF
@@ -525,9 +525,9 @@ export function HuggingFaceBrowser() {
 
       {/* Download Progress Dialog */}
       <Dialog open={downloadProgress !== null} onOpenChange={() => setDownloadProgress(null)}>
-        <DialogContent className="bg-[#0a0a0a] border-[#76b900]/30 max-w-lg">
+        <DialogContent className="bg-[#0a0a0a] border-[#3b82f6]/30 max-w-lg">
           <DialogHeader>
-            <DialogTitle className="flex items-center gap-2 text-[#76b900]">
+            <DialogTitle className="flex items-center gap-2 text-[#3b82f6]">
               <Download className="h-5 w-5" />
               Downloading Model
             </DialogTitle>
@@ -543,10 +543,10 @@ export function HuggingFaceBrowser() {
                   variant="outline"
                   className={
                     downloadProgress.status === "completed"
-                      ? "border-green-500 text-green-500"
+                      ? "border-blue-500 text-blue-500"
                       : downloadProgress.status === "failed"
                       ? "border-red-500 text-red-500"
-                      : "border-[#76b900] text-[#76b900]"
+                      : "border-[#3b82f6] text-[#3b82f6]"
                   }
                 >
                   {downloadProgress.status === "completed" && <CheckCircle2 className="h-3 w-3 mr-1" />}
@@ -560,7 +560,7 @@ export function HuggingFaceBrowser() {
                 <Progress value={65} className="h-2" />
               )}
 
-              <ScrollArea className="h-48 bg-black/50 rounded border border-[#76b900]/20 p-3">
+              <ScrollArea className="h-48 bg-black/50 rounded border border-[#3b82f6]/20 p-3">
                 <div className="font-mono text-xs space-y-1">
                   {downloadProgress.progress.map((line, i) => (
                     <div
@@ -569,7 +569,7 @@ export function HuggingFaceBrowser() {
                         line.includes("Error")
                           ? "text-red-400"
                           : line.includes("Successfully")
-                          ? "text-green-400"
+                          ? "text-blue-400"
                           : "text-muted-foreground"
                       }
                     >
@@ -584,7 +584,7 @@ export function HuggingFaceBrowser() {
                   <Button
                     variant="outline"
                     onClick={() => selectedModel && handleDownload(selectedModel)}
-                    className="border-[#76b900]/30"
+                    className="border-[#3b82f6]/30"
                   >
                     Retry
                   </Button>
@@ -592,7 +592,7 @@ export function HuggingFaceBrowser() {
                 <Button
                   variant="outline"
                   onClick={() => setDownloadProgress(null)}
-                  className="border-[#76b900]/30"
+                  className="border-[#3b82f6]/30"
                 >
                   Close
                 </Button>

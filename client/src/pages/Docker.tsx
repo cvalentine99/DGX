@@ -526,8 +526,8 @@ export default function Docker() {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-3xl font-bold tracking-tight flex items-center gap-3">
-            <div className="p-2 rounded-lg bg-[#76b900]/20">
-              <Container className="h-8 w-8 text-[#76b900]" />
+            <div className="p-2 rounded-lg bg-[#3b82f6]/20">
+              <Container className="h-8 w-8 text-[#3b82f6]" />
             </div>
             Docker & Kubernetes
           </h1>
@@ -595,9 +595,9 @@ export default function Docker() {
               <div className="flex items-center justify-between">
                 <div>
                   <CardTitle className="flex items-center gap-2">
-                    <Play className="h-5 w-5 text-green-500" />
+                    <Play className="h-5 w-5 text-blue-500" />
                     Running Containers
-                    <Badge variant="outline" className="ml-2 border-green-500 text-green-500">
+                    <Badge variant="outline" className="ml-2 border-blue-500 text-blue-500">
                       {runningContainers.length}
                     </Badge>
                   </CardTitle>
@@ -610,7 +610,7 @@ export default function Docker() {
             <CardContent>
               {isLoadingContainers ? (
                 <div className="flex items-center justify-center py-8">
-                  <Loader2 className="h-6 w-6 animate-spin text-[#76b900]" />
+                  <Loader2 className="h-6 w-6 animate-spin text-[#3b82f6]" />
                 </div>
               ) : runningContainers.length === 0 ? (
                 <div className="text-center py-8 text-gray-500">
@@ -625,8 +625,8 @@ export default function Docker() {
                       className="flex items-center justify-between p-3 rounded-lg bg-black/30 border border-gray-800 hover:border-gray-700 transition-colors"
                     >
                       <div className="flex items-center gap-3">
-                        <div className="p-2 rounded bg-green-500/20">
-                          <Container className="h-4 w-4 text-green-500" />
+                        <div className="p-2 rounded bg-blue-500/20">
+                          <Container className="h-4 w-4 text-blue-500" />
                         </div>
                         <div>
                           <p className="font-medium text-white">{container.name}</p>
@@ -634,7 +634,7 @@ export default function Docker() {
                         </div>
                       </div>
                       <div className="flex items-center gap-2">
-                        <Badge variant="outline" className="border-green-500 text-green-500">
+                        <Badge variant="outline" className="border-blue-500 text-blue-500">
                           {container.status}
                         </Badge>
                         <Button
@@ -721,7 +721,7 @@ export default function Docker() {
                         <Button
                           variant="ghost"
                           size="sm"
-                          className="text-green-500 hover:text-green-400"
+                          className="text-blue-500 hover:text-blue-400"
                           onClick={() => startContainerMutation.mutate({ hostId: selectedHost, containerId: container.id })}
                         >
                           <Play className="h-4 w-4" />
@@ -753,7 +753,7 @@ export default function Docker() {
           <Card className="bg-black/40 border-gray-800">
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
-                <Download className="h-5 w-5 text-[#76b900]" />
+                <Download className="h-5 w-5 text-[#3b82f6]" />
                 Pull Container Image
               </CardTitle>
               <CardDescription>
@@ -778,7 +778,7 @@ export default function Docker() {
                   <option value="both">Both Hosts</option>
                 </select>
                 <Button
-                  className="bg-[#76b900] hover:bg-[#76b900]/90"
+                  className="bg-[#3b82f6] hover:bg-[#3b82f6]/90"
                   disabled={!pullImageTag || isPulling}
                   onClick={handlePullImage}
                 >
@@ -799,7 +799,7 @@ export default function Docker() {
               <div className="flex items-center justify-between">
                 <div>
                   <CardTitle className="flex items-center gap-2">
-                    <Layers className="h-5 w-5 text-[#76b900]" />
+                    <Layers className="h-5 w-5 text-[#3b82f6]" />
                     Local Images
                     <Badge variant="outline" className="ml-2">
                       {images.length}
@@ -817,7 +817,7 @@ export default function Docker() {
             <CardContent>
               {isLoadingImages ? (
                 <div className="flex items-center justify-center py-8">
-                  <Loader2 className="h-6 w-6 animate-spin text-[#76b900]" />
+                  <Loader2 className="h-6 w-6 animate-spin text-[#3b82f6]" />
                 </div>
               ) : images.length === 0 ? (
                 <div className="text-center py-8 text-gray-500">
@@ -832,8 +832,8 @@ export default function Docker() {
                       className="flex items-center justify-between p-3 rounded-lg bg-black/30 border border-gray-800 hover:border-gray-700 transition-colors"
                     >
                       <div className="flex items-center gap-3 flex-1 min-w-0">
-                        <div className="p-2 rounded bg-[#76b900]/20">
-                          <Layers className="h-4 w-4 text-[#76b900]" />
+                        <div className="p-2 rounded bg-[#3b82f6]/20">
+                          <Layers className="h-4 w-4 text-[#3b82f6]" />
                         </div>
                         <div className="min-w-0 flex-1">
                           <p className="font-medium text-white truncate">{image.repository}</p>
@@ -867,7 +867,7 @@ export default function Docker() {
           <Card className="bg-black/40 border-gray-800">
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
-                <GitBranch className="h-5 w-5 text-[#76b900]" />
+                <GitBranch className="h-5 w-5 text-[#3b82f6]" />
                 DGX Spark Playbook Images
               </CardTitle>
               <CardDescription>
@@ -877,7 +877,7 @@ export default function Docker() {
             <CardContent>
               <div className="p-4 rounded-lg bg-black/30 border border-gray-800">
                 <div className="flex items-start gap-3 mb-4">
-                  <Server className="h-5 w-5 text-[#76b900] mt-0.5" />
+                  <Server className="h-5 w-5 text-[#3b82f6] mt-0.5" />
                   <div>
                     <p className="font-medium text-white">Automated Image Pull</p>
                     <p className="text-sm text-gray-400">
@@ -898,7 +898,7 @@ export default function Docker() {
                     variant="outline"
                     onClick={handlePullPlaybookImages}
                     disabled={isPullingPlaybook}
-                    className="border-[#76b900] text-[#76b900] hover:bg-[#76b900]/10"
+                    className="border-[#3b82f6] text-[#3b82f6] hover:bg-[#3b82f6]/10"
                   >
                     {isPullingPlaybook ? (
                       <Loader2 className="h-4 w-4 mr-2 animate-spin" />
@@ -919,7 +919,7 @@ export default function Docker() {
           <Card className="bg-black/40 border-gray-800">
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
-                <Sparkles className="h-5 w-5 text-[#76b900]" />
+                <Sparkles className="h-5 w-5 text-[#3b82f6]" />
                 NVIDIA AI Workshop Templates
               </CardTitle>
               <CardDescription>
@@ -933,12 +933,12 @@ export default function Docker() {
                   return (
                     <div
                       key={template.id}
-                      className="p-4 rounded-lg bg-black/30 border border-gray-800 hover:border-[#76b900] transition-colors cursor-pointer group"
+                      className="p-4 rounded-lg bg-black/30 border border-gray-800 hover:border-[#3b82f6] transition-colors cursor-pointer group"
                       onClick={() => handleSelectTemplate(template)}
                     >
                       <div className="flex items-start gap-3">
-                        <div className="p-2 rounded bg-[#76b900]/20 group-hover:bg-[#76b900]/30 transition-colors">
-                          <Icon className="h-5 w-5 text-[#76b900]" />
+                        <div className="p-2 rounded bg-[#3b82f6]/20 group-hover:bg-[#3b82f6]/30 transition-colors">
+                          <Icon className="h-5 w-5 text-[#3b82f6]" />
                         </div>
                         <div>
                           <p className="font-medium text-white">{template.name}</p>
@@ -958,7 +958,7 @@ export default function Docker() {
               <div className="flex items-center justify-between">
                 <div>
                   <CardTitle className="flex items-center gap-2">
-                    <Upload className="h-5 w-5 text-[#76b900]" />
+                    <Upload className="h-5 w-5 text-[#3b82f6]" />
                     Active Compose Projects
                     <Badge variant="outline" className="ml-2">
                       {composeProjects.length}
@@ -977,7 +977,7 @@ export default function Docker() {
                     setComposeEnvVars({});
                     setComposeModalOpen(true);
                   }}
-                  className="border-[#76b900] text-[#76b900]"
+                  className="border-[#3b82f6] text-[#3b82f6]"
                 >
                   <Upload className="h-4 w-4 mr-2" />
                   Deploy Custom Stack
@@ -998,8 +998,8 @@ export default function Docker() {
                       className="flex items-center justify-between p-3 rounded-lg bg-black/30 border border-gray-800"
                     >
                       <div className="flex items-center gap-3">
-                        <div className="p-2 rounded bg-[#76b900]/20">
-                          <Upload className="h-4 w-4 text-[#76b900]" />
+                        <div className="p-2 rounded bg-[#3b82f6]/20">
+                          <Upload className="h-4 w-4 text-[#3b82f6]" />
                         </div>
                         <div>
                           <p className="font-medium text-white">{project.name}</p>
@@ -1054,7 +1054,7 @@ export default function Docker() {
               <div className="flex items-center justify-between">
                 <div>
                   <CardTitle className="flex items-center gap-2">
-                    <Network className="h-5 w-5 text-[#76b900]" />
+                    <Network className="h-5 w-5 text-[#3b82f6]" />
                     Kubernetes Cluster
                   </CardTitle>
                   <CardDescription>
@@ -1063,7 +1063,7 @@ export default function Docker() {
                 </div>
                 <Badge
                   variant="outline"
-                  className={k8sStatus?.connected ? "border-green-500 text-green-500" : "border-gray-500 text-gray-500"}
+                  className={k8sStatus?.connected ? "border-blue-500 text-blue-500" : "border-gray-500 text-gray-500"}
                 >
                   {k8sStatus?.connected ? (
                     <>
@@ -1082,7 +1082,7 @@ export default function Docker() {
             <CardContent>
               {isLoadingK8s ? (
                 <div className="flex items-center justify-center py-12">
-                  <Loader2 className="h-6 w-6 animate-spin text-[#76b900]" />
+                  <Loader2 className="h-6 w-6 animate-spin text-[#3b82f6]" />
                 </div>
               ) : k8sStatus?.connected ? (
                 <div className="space-y-4">
@@ -1117,7 +1117,7 @@ export default function Docker() {
                   <p className="text-gray-400 mb-6">
                     Deploy K8s using NVIDIA GPU Operator for container orchestration.
                   </p>
-                  <Button variant="outline" className="border-[#76b900] text-[#76b900]">
+                  <Button variant="outline" className="border-[#3b82f6] text-[#3b82f6]">
                     View Setup Guide
                   </Button>
                 </div>
@@ -1132,7 +1132,7 @@ export default function Docker() {
         <DialogContent className="max-w-4xl max-h-[80vh] bg-black/95 border-gray-800">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
-              <FileText className="h-5 w-5 text-[#76b900]" />
+              <FileText className="h-5 w-5 text-[#3b82f6]" />
               Container Logs: {selectedContainer?.name}
             </DialogTitle>
             <DialogDescription>
@@ -1145,7 +1145,7 @@ export default function Docker() {
                 variant={autoRefreshLogs ? "default" : "outline"}
                 size="sm"
                 onClick={() => setAutoRefreshLogs(!autoRefreshLogs)}
-                className={autoRefreshLogs ? "bg-[#76b900]" : ""}
+                className={autoRefreshLogs ? "bg-[#3b82f6]" : ""}
               >
                 {autoRefreshLogs ? "Auto-refresh ON" : "Auto-refresh OFF"}
               </Button>
@@ -1157,7 +1157,7 @@ export default function Docker() {
           <div className="bg-black rounded-lg border border-gray-800 p-4 h-[400px] overflow-y-auto font-mono text-sm">
             {isLoadingLogs ? (
               <div className="flex items-center justify-center h-full">
-                <Loader2 className="h-6 w-6 animate-spin text-[#76b900]" />
+                <Loader2 className="h-6 w-6 animate-spin text-[#3b82f6]" />
               </div>
             ) : logsData?.logs ? (
               <pre className="whitespace-pre-wrap text-gray-300">{logsData.logs}</pre>
@@ -1174,7 +1174,7 @@ export default function Docker() {
         <DialogContent className="max-w-3xl max-h-[80vh] bg-black/95 border-gray-800 overflow-y-auto">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
-              <Upload className="h-5 w-5 text-[#76b900]" />
+              <Upload className="h-5 w-5 text-[#3b82f6]" />
               {selectedTemplate ? `Deploy ${selectedTemplate.name}` : "Deploy Docker Compose Stack"}
             </DialogTitle>
             <DialogDescription>
@@ -1234,7 +1234,7 @@ export default function Docker() {
                   Cancel
                 </Button>
                 <Button
-                  className="bg-[#76b900] hover:bg-[#76b900]/90"
+                  className="bg-[#3b82f6] hover:bg-[#3b82f6]/90"
                   onClick={handleDeployCompose}
                   disabled={isDeploying || !composeProjectName || !composeContent}
                 >
@@ -1323,7 +1323,7 @@ export default function Docker() {
         <DialogContent className="max-w-2xl bg-black/95 border-gray-800">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
-              <Download className="h-5 w-5 text-[#76b900]" />
+              <Download className="h-5 w-5 text-[#3b82f6]" />
               Pulling Image
             </DialogTitle>
             <DialogDescription>
@@ -1335,11 +1335,11 @@ export default function Docker() {
             <div className="space-y-2">
               <div className="flex items-center justify-between text-sm">
                 <span className="text-gray-400">Progress</span>
-                <span className="text-[#76b900] font-medium">{pullProgressData?.progress || 0}%</span>
+                <span className="text-[#3b82f6] font-medium">{pullProgressData?.progress || 0}%</span>
               </div>
               <div className="h-3 bg-gray-800 rounded-full overflow-hidden">
                 <div
-                  className="h-full bg-gradient-to-r from-[#76b900] to-[#9be22d] transition-all duration-500"
+                  className="h-full bg-gradient-to-r from-[#3b82f6] to-[#9be22d] transition-all duration-500"
                   style={{ width: `${pullProgressData?.progress || 0}%` }}
                 />
               </div>
@@ -1348,15 +1348,15 @@ export default function Docker() {
             {/* Status */}
             <div className="flex items-center gap-2">
               {pullProgressData?.status === 'completed' ? (
-                <CheckCircle2 className="h-5 w-5 text-green-500" />
+                <CheckCircle2 className="h-5 w-5 text-blue-500" />
               ) : pullProgressData?.status === 'error' ? (
                 <AlertCircle className="h-5 w-5 text-red-500" />
               ) : (
-                <Loader2 className="h-5 w-5 animate-spin text-[#76b900]" />
+                <Loader2 className="h-5 w-5 animate-spin text-[#3b82f6]" />
               )}
               <span className={`font-medium ${
-                pullProgressData?.status === 'completed' ? 'text-green-500' :
-                pullProgressData?.status === 'error' ? 'text-red-500' : 'text-[#76b900]'
+                pullProgressData?.status === 'completed' ? 'text-blue-500' :
+                pullProgressData?.status === 'error' ? 'text-red-500' : 'text-[#3b82f6]'
               }`}>
                 {pullProgressData?.status === 'completed' ? 'Download Complete' :
                  pullProgressData?.status === 'error' ? 'Download Failed' : 'Downloading...'}
@@ -1378,7 +1378,7 @@ export default function Docker() {
         <DialogContent className="max-w-4xl max-h-[80vh] bg-black/95 border-gray-800">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
-              <ScrollText className="h-5 w-5 text-[#76b900]" />
+              <ScrollText className="h-5 w-5 text-[#3b82f6]" />
               Stack Logs: {selectedComposeProject}
             </DialogTitle>
             <DialogDescription>
@@ -1396,7 +1396,7 @@ export default function Docker() {
                 variant={composeLogsAutoRefresh ? "default" : "outline"}
                 size="sm"
                 onClick={() => setComposeLogsAutoRefresh(!composeLogsAutoRefresh)}
-                className={composeLogsAutoRefresh ? "bg-[#76b900]" : ""}
+                className={composeLogsAutoRefresh ? "bg-[#3b82f6]" : ""}
               >
                 {composeLogsAutoRefresh ? "Auto-refresh ON" : "Auto-refresh OFF"}
               </Button>
@@ -1408,7 +1408,7 @@ export default function Docker() {
           <div className="bg-black rounded-lg border border-gray-800 p-4 h-[400px] overflow-y-auto font-mono text-sm">
             {isLoadingComposeLogs ? (
               <div className="flex items-center justify-center h-full">
-                <Loader2 className="h-6 w-6 animate-spin text-[#76b900]" />
+                <Loader2 className="h-6 w-6 animate-spin text-[#3b82f6]" />
               </div>
             ) : composeLogsData?.logs ? (
               <pre className="whitespace-pre-wrap text-gray-300">{composeLogsData.logs}</pre>
@@ -1511,7 +1511,7 @@ function NetworksTab({ selectedHost }: { selectedHost: "alpha" | "beta" }) {
           <div className="flex items-center justify-between">
             <div>
               <CardTitle className="flex items-center gap-2">
-                <GitBranch className="h-5 w-5 text-[#76b900]" />
+                <GitBranch className="h-5 w-5 text-[#3b82f6]" />
                 Docker Networks
                 <Badge variant="outline" className="ml-2">{networks.length}</Badge>
               </CardTitle>
@@ -1521,7 +1521,7 @@ function NetworksTab({ selectedHost }: { selectedHost: "alpha" | "beta" }) {
               <Button variant="outline" size="sm" onClick={() => refetchNetworks()}>
                 <RefreshCw className={`h-4 w-4 ${isLoading ? 'animate-spin' : ''}`} />
               </Button>
-              <Button className="bg-[#76b900] hover:bg-[#76b900]/90" onClick={() => setCreateNetworkOpen(true)}>
+              <Button className="bg-[#3b82f6] hover:bg-[#3b82f6]/90" onClick={() => setCreateNetworkOpen(true)}>
                 <Plus className="h-4 w-4 mr-2" />
                 Create Network
               </Button>
@@ -1531,7 +1531,7 @@ function NetworksTab({ selectedHost }: { selectedHost: "alpha" | "beta" }) {
         <CardContent>
           {isLoading ? (
             <div className="flex items-center justify-center py-8">
-              <Loader2 className="h-6 w-6 animate-spin text-[#76b900]" />
+              <Loader2 className="h-6 w-6 animate-spin text-[#3b82f6]" />
             </div>
           ) : networks.length === 0 ? (
             <div className="text-center py-8 text-gray-500">
@@ -1545,7 +1545,7 @@ function NetworksTab({ selectedHost }: { selectedHost: "alpha" | "beta" }) {
                   key={network.id}
                   className={`p-4 rounded-lg border cursor-pointer transition-all ${
                     selectedNetwork === network.id
-                      ? 'border-[#76b900] bg-[#76b900]/10'
+                      ? 'border-[#3b82f6] bg-[#3b82f6]/10'
                       : 'border-gray-800 bg-black/30 hover:border-gray-700'
                   }`}
                   onClick={() => setSelectedNetwork(selectedNetwork === network.id ? null : network.id)}
@@ -1605,7 +1605,7 @@ function NetworksTab({ selectedHost }: { selectedHost: "alpha" | "beta" }) {
           <CardContent>
             {isLoadingDetails ? (
               <div className="flex items-center justify-center py-8">
-                <Loader2 className="h-6 w-6 animate-spin text-[#76b900]" />
+                <Loader2 className="h-6 w-6 animate-spin text-[#3b82f6]" />
               </div>
             ) : networkDetails?.network ? (
               <div className="space-y-4">
@@ -1722,7 +1722,7 @@ function NetworksTab({ selectedHost }: { selectedHost: "alpha" | "beta" }) {
             <div className="flex justify-end gap-2">
               <Button variant="outline" onClick={() => setCreateNetworkOpen(false)}>Cancel</Button>
               <Button
-                className="bg-[#76b900] hover:bg-[#76b900]/90"
+                className="bg-[#3b82f6] hover:bg-[#3b82f6]/90"
                 onClick={() => {
                   createNetworkMutation.mutate({
                     hostId: selectedHost,
@@ -1762,7 +1762,7 @@ function NetworksTab({ selectedHost }: { selectedHost: "alpha" | "beta" }) {
             <div className="flex justify-end gap-2">
               <Button variant="outline" onClick={() => setConnectContainerOpen(false)}>Cancel</Button>
               <Button
-                className="bg-[#76b900] hover:bg-[#76b900]/90"
+                className="bg-[#3b82f6] hover:bg-[#3b82f6]/90"
                 onClick={() => {
                   if (selectedNetwork && connectContainerId) {
                     connectMutation.mutate({
@@ -1854,7 +1854,7 @@ function VolumesTab({ selectedHost }: { selectedHost: "alpha" | "beta" }) {
           <div className="flex items-center justify-between">
             <div>
               <CardTitle className="flex items-center gap-2">
-                <HardDrive className="h-5 w-5 text-[#76b900]" />
+                <HardDrive className="h-5 w-5 text-[#3b82f6]" />
                 Docker Volumes
                 <Badge variant="outline" className="ml-2">{volumes.length}</Badge>
               </CardTitle>
@@ -1878,7 +1878,7 @@ function VolumesTab({ selectedHost }: { selectedHost: "alpha" | "beta" }) {
                 {pruneVolumesMutation.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4 mr-2" />}
                 Prune Unused
               </Button>
-              <Button className="bg-[#76b900] hover:bg-[#76b900]/90" onClick={() => setCreateVolumeOpen(true)}>
+              <Button className="bg-[#3b82f6] hover:bg-[#3b82f6]/90" onClick={() => setCreateVolumeOpen(true)}>
                 <Plus className="h-4 w-4 mr-2" />
                 Create Volume
               </Button>
@@ -1888,7 +1888,7 @@ function VolumesTab({ selectedHost }: { selectedHost: "alpha" | "beta" }) {
         <CardContent>
           {isLoading ? (
             <div className="flex items-center justify-center py-8">
-              <Loader2 className="h-6 w-6 animate-spin text-[#76b900]" />
+              <Loader2 className="h-6 w-6 animate-spin text-[#3b82f6]" />
             </div>
           ) : volumes.length === 0 ? (
             <div className="text-center py-8 text-gray-500">
@@ -1902,7 +1902,7 @@ function VolumesTab({ selectedHost }: { selectedHost: "alpha" | "beta" }) {
                   key={volume.name}
                   className={`p-4 rounded-lg border cursor-pointer transition-all ${
                     selectedVolume === volume.name
-                      ? 'border-[#76b900] bg-[#76b900]/10'
+                      ? 'border-[#3b82f6] bg-[#3b82f6]/10'
                       : 'border-gray-800 bg-black/30 hover:border-gray-700'
                   }`}
                   onClick={() => setSelectedVolume(selectedVolume === volume.name ? null : volume.name)}
@@ -1953,7 +1953,7 @@ function VolumesTab({ selectedHost }: { selectedHost: "alpha" | "beta" }) {
           <CardContent>
             {isLoadingDetails ? (
               <div className="flex items-center justify-center py-8">
-                <Loader2 className="h-6 w-6 animate-spin text-[#76b900]" />
+                <Loader2 className="h-6 w-6 animate-spin text-[#3b82f6]" />
               </div>
             ) : volumeDetails?.volume ? (
               <div className="space-y-4">
@@ -1992,7 +1992,7 @@ function VolumesTab({ selectedHost }: { selectedHost: "alpha" | "beta" }) {
                             <span className="font-medium">{container.name}</span>
                             <span className="text-xs text-gray-500 ml-2">{container.image}</span>
                           </div>
-                          <Badge variant="outline" className={container.status.includes('Up') ? 'border-green-500 text-green-500' : 'border-gray-500 text-gray-500'}>
+                          <Badge variant="outline" className={container.status.includes('Up') ? 'border-blue-500 text-blue-500' : 'border-gray-500 text-gray-500'}>
                             {container.status.includes('Up') ? 'Running' : 'Stopped'}
                           </Badge>
                         </div>
@@ -2030,7 +2030,7 @@ function VolumesTab({ selectedHost }: { selectedHost: "alpha" | "beta" }) {
             <div className="flex justify-end gap-2">
               <Button variant="outline" onClick={() => setCreateVolumeOpen(false)}>Cancel</Button>
               <Button
-                className="bg-[#76b900] hover:bg-[#76b900]/90"
+                className="bg-[#3b82f6] hover:bg-[#3b82f6]/90"
                 onClick={() => {
                   createVolumeMutation.mutate({
                     hostId: selectedHost,

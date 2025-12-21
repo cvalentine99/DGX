@@ -103,14 +103,14 @@ const playbookIcons: Record<string, React.ElementType> = {
 const categoryColors: Record<string, string> = {
   db_server: "text-purple-400 bg-purple-500/10",
   http_server: "text-blue-400 bg-blue-500/10",
-  ssl_server: "text-green-400 bg-green-500/10",
+  ssl_server: "text-blue-400 bg-blue-500/10",
   tcp: "text-orange-400 bg-orange-500/10",
   net: "text-red-400 bg-red-500/10",
   dns_server: "text-cyan-400 bg-cyan-500/10",
   sip: "text-pink-400 bg-pink-500/10",
   ldap_server: "text-indigo-400 bg-indigo-500/10",
   dhcp_server: "text-yellow-400 bg-yellow-500/10",
-  nas: "text-emerald-400 bg-emerald-500/10",
+  nas: "text-blue-400 bg-blue-500/10",
 };
 
 interface GeneratedExample {
@@ -485,7 +485,7 @@ export default function TrainingDataGenerator() {
     switch (status) {
       case "edited": return "bg-yellow-500/20 text-yellow-400 border-yellow-500/30";
       case "deleted": return "bg-red-500/20 text-red-400 border-red-500/30";
-      default: return "bg-green-500/20 text-green-400 border-green-500/30";
+      default: return "bg-blue-500/20 text-blue-400 border-blue-500/30";
     }
   };
 
@@ -494,7 +494,7 @@ export default function TrainingDataGenerator() {
     if (!result) return null;
     if (!result.isValid) return <ShieldX className="w-3 h-3 text-red-400" />;
     if (result.warnings.length > 0) return <ShieldAlert className="w-3 h-3 text-yellow-400" />;
-    return <ShieldCheck className="w-3 h-3 text-green-400" />;
+    return <ShieldCheck className="w-3 h-3 text-blue-400" />;
   };
 
   return (
@@ -534,8 +534,8 @@ export default function TrainingDataGenerator() {
                 <p className="text-sm text-muted-foreground">Metrics Covered</p>
                 <p className="text-2xl font-bold">{stats?.totalMetrics || 0}</p>
               </div>
-              <div className="w-10 h-10 rounded-lg bg-green-500/10 flex items-center justify-center">
-                <Activity className="w-5 h-5 text-green-400" />
+              <div className="w-10 h-10 rounded-lg bg-blue-500/10 flex items-center justify-center">
+                <Activity className="w-5 h-5 text-blue-400" />
               </div>
             </div>
           </CardContent>
@@ -898,7 +898,7 @@ export default function TrainingDataGenerator() {
                               <Button
                                 variant="ghost"
                                 size="icon"
-                                className="h-6 w-6 text-green-400"
+                                className="h-6 w-6 text-blue-400"
                                 onClick={(e) => {
                                   e.stopPropagation();
                                   restoreExample(example.id);
@@ -1081,9 +1081,9 @@ export default function TrainingDataGenerator() {
                   )}
 
                   {/* Assistant Response */}
-                  <div className="p-3 rounded-lg bg-green-500/10 border border-green-500/20">
+                  <div className="p-3 rounded-lg bg-blue-500/10 border border-blue-500/20">
                     <div className="flex items-center justify-between mb-2">
-                      <Badge variant="outline" className="text-green-400">Response</Badge>
+                      <Badge variant="outline" className="text-blue-400">Response</Badge>
                       <Button
                         variant="ghost"
                         size="sm"
@@ -1190,7 +1190,7 @@ export default function TrainingDataGenerator() {
               {/* Response */}
               <div className="space-y-2">
                 <Label className="flex items-center gap-2">
-                  <Badge variant="outline" className="text-green-400">Assistant Response</Badge>
+                  <Badge variant="outline" className="text-blue-400">Assistant Response</Badge>
                   {editValidation && (
                     <Badge className={getValidationStatusColor(editValidation)}>
                       {getValidationStatusLabel(editValidation)}
@@ -1261,8 +1261,8 @@ export default function TrainingDataGenerator() {
                       {/* Parsed Response Preview */}
                       {editValidation.parsedResponse && (
                         <div className="space-y-2">
-                          <Label className="text-xs text-green-400">Parsed Response</Label>
-                          <div className="p-2 rounded bg-green-500/10 border border-green-500/20">
+                          <Label className="text-xs text-blue-400">Parsed Response</Label>
+                          <div className="p-2 rounded bg-blue-500/10 border border-blue-500/20">
                             <div className="grid grid-cols-2 gap-2 text-xs">
                               <div>
                                 <span className="text-muted-foreground">Category:</span>

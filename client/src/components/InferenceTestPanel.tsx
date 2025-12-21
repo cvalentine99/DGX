@@ -254,14 +254,14 @@ export function InferenceTestPanel() {
       <CardHeader className="pb-3">
         <div className="flex items-center justify-between">
           <CardTitle className="flex items-center gap-2 text-base">
-            <FlaskConical className="w-4 h-4 text-[#76b900]" />
+            <FlaskConical className="w-4 h-4 text-[#3b82f6]" />
             Live Inference Testing
           </CardTitle>
           <Badge 
             variant="outline" 
             className={cn(
               "text-xs",
-              isConnected ? "text-[#76b900] border-[#76b900]/30" : "text-red-400 border-red-400/30"
+              isConnected ? "text-[#3b82f6] border-[#3b82f6]/30" : "text-red-400 border-red-400/30"
             )}
           >
             {isConnected ? "vLLM Connected" : "Disconnected"}
@@ -278,7 +278,7 @@ export function InferenceTestPanel() {
             disabled={!isConnected || selectedPrompts.size === 0}
             className={cn(
               "gap-1",
-              isRunning ? "bg-red-500 hover:bg-red-600" : "bg-[#76b900] hover:bg-[#76b900]/90"
+              isRunning ? "bg-red-500 hover:bg-red-600" : "bg-[#3b82f6] hover:bg-[#3b82f6]/90"
             )}
           >
             {isRunning ? (
@@ -333,9 +333,9 @@ export function InferenceTestPanel() {
                 className={cn(
                   "px-2 py-1 text-xs rounded-md border transition-colors",
                   selectedPrompts.has(prompt.id)
-                    ? "bg-[#76b900]/20 border-[#76b900]/50 text-[#76b900]"
+                    ? "bg-[#3b82f6]/20 border-[#3b82f6]/50 text-[#3b82f6]"
                     : "bg-muted/30 border-border/50 text-muted-foreground hover:bg-muted/50",
-                  currentTest === prompt.id && "ring-2 ring-[#76b900] ring-offset-1 ring-offset-background"
+                  currentTest === prompt.id && "ring-2 ring-[#3b82f6] ring-offset-1 ring-offset-background"
                 )}
               >
                 {currentTest === prompt.id && <Loader2 className="w-3 h-3 inline mr-1 animate-spin" />}
@@ -379,7 +379,7 @@ export function InferenceTestPanel() {
                 <Zap className="w-3 h-3" />
                 Throughput
               </div>
-              <div className="text-lg font-mono font-semibold text-[#76b900]">
+              <div className="text-lg font-mono font-semibold text-[#3b82f6]">
                 {stats.avgTokensPerSecond.toFixed(1)}
               </div>
               <div className="text-[10px] text-muted-foreground">
@@ -416,7 +416,7 @@ export function InferenceTestPanel() {
                     >
                       <div className="flex items-center gap-2">
                         {result.success ? (
-                          <CheckCircle className="w-3 h-3 text-[#76b900]" />
+                          <CheckCircle className="w-3 h-3 text-[#3b82f6]" />
                         ) : (
                           <XCircle className="w-3 h-3 text-red-400" />
                         )}
@@ -425,7 +425,7 @@ export function InferenceTestPanel() {
                       <div className="flex items-center gap-3">
                         <span className="text-muted-foreground">{result.latencyMs}ms</span>
                         {result.success && (
-                          <span className="text-[#76b900]">{result.tokensPerSecond.toFixed(1)} tok/s</span>
+                          <span className="text-[#3b82f6]">{result.tokensPerSecond.toFixed(1)} tok/s</span>
                         )}
                         {expandedResult === result.id ? (
                           <ChevronDown className="w-3 h-3" />
@@ -468,7 +468,7 @@ export function InferenceTestPanel() {
           <div className="space-y-2">
             <div className="flex items-center justify-between text-xs">
               <span className="text-muted-foreground">Running tests...</span>
-              <span className="text-[#76b900]">
+              <span className="text-[#3b82f6]">
                 {results.length} / {selectedPrompts.size * batchSize}
               </span>
             </div>

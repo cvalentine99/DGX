@@ -88,7 +88,7 @@ function formatCountdown(ms: number | null | undefined): string {
 
 function getStatusColor(status: string): string {
   switch (status) {
-    case 'connected': return 'text-green-500';
+    case 'connected': return 'text-blue-500';
     case 'connecting': return 'text-blue-500';
     case 'retrying': return 'text-yellow-500';
     case 'failed': return 'text-red-500';
@@ -98,7 +98,7 @@ function getStatusColor(status: string): string {
 
 function getStatusBgColor(status: string): string {
   switch (status) {
-    case 'connected': return 'bg-green-500/20 border-green-500/50';
+    case 'connected': return 'bg-blue-500/20 border-blue-500/50';
     case 'connecting': return 'bg-blue-500/20 border-blue-500/50';
     case 'retrying': return 'bg-yellow-500/20 border-yellow-500/50';
     case 'failed': return 'bg-red-500/20 border-red-500/50';
@@ -109,7 +109,7 @@ function getStatusBgColor(status: string): string {
 function StatusIcon({ status }: { status: string }) {
   switch (status) {
     case 'connected':
-      return <CheckCircle2 className="w-5 h-5 text-green-500" />;
+      return <CheckCircle2 className="w-5 h-5 text-blue-500" />;
     case 'connecting':
       return <Loader2 className="w-5 h-5 text-blue-500 animate-spin" />;
     case 'retrying':
@@ -159,7 +159,7 @@ function HostDiagnostics({
       {/* Header */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
-          <Server className="w-5 h-5 text-[#76b900]" />
+          <Server className="w-5 h-5 text-[#3b82f6]" />
           <div>
             <h3 className="font-semibold text-white">{connectionState.host.name}</h3>
             <p className="text-xs text-gray-400">
@@ -207,7 +207,7 @@ function HostDiagnostics({
           </div>
           <span className={cn(
             "font-mono text-lg",
-            connectionState.consecutiveFailures > 0 ? "text-red-400" : "text-green-400"
+            connectionState.consecutiveFailures > 0 ? "text-red-400" : "text-blue-400"
           )}>
             {connectionState.consecutiveFailures}
           </span>
@@ -232,7 +232,7 @@ function HostDiagnostics({
           </div>
           <span className={cn(
             "font-mono text-sm",
-            connectionState.lastSuccess ? "text-green-400" : "text-gray-500"
+            connectionState.lastSuccess ? "text-blue-400" : "text-gray-500"
           )}>
             {connectionState.lastSuccess 
               ? formatDuration(Date.now() - connectionState.lastSuccess)
@@ -273,7 +273,7 @@ function HostDiagnostics({
           size="sm"
           onClick={onRetry}
           disabled={isRetrying || connectionState.status === 'connecting'}
-          className="flex-1 border-[#76b900]/50 hover:bg-[#76b900]/20"
+          className="flex-1 border-[#3b82f6]/50 hover:bg-[#3b82f6]/20"
         >
           {isRetrying ? (
             <Loader2 className="w-4 h-4 mr-2 animate-spin" />
@@ -364,7 +364,7 @@ export function ConnectionDiagnostics() {
     return (
       <Card className="bg-black/40 border-gray-800">
         <CardContent className="p-6 flex items-center justify-center">
-          <Loader2 className="w-6 h-6 animate-spin text-[#76b900]" />
+          <Loader2 className="w-6 h-6 animate-spin text-[#3b82f6]" />
         </CardContent>
       </Card>
     );
@@ -394,8 +394,8 @@ export function ConnectionDiagnostics() {
       <CardHeader className="pb-3">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <div className="p-2 rounded-lg bg-[#76b900]/20">
-              <Wifi className="w-5 h-5 text-[#76b900]" />
+            <div className="p-2 rounded-lg bg-[#3b82f6]/20">
+              <Wifi className="w-5 h-5 text-[#3b82f6]" />
             </div>
             <div>
               <CardTitle className="text-lg text-white">Connection Diagnostics</CardTitle>
@@ -407,7 +407,7 @@ export function ConnectionDiagnostics() {
               variant="outline" 
               className={cn(
                 healthyCount === totalHosts 
-                  ? "border-green-500 text-green-500" 
+                  ? "border-blue-500 text-blue-500" 
                   : healthyCount > 0 
                     ? "border-yellow-500 text-yellow-500"
                     : "border-red-500 text-red-500"
@@ -525,14 +525,14 @@ function ConnectionPoolStatus() {
     <div className="bg-black/30 rounded-lg p-4 border border-gray-800">
       <div className="flex items-center justify-between mb-4">
         <div className="flex items-center gap-2">
-          <Database className="w-4 h-4 text-[#76b900]" />
+          <Database className="w-4 h-4 text-[#3b82f6]" />
           <span className="text-white font-medium">Connection Pool</span>
           <Badge 
             variant="outline" 
             className={cn(
               "text-xs",
               poolStatus?.initialized 
-                ? "border-green-500 text-green-500" 
+                ? "border-blue-500 text-blue-500" 
                 : "border-gray-500 text-gray-500"
             )}
           >
@@ -546,7 +546,7 @@ function ConnectionPoolStatus() {
               size="sm"
               onClick={handleInitialize}
               disabled={isInitializing}
-              className="border-[#76b900]/50 hover:bg-[#76b900]/20 text-xs"
+              className="border-[#3b82f6]/50 hover:bg-[#3b82f6]/20 text-xs"
             >
               {isInitializing ? (
                 <Loader2 className="w-3 h-3 mr-1 animate-spin" />
@@ -588,7 +588,7 @@ function ConnectionPoolStatus() {
                   className={cn(
                     "text-xs",
                     host.healthy 
-                      ? "border-green-500 text-green-500" 
+                      ? "border-blue-500 text-blue-500" 
                       : "border-red-500 text-red-500"
                   )}
                 >
@@ -612,7 +612,7 @@ function ConnectionPoolStatus() {
                     <Activity className="w-3 h-3" />
                     <span>Active</span>
                   </div>
-                  <span className="text-[#76b900] font-mono">
+                  <span className="text-[#3b82f6] font-mono">
                     {host.stats?.activeConnections || 0}
                   </span>
                 </div>
