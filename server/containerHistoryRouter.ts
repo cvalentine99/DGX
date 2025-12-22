@@ -6,18 +6,7 @@ import {
   getPullHistory, 
   getPullHistoryByHost 
 } from "./db";
-
-// DGX Spark host configurations (matching sshRouter)
-const DGX_HOSTS = {
-  alpha: {
-    name: "DGX Spark Alpha",
-    host: "192.168.50.139",
-  },
-  beta: {
-    name: "DGX Spark Beta",
-    host: "192.168.50.110",
-  },
-} as const;
+import { DGX_HOSTS, HostId, getHost } from "./hostConfig";
 
 export const containerHistoryRouter = router({
   // Record a new pull/update/remove action
@@ -30,7 +19,7 @@ export const containerHistoryRouter = router({
       userId: z.number().optional(),
     }))
     .mutation(async ({ input, ctx }) => {
-      const host = DGX_HOSTS[input.hostId];
+      const host = getHost(input.hostId as HostId);
       
       // Use context user if available
       const userName = input.userName || ctx.user?.name || "System";
@@ -39,7 +28,7 @@ export const containerHistoryRouter = router({
       const id = await recordPullHistory({
         hostId: input.hostId,
         hostName: host.name,
-        hostIp: host.host,
+        hostIp: host.ip,
         imageTag: input.imageTag,
         action: input.action,
         status: "started",

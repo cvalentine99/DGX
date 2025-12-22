@@ -1083,3 +1083,15 @@
 - [x] Verify nginx configuration for port 87
 - [x] All 199 tests passing
 - [x] Production build successful
+
+# V9.2 - Consolidate DGX_HOSTS Configuration (December 2024)
+- [x] Create shared server/hostConfig.ts module
+- [x] Move DGX_HOSTS configuration to shared module
+- [x] Move executeOnHost, executeLocalCommand, isLocalHost to shared module
+- [x] Update sshRouter.ts to import from hostConfig
+- [x] Update dcgmRouter.ts to import from hostConfig
+- [x] Update webrtcRouter.ts to import from hostConfig
+- [x] Update webrtcSignaling.ts to import from hostConfig
+- [x] Update containerHistoryRouter.ts to import from hostConfig
+- [x] Run tests and verify build (199 tests passing)
+- [x] Create updated deployment package

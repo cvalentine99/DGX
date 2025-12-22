@@ -2,48 +2,19 @@ import { z } from "zod";
 import { publicProcedure, router } from "./_core/trpc";
 import { Client } from "ssh2";
 import { recordGpuMetrics, getGpuMetricsHistory, createSystemAlert, cleanupOldGpuMetrics } from "./db";
+import {
+  DGX_HOSTS as DGX_HOSTS_MAP,
+  DGXHost,
+  HostId,
+  getAllHosts,
+  getHost,
+  isLocalHost,
+  executeLocalCommand,
+  hasSSHCredentials,
+} from "./hostConfig";
 
-// DGX Spark host configuration
-// When running on Beta (192.168.50.110):
-//   - Beta is LOCAL (use local commands, no SSH)
-//   - Alpha is REMOTE (use SSH to 192.168.50.139)
-const DGX_HOSTS = [
-  { 
-    id: "alpha", 
-    name: "DGX Spark Alpha", 
-    ip: "192.168.50.139", 
-    sshHost: process.env.DGX_SSH_HOST || "192.168.50.139", 
-    sshPort: parseInt(process.env.DGX_SSH_PORT || "22"),
-    isLocal: false, // Alpha is REMOTE - accessed via SSH
-  },
-  { 
-    id: "beta", 
-    name: "DGX Spark Beta", 
-    ip: "192.168.50.110", 
-    sshHost: process.env.DGX_SSH_HOST_BETA || "192.168.50.110", 
-    sshPort: parseInt(process.env.DGX_SSH_PORT_BETA || "22"),
-    isLocal: process.env.LOCAL_HOST === 'beta' || process.env.LOCAL_HOST === undefined, // Beta is LOCAL by default
-  },
-];
-
-// Import child_process for local command execution
-import { exec as execCallback } from 'child_process';
-import { promisify } from 'util';
-const execAsync = promisify(execCallback);
-
-// Execute command locally (for Beta when running on Beta)
-async function executeLocalCommand(command: string): Promise<string> {
-  try {
-    const { stdout, stderr } = await execAsync(command, {
-      maxBuffer: 50 * 1024 * 1024, // 50MB buffer
-      timeout: 60000, // 60 second timeout
-    });
-    return stdout || stderr || '';
-  } catch (error: any) {
-    // Return stderr or error message on failure
-    return error.stderr || error.message || 'Command failed';
-  }
-}
+// Convert to array format for backwards compatibility
+const DGX_HOSTS = getAllHosts();
 
 // GPU metrics interface
 interface GpuMetrics {
@@ -244,7 +215,7 @@ setInterval(() => {
   cleanupOldGpuMetrics();
 }, 60 * 60 * 1000); // Every hour
 
-// SSH configuration from environment
+// SSH configuration from environment (kept for backwards compatibility with executeSSHCommand)
 function getSSHConfig() {
   return {
     username: process.env.DGX_SSH_USERNAME || "ubuntu",
@@ -369,7 +340,8 @@ function parseSystemMetrics(output: string): { cpuUtilization: number; memoryUse
 }
 
 // Execute command on host - automatically chooses local or SSH
-async function executeCommandOnHost(host: typeof DGX_HOSTS[0], command: string): Promise<string> {
+// Uses shared executeLocalCommand from hostConfig
+async function executeCommandOnHost(host: DGXHost, command: string): Promise<string> {
   if (host.isLocal) {
     console.log(`[DCGM] Executing locally on ${host.name}: ${command.substring(0, 80)}...`);
     return executeLocalCommand(command);
@@ -379,7 +351,7 @@ async function executeCommandOnHost(host: typeof DGX_HOSTS[0], command: string):
 }
 
 // Fetch metrics from a host (local or SSH)
-async function fetchHostMetrics(host: typeof DGX_HOSTS[0]): Promise<HostMetrics> {
+async function fetchHostMetrics(host: DGXHost): Promise<HostMetrics> {
   // Check cache first
   const cached = metricsCache.get(host.id);
   if (cached && Date.now() - cached.timestamp < CACHE_TTL) {

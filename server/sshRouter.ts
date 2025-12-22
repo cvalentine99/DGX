@@ -2,29 +2,15 @@ import { z } from "zod";
 import { publicProcedure, router } from "./_core/trpc";
 import { Client } from "ssh2";
 import { getSSHPool, initializeSSHPool, PoolStats } from "./sshConnectionPool";
-
-// DGX Spark host configurations
-// When running on Beta (192.168.50.110):
-//   - Beta is LOCAL (use local commands, no SSH)
-//   - Alpha is REMOTE (use SSH to 192.168.50.139)
-const DGX_HOSTS = {
-  alpha: {
-    name: "DGX Spark Alpha",
-    host: process.env.DGX_SSH_HOST || "192.168.50.139",
-    port: parseInt(process.env.DGX_SSH_PORT || "22"),
-    localIp: "192.168.50.139",
-    isLocal: false, // Alpha is REMOTE - accessed via SSH
-  },
-  beta: {
-    name: "DGX Spark Beta",
-    host: process.env.DGX_SSH_HOST_BETA || "192.168.50.110",
-    port: parseInt(process.env.DGX_SSH_PORT_BETA || "22"),
-    localIp: "192.168.50.110",
-    isLocal: process.env.LOCAL_HOST === 'beta' || process.env.LOCAL_HOST === undefined, // Beta is LOCAL by default
-  },
-} as const;
-
-type HostId = keyof typeof DGX_HOSTS;
+import { 
+  DGX_HOSTS, 
+  HostId, 
+  isLocalHost, 
+  executeLocalCommand,
+  getHost,
+  getAllHosts,
+  DGXHost,
+} from "./hostConfig";
 
 // Retry configuration for SSH connections
 const RETRY_CONFIG = {
@@ -84,35 +70,12 @@ function sleep(ms: number): Promise<void> {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
 
-// Import child_process for local command execution
-import { exec as execCallback } from 'child_process';
-import { promisify } from 'util';
-const execAsync = promisify(execCallback);
-
-// Execute command locally (for Beta when running on Beta)
-async function executeLocalCommand(command: string): Promise<string> {
-  try {
-    const { stdout, stderr } = await execAsync(command, {
-      maxBuffer: 50 * 1024 * 1024, // 50MB buffer
-      timeout: 60000, // 60 second timeout
-    });
-    return stdout || stderr || '';
-  } catch (error: any) {
-    // Return stderr or error message on failure
-    return error.stderr || error.message || 'Command failed';
-  }
-}
-
-// Check if host should use local execution
-function isLocalHost(hostId: HostId): boolean {
-  const host = DGX_HOSTS[hostId];
-  return host.isLocal === true;
-}
-
 // Execute command on host - automatically chooses local or SSH
+// Uses shared hostConfig for local execution, SSH pool for remote
 async function executeOnHost(hostId: HostId, command: string): Promise<string> {
   if (isLocalHost(hostId)) {
-    console.log(`[LOCAL] Executing on ${DGX_HOSTS[hostId].name}: ${command.substring(0, 100)}...`);
+    const host = getHost(hostId);
+    console.log(`[LOCAL] Executing on ${host.name}: ${command.substring(0, 100)}...`);
     return executeLocalCommand(command);
   } else {
     // Use SSH pool for remote hosts
@@ -166,7 +129,7 @@ interface PullProgress {
   hostId: string;
 }
 
-// Get SSH credentials from environment
+// Get SSH credentials from environment (local version that throws if not configured)
 function getSSHCredentials() {
   const username = process.env.DGX_SSH_USERNAME;
   const password = process.env.DGX_SSH_PASSWORD;
@@ -177,6 +140,14 @@ function getSSHCredentials() {
   }
 
   return { username, password, privateKey };
+}
+
+// Check if SSH credentials are configured
+function hasSSHCredentials(): boolean {
+  const username = process.env.DGX_SSH_USERNAME;
+  const password = process.env.DGX_SSH_PASSWORD;
+  const privateKey = process.env.DGX_SSH_PRIVATE_KEY;
+  return !!(username && (password || privateKey));
 }
 
 // Create single SSH connection attempt (internal helper)

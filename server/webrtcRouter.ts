@@ -1,10 +1,17 @@
 import { z } from "zod";
 import { publicProcedure, router } from "./_core/trpc";
 import { Client } from "ssh2";
-import { exec as execCallback } from 'child_process';
-import { promisify } from 'util';
-
-const execAsync = promisify(execCallback);
+import {
+  DGX_HOSTS,
+  HostId,
+  DGXHost,
+  getHost,
+  isLocalHost,
+  executeLocalCommandFull,
+  createSSHConnection as createSharedSSHConnection,
+  executeSSHCommand as executeSharedSSHCommand,
+  hasSSHCredentials,
+} from "./hostConfig";
 
 // WebRTC Session Management
 interface WebRTCSession {
@@ -33,148 +40,22 @@ interface WebRTCSession {
 // Active WebRTC sessions
 const activeSessions = new Map<string, WebRTCSession>();
 
-// DGX Spark host configurations - unified with local/remote logic
-const DGX_HOSTS = {
-  alpha: {
-    name: "DGX Spark Alpha",
-    ip: "192.168.50.139",
-    sshHost: process.env.DGX_SSH_HOST || "192.168.50.139",
-    sshPort: parseInt(process.env.DGX_SSH_PORT || "22"),
-    isLocal: false, // Alpha is REMOTE - accessed via SSH
-  },
-  beta: {
-    name: "DGX Spark Beta",
-    ip: "192.168.50.110",
-    sshHost: process.env.DGX_SSH_HOST_BETA || "192.168.50.110",
-    sshPort: parseInt(process.env.DGX_SSH_PORT_BETA || "22"),
-    isLocal: process.env.LOCAL_HOST === 'beta' || process.env.LOCAL_HOST === undefined, // Beta is LOCAL by default
-  },
-} as const;
-
-type HostId = keyof typeof DGX_HOSTS;
-
-// Execute command locally (for Beta when running on Beta)
-async function executeLocalCommand(command: string): Promise<{ stdout: string; stderr: string; code: number }> {
-  try {
-    const { stdout, stderr } = await execAsync(command, {
-      maxBuffer: 50 * 1024 * 1024,
-      timeout: 60000,
-    });
-    return { stdout: stdout || '', stderr: stderr || '', code: 0 };
-  } catch (error: any) {
-    return { 
-      stdout: error.stdout || '', 
-      stderr: error.stderr || error.message || 'Command failed', 
-      code: error.code || 1 
-    };
-  }
-}
-
-// Get SSH credentials
-function getSSHCredentials() {
-  const username = process.env.DGX_SSH_USERNAME;
-  const password = process.env.DGX_SSH_PASSWORD;
-  const privateKey = process.env.DGX_SSH_PRIVATE_KEY;
-
-  return { username, password, privateKey };
-}
-
-// Check if SSH credentials are configured
-function hasSSHCredentials(): boolean {
-  const creds = getSSHCredentials();
-  return !!(creds.username && (creds.password || creds.privateKey));
-}
-
-// Create SSH connection (only for remote hosts)
-function createSSHConnection(hostId: HostId): Promise<Client> {
-  return new Promise((resolve, reject) => {
-    const host = DGX_HOSTS[hostId];
-    const credentials = getSSHCredentials();
-    
-    if (!credentials.username) {
-      reject(new Error("DGX_SSH_USERNAME not configured"));
-      return;
-    }
-    
-    const conn = new Client();
-
-    const timeout = setTimeout(() => {
-      conn.end();
-      reject(new Error(`SSH connection timeout to ${host.name}`));
-    }, 10000);
-
-    conn.on("ready", () => {
-      clearTimeout(timeout);
-      resolve(conn);
-    });
-
-    conn.on("error", (err) => {
-      clearTimeout(timeout);
-      reject(new Error(`SSH connection failed to ${host.name}: ${err.message}`));
-    });
-
-    const config: any = {
-      host: host.sshHost,
-      port: host.sshPort,
-      username: credentials.username,
-      readyTimeout: 10000,
-    };
-
-    if (credentials.privateKey) {
-      config.privateKey = credentials.privateKey;
-    } else if (credentials.password) {
-      config.password = credentials.password;
-    }
-
-    conn.connect(config);
-  });
-}
-
-// Execute SSH command
-function executeSSHCommand(
-  conn: Client,
-  command: string
-): Promise<{ stdout: string; stderr: string; code: number }> {
-  return new Promise((resolve) => {
-    let stdout = "";
-    let stderr = "";
-
-    conn.exec(command, (err, stream) => {
-      if (err) {
-        resolve({ stdout: "", stderr: err.message, code: 1 });
-        return;
-      }
-
-      stream.on("close", (code: number) => {
-        resolve({ stdout, stderr, code: code || 0 });
-      });
-
-      stream.on("data", (data: Buffer) => {
-        stdout += data.toString();
-      });
-
-      stream.stderr.on("data", (data: Buffer) => {
-        stderr += data.toString();
-      });
-    });
-  });
-}
-
 // Execute command on host - automatically chooses local or SSH
+// Uses shared functions from hostConfig
 async function executeOnHost(hostId: HostId, command: string): Promise<{ stdout: string; stderr: string; code: number }> {
-  const host = DGX_HOSTS[hostId];
+  const host = getHost(hostId);
   
   if (host.isLocal) {
     console.log(`[WebRTC] Executing locally on ${host.name}: ${command.substring(0, 80)}...`);
-    return executeLocalCommand(command);
+    return executeLocalCommandFull(command);
   } else {
     // Remote host - use SSH
     if (!hasSSHCredentials()) {
       return { stdout: '', stderr: 'SSH credentials not configured', code: 1 };
     }
     
-    const conn = await createSSHConnection(hostId);
-    const result = await executeSSHCommand(conn, command);
+    const conn = await createSharedSSHConnection(hostId);
+    const result = await executeSharedSSHCommand(conn, command);
     conn.end();
     return result;
   }
