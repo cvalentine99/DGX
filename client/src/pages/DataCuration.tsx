@@ -85,11 +85,40 @@ const itemVariants = {
 
 function DatasetCatalogCard() {
   const [searchQuery, setSearchQuery] = useState("");
+  const [isScanning, setIsScanning] = useState(false);
   
-  const filteredDatasets = DATASETS.filter(ds => 
+  // Fetch datasets from API when not in demo mode
+  const { data: apiData, refetch } = trpc.dataset.list.useQuery(undefined, {
+    enabled: !DEMO_MODE,
+  });
+  const scanMutation = trpc.dataset.scan.useMutation({
+    onSuccess: (data) => {
+      if (data.success) {
+        toast.success(`Scanned ${data.scanned} files: ${data.created} new, ${data.updated} updated`);
+        refetch();
+      } else {
+        toast.error(data.error || "Scan failed");
+      }
+      setIsScanning(false);
+    },
+    onError: (error) => {
+      toast.error(error.message);
+      setIsScanning(false);
+    },
+  });
+  
+  // Use demo data or API data
+  const datasets = DEMO_MODE ? DATASETS : (apiData?.datasets || []);
+  
+  const filteredDatasets = datasets.filter((ds: any) => 
     ds.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
     ds.type.toLowerCase().includes(searchQuery.toLowerCase())
   );
+  
+  const handleScan = (hostId: "alpha" | "beta") => {
+    setIsScanning(true);
+    scanMutation.mutate({ hostId, directory: "/data" });
+  };
 
   return (
     <Card className="bg-card/50 border-border">
@@ -154,7 +183,7 @@ function DatasetCatalogCard() {
                     </span>
                   </div>
                   <div className="flex items-center gap-3 mt-0.5 text-[10px] text-muted-foreground">
-                    <span>{dataset.samples.toLocaleString()} samples</span>
+                    <span>{(dataset.samples || 0).toLocaleString()} samples</span>
                     <span>{dataset.size}</span>
                     <span>{dataset.format}</span>
                   </div>
@@ -173,10 +202,10 @@ function DatasetCatalogCard() {
                       "text-xs font-medium",
                       dataset.status === "validated" ? "text-blue-400" : "text-yellow-400"
                     )}>
-                      {dataset.quality}% quality
+                      {(dataset as any).quality || (dataset as any).qualityScore || 0}% quality
                     </span>
                   </div>
-                  <span className="text-[10px] text-muted-foreground">{dataset.lastModified}</span>
+                  <span className="text-[10px] text-muted-foreground">{(dataset as any).lastModified || ((dataset as any).updatedAt ? new Date((dataset as any).updatedAt).toLocaleDateString() : 'N/A')}</span>
                 </div>
                 
                 <div className="flex items-center gap-1">

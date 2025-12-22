@@ -253,3 +253,75 @@ export const trainingTemplates = mysqlTable("training_templates", {
 
 export type TrainingTemplate = typeof trainingTemplates.$inferSelect;
 export type InsertTrainingTemplate = typeof trainingTemplates.$inferInsert;
+
+
+// Datasets for training data management
+export const datasets = mysqlTable("datasets", {
+  id: int("id").autoincrement().primaryKey(),
+  userId: int("userId").references(() => users.id),
+  
+  // Dataset metadata
+  name: varchar("name", { length: 256 }).notNull(),
+  description: text("description"),
+  
+  // Dataset type and format
+  type: mysqlEnum("type", ["instruction", "code", "preference", "conversation", "raw"]).notNull().default("instruction"),
+  format: mysqlEnum("format", ["jsonl", "parquet", "csv", "json", "txt"]).notNull().default("jsonl"),
+  
+  // Location
+  hostId: varchar("hostId", { length: 32 }).notNull(), // 'alpha' or 'beta'
+  path: varchar("path", { length: 512 }).notNull(), // Full path on DGX
+  
+  // Statistics
+  samples: int("samples").default(0),
+  sizeBytes: int("sizeBytes").default(0), // File size in bytes
+  
+  // Quality metrics
+  qualityScore: int("qualityScore"), // 0-100
+  validationRate: int("validationRate"), // 0-100
+  duplicateRate: int("duplicateRate"), // 0-100 (percentage of duplicates)
+  avgTokenLength: int("avgTokenLength"),
+  
+  // Processing status
+  status: mysqlEnum("status", ["pending", "scanning", "validated", "processing", "ready", "error"]).notNull().default("pending"),
+  errorMessage: text("errorMessage"),
+  
+  // Timestamps
+  lastScannedAt: timestamp("lastScannedAt"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+}, (table) => ({
+  hostPathIdx: index("idx_dataset_host_path").on(table.hostId, table.path),
+}));
+
+export type Dataset = typeof datasets.$inferSelect;
+export type InsertDataset = typeof datasets.$inferInsert;
+
+// Training job metrics history for loss curves
+export const trainingMetrics = mysqlTable("training_metrics", {
+  id: int("id").autoincrement().primaryKey(),
+  jobId: int("jobId").references(() => trainingJobs.id).notNull(),
+  
+  // Step info
+  step: int("step").notNull(),
+  epoch: int("epoch").notNull(),
+  
+  // Metrics
+  trainLoss: varchar("trainLoss", { length: 32 }),
+  evalLoss: varchar("evalLoss", { length: 32 }),
+  learningRate: varchar("learningRate", { length: 32 }),
+  gradientNorm: varchar("gradientNorm", { length: 32 }),
+  throughput: int("throughput"), // tokens/sec
+  
+  // Resource usage
+  gpuUtilization: int("gpuUtilization"),
+  gpuMemoryUsed: int("gpuMemoryUsed"), // MB
+  
+  // Timestamp
+  timestamp: timestamp("timestamp").defaultNow().notNull(),
+}, (table) => ({
+  jobStepIdx: index("idx_job_step").on(table.jobId, table.step),
+}));
+
+export type TrainingMetric = typeof trainingMetrics.$inferSelect;
+export type InsertTrainingMetric = typeof trainingMetrics.$inferInsert;

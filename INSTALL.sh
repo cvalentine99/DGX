@@ -240,6 +240,9 @@ VLLM_API_KEY=$VLLM_KEY
 TURN_SERVER_URL=$TURN_URL
 TURN_SERVER_USERNAME=$TURN_USER
 TURN_SERVER_CREDENTIAL=$TURN_CRED
+
+# Demo mode - set to false for production (real data from API)
+VITE_DEMO_MODE=false
 EOF
 
 chmod 600 "$CONFIG_DIR/nemo.env"

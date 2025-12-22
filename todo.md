@@ -1114,3 +1114,17 @@
 - [x] 198/199 tests passing (1 HuggingFace API test flaky)
 - [x] Production build successful
 - [x] Create deployment package (V10)
+
+# V11 - Production Backend APIs (December 2024)
+- [x] Add datasets table to database schema (with trainingMetrics table)
+- [x] Create datasetRouter with CRUD (list, create, update, delete, scan, validate)
+- [x] Add file system scanning for /data/ directories
+- [x] Training jobs table already exists in schema
+- [x] Training router already exists with full CRUD
+- [x] Update DataCuration.tsx to fetch from API (with scan button)
+- [x] Training.tsx already uses trpc.training API
+- [x] Fix INSTALL.sh to set VITE_DEMO_MODE=false
+- [x] TypeScript compiles with 0 errors
+- [x] 198/199 tests passing (1 HuggingFace API test flaky)
+- [x] Production build successful
+- [x] Create deployment package (V11)
