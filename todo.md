@@ -1128,3 +1128,12 @@
 - [x] 198/199 tests passing (1 HuggingFace API test flaky)
 - [x] Production build successful
 - [x] Create deployment package (V11)
+
+# V12 - Critical Deployment Fixes (December 2024)
+- [x] Fix compose.yaml to use MySQL container instead of SQLite
+- [x] Fix Dockerfile to remove sqlite3, add mysql-client
+- [x] Add strict env var validation with zod in server/_core/env.ts
+- [x] Update hostConfig.ts to prioritize SSH key authentication
+- [x] Run tests (198/199 pass, 1 HuggingFace API flaky)
+- [x] Production build successful
+- [x] Create deployment package (V12)

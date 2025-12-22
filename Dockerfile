@@ -25,12 +25,12 @@ ENV DEBIAN_FRONTEND=noninteractive
 ENV NODE_ENV=production
 ENV PYTHONUNBUFFERED=1
 
-# Install system dependencies
+# Install system dependencies (MySQL client for db connectivity, no SQLite)
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     curl \
     git \
-    sqlite3 \
+    default-mysql-client \
     libssl-dev \
     ca-certificates \
     openssh-client \

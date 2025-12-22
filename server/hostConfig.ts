@@ -102,12 +102,23 @@ export interface SSHCredentials {
 
 /**
  * Get SSH credentials from environment
+ * Prioritizes private key authentication over password for security
  */
 export function getSSHCredentials(): SSHCredentials {
+  const privateKey = process.env.DGX_SSH_PRIVATE_KEY;
+  const password = process.env.DGX_SSH_PASSWORD;
+  
+  // Log authentication method being used (without exposing secrets)
+  if (privateKey) {
+    console.log('[SSH] Using private key authentication (recommended)');
+  } else if (password) {
+    console.warn('[SSH] Using password authentication - consider switching to SSH keys for better security');
+  }
+  
   return {
     username: process.env.DGX_SSH_USERNAME,
-    password: process.env.DGX_SSH_PASSWORD,
-    privateKey: process.env.DGX_SSH_PRIVATE_KEY,
+    password: password,
+    privateKey: privateKey,
   };
 }
 
@@ -195,10 +206,20 @@ export function createSSHConnection(hostId: HostId): Promise<Client> {
       readyTimeout: 10000,
     };
 
+    // Prioritize private key authentication over password for security
     if (credentials.privateKey) {
-      config.privateKey = credentials.privateKey;
+      // Handle multi-line private keys (may be base64 encoded or have \n literals)
+      let privateKey = credentials.privateKey;
+      if (!privateKey.includes('\n') && privateKey.includes('-----BEGIN')) {
+        // Key has literal \n strings, convert to actual newlines
+        privateKey = privateKey.replace(/\\n/g, '\n');
+      }
+      config.privateKey = privateKey;
     } else if (credentials.password) {
       config.password = credentials.password;
+    } else {
+      reject(new Error('No SSH authentication method configured (need DGX_SSH_PRIVATE_KEY or DGX_SSH_PASSWORD)'));
+      return;
     }
 
     conn.connect(config);
