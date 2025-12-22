@@ -30,12 +30,15 @@ echo -e "${GREEN}Installing on: $LOCAL_IP${NC}"
 
 if [[ "$LOCAL_IP" == "192.168.50.110" ]]; then
     echo -e "${GREEN}Detected: DGX Spark Beta (LOCAL)${NC}"
+    LOCAL_HOST="beta"
     REMOTE_IP="192.168.50.139"
 elif [[ "$LOCAL_IP" == "192.168.50.139" ]]; then
     echo -e "${GREEN}Detected: DGX Spark Alpha (LOCAL)${NC}"
+    LOCAL_HOST="alpha"
     REMOTE_IP="192.168.50.110"
 else
-    echo -e "${YELLOW}Unknown host${NC}"
+    echo -e "${YELLOW}Unknown host - defaulting to Beta${NC}"
+    LOCAL_HOST="beta"
     REMOTE_IP=""
 fi
 
@@ -86,6 +89,16 @@ echo ""
 echo -e "${CYAN}=== vLLM Configuration ===${NC}"
 read -p "vLLM URL [http://localhost:8001/v1]: " VLLM_URL
 VLLM_URL=${VLLM_URL:-http://localhost:8001/v1}
+read -p "vLLM API Key (optional): " VLLM_KEY
+
+echo ""
+echo -e "${CYAN}=== TURN Server (for WebRTC, optional) ===${NC}"
+read -p "TURN Server URL (leave blank to skip): " TURN_URL
+if [[ -n "$TURN_URL" ]]; then
+    read -p "TURN Username: " TURN_USER
+    read -s -p "TURN Credential: " TURN_CRED
+    echo ""
+fi
 
 #===============================================================================
 # INSTALL
@@ -205,9 +218,14 @@ cat > "$CONFIG_DIR/nemo.env" << EOF
 NODE_ENV=production
 PORT=3000
 
+# This tells the app which host it's running on (beta or alpha)
+# Beta = local commands, Alpha = SSH
+LOCAL_HOST=$LOCAL_HOST
+
 DATABASE_URL=$DATABASE_URL
 JWT_SECRET=$JWT_SECRET
 
+# SSH config for the REMOTE host (the other DGX Spark)
 DGX_SSH_HOST=$DGX_SSH_HOST
 DGX_SSH_PORT=$DGX_SSH_PORT
 DGX_SSH_USERNAME=$DGX_SSH_USER
@@ -216,6 +234,12 @@ DGX_SSH_PASSWORD=$DGX_SSH_PASS
 NGC_API_KEY=$NGC_KEY
 HUGGINGFACE_TOKEN=$HF_TOKEN
 VLLM_API_URL=$VLLM_URL
+VLLM_API_KEY=$VLLM_KEY
+
+# TURN Server for WebRTC camera streaming
+TURN_SERVER_URL=$TURN_URL
+TURN_SERVER_USERNAME=$TURN_USER
+TURN_SERVER_CREDENTIAL=$TURN_CRED
 EOF
 
 chmod 600 "$CONFIG_DIR/nemo.env"

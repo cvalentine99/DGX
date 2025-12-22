@@ -1071,3 +1071,15 @@
 - [x] All 199 tests passing
 - [x] Build successful
 - [x] Create simplified INSTALL.sh deployment script
+
+# V9.1 - Bare Metal Deployment Audit (December 2024)
+- [x] Audit all routers for local/remote host logic consistency
+- [x] Add LOCAL_HOST env var to INSTALL.sh (critical fix)
+- [x] Add TURN server config prompts to INSTALL.sh
+- [x] Add VLLM_API_KEY prompt to INSTALL.sh
+- [x] Verify MySQL schema with proper indexes
+- [x] Verify drizzle.config.ts uses MySQL dialect
+- [x] Verify systemd service configuration
+- [x] Verify nginx configuration for port 87
+- [x] All 199 tests passing
+- [x] Production build successful
