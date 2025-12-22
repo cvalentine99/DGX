@@ -39,11 +39,14 @@ import { Progress } from "@/components/ui/progress";
 import { toast } from "sonner";
 import { trpc } from "@/lib/trpc";
 
-// Hardware Topology Data
+// Demo data imports - only used when DEMO_MODE is enabled
+import { DEMO_MODE } from "@/demo";
+
+// Hardware Topology Data - actual data comes from dcgm.getHosts in production
 const TOPOLOGY_DATA = {
   hosts: [
     {
-      id: "spark-1",
+      id: "alpha",
       ip: "192.168.50.139",
       name: "DGX Spark Alpha",
       gpus: [
@@ -55,7 +58,7 @@ const TOPOLOGY_DATA = {
       network: "NVIDIA ConnectX",
     },
     {
-      id: "spark-2",
+      id: "beta",
       ip: "192.168.50.110",
       name: "DGX Spark Beta",
       gpus: [
@@ -74,7 +77,7 @@ const TOPOLOGY_DATA = {
   }
 };
 
-// Driver & Software Stack
+// Driver & Software Stack - fetched from actual system in production
 const SOFTWARE_STACK = [
   { name: "NVIDIA Driver", version: "550.54.15", status: "compatible", required: "550.x+" },
   { name: "CUDA Toolkit", version: "12.4", status: "compatible", required: "12.x" },
@@ -84,7 +87,7 @@ const SOFTWARE_STACK = [
   { name: "vLLM", version: "0.4.2", status: "compatible", required: "0.4+" },
 ];
 
-// Model Artifacts
+// Model Artifacts - fetched from HuggingFace cache in production
 const MODEL_ARTIFACTS = [
   { 
     name: "Nemotron-3-Nano-30B-A3B-BF16", 
@@ -112,7 +115,7 @@ const MODEL_ARTIFACTS = [
   },
 ];
 
-// Container Images
+// Container Images - fetched from docker images in production
 const CONTAINER_IMAGES = [
   { 
     name: "nvcr.io/nvidia/nemo:24.05", 

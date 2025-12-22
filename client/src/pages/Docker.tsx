@@ -48,6 +48,9 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 
+// Note: NVIDIA_WORKSHOP_TEMPLATES are configuration templates, not demo data
+// They are always available regardless of DEMO_MODE
+
 interface ContainerInfo {
   id: string;
   name: string;

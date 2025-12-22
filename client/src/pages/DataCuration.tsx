@@ -54,65 +54,23 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 
-// Dataset Catalog
-const DATASETS = [
-  {
-    id: "custom-instruct-v1",
-    name: "Custom Instruct Dataset v1",
-    type: "Instruction",
-    format: "JSONL",
-    samples: 125000,
-    size: "2.4 GB",
-    quality: 94.2,
-    status: "validated",
-    lastModified: "2024-12-19",
-  },
-  {
-    id: "dolly-15k",
-    name: "Databricks Dolly 15k",
-    type: "Instruction",
-    format: "JSONL",
-    samples: 15011,
-    size: "48 MB",
-    quality: 89.5,
-    status: "validated",
-    lastModified: "2024-12-15",
-  },
-  {
-    id: "code-alpaca",
-    name: "Code Alpaca 20k",
-    type: "Code",
-    format: "JSONL",
-    samples: 20022,
-    size: "156 MB",
-    quality: 91.8,
-    status: "validated",
-    lastModified: "2024-12-10",
-  },
-  {
-    id: "preference-v1",
-    name: "DPO Preference Dataset",
-    type: "Preference",
-    format: "Parquet",
-    samples: 45000,
-    size: "890 MB",
-    quality: 87.3,
-    status: "processing",
-    lastModified: "2024-12-20",
-  },
-];
+// Demo data imports - only used when DEMO_MODE is enabled
+import {
+  DEMO_MODE,
+  DEMO_DATASETS,
+  DEMO_QUALITY_METRICS,
+  type DemoDataset,
+  type DemoQualityMetrics,
+} from "@/demo";
 
-// Quality Metrics
-const QUALITY_METRICS = {
-  totalSamples: 205033,
-  validatedSamples: 192856,
-  duplicateRate: 2.3,
-  avgTokenLength: 847,
-  languageDistribution: [
-    { lang: "English", percent: 78 },
-    { lang: "Code", percent: 15 },
-    { lang: "Other", percent: 7 },
-  ],
+// Use demo data when DEMO_MODE is enabled, otherwise empty arrays (production fetches from API)
+const DATASETS: DemoDataset[] = DEMO_MODE ? DEMO_DATASETS : [];
+const QUALITY_METRICS: DemoQualityMetrics = DEMO_MODE ? DEMO_QUALITY_METRICS : {
+  totalSamples: 0,
+  validatedSamples: 0,
+  duplicateRate: 0,
+  avgTokenLength: 0,
+  languageDistribution: [],
 };
 
 const containerVariants = {

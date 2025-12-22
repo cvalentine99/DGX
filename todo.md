@@ -1095,3 +1095,22 @@
 - [x] Update containerHistoryRouter.ts to import from hostConfig
 - [x] Run tests and verify build (199 tests passing)
 - [x] Create updated deployment package
+
+# V10 - Demo Data Separation (December 2024)
+- [x] Create client/src/demo/ folder structure
+- [x] Create demo config file (config.ts with DEMO_MODE toggle)
+- [x] Create demo/datasets.ts with DEMO_DATASETS and DEMO_QUALITY_METRICS
+- [x] Create demo/environment.ts with topology, software, models, containers
+- [x] Create demo/training.ts with recipes, MoE params, job data, loss history
+- [x] Create demo/docker.ts with workshop templates
+- [x] Create demo/interaction.ts with system prompts
+- [x] Create demo/index.ts central export
+- [x] Update DataCuration.tsx to import from @/demo
+- [x] Update Environment.tsx to import from @/demo
+- [x] Update Training.tsx to import from @/demo with null check
+- [x] Add clarifying comments to Docker.tsx (templates are config, not demo)
+- [x] Add clarifying comments to Interaction.tsx (prompts are config, not demo)
+- [x] TypeScript compiles with 0 errors
+- [x] 198/199 tests passing (1 HuggingFace API test flaky)
+- [x] Production build successful
+- [x] Create deployment package (V10)

@@ -38,14 +38,17 @@ import { Textarea } from "@/components/ui/textarea";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { Loader2, Plus, Trash2, RefreshCw, CheckCircle, XCircle, AlertCircle } from "lucide-react";
 
-// Training Recipes
+// Demo data imports - only used when DEMO_MODE is enabled
+import { DEMO_MODE } from "@/demo";
+
+// Training Recipes - static config, not demo data
 const TRAINING_RECIPES = [
   { id: "sft", name: "Supervised Fine-Tuning", description: "Standard instruction tuning", icon: Brain },
   { id: "peft", name: "PEFT/LoRA", description: "Parameter-efficient fine-tuning", icon: Layers },
   { id: "dpo", name: "DPO", description: "Direct Preference Optimization", icon: TrendingDown },
 ];
 
-// MoE Hyperparameters
+// MoE Hyperparameters - default values, user can modify
 const MOE_PARAMS = {
   numExperts: 128,
   activeExperts: 8,
@@ -55,8 +58,8 @@ const MOE_PARAMS = {
   loadBalancing: true,
 };
 
-// Simulated Training Job
-const TRAINING_JOB = {
+// Demo Training Job - only shown in demo mode, production fetches from API
+const DEMO_TRAINING_JOB = {
   id: "job-001",
   status: "running",
   recipe: "PEFT/LoRA",
@@ -72,8 +75,8 @@ const TRAINING_JOB = {
   eta: "2h 15m",
 };
 
-// Loss History (simulated)
-const LOSS_HISTORY = [
+// Demo Loss History - only shown in demo mode
+const DEMO_LOSS_HISTORY = [
   { step: 0, loss: 2.45 },
   { step: 200, loss: 1.82 },
   { step: 400, loss: 1.24 },
@@ -82,6 +85,10 @@ const LOSS_HISTORY = [
   { step: 1000, loss: 0.48 },
   { step: 1200, loss: 0.35 },
 ];
+
+// Use demo data when DEMO_MODE is enabled
+const TRAINING_JOB = DEMO_MODE ? DEMO_TRAINING_JOB : null;
+const LOSS_HISTORY = DEMO_MODE ? DEMO_LOSS_HISTORY : [];
 
 const containerVariants = {
   hidden: { opacity: 0 },
@@ -378,9 +385,34 @@ function TrainingTelemetryCard() {
     }
   };
   
-  // No jobs state - show simulated data
+  // No jobs state - show simulated data (only in demo mode)
   if (!isLoading && !recentJob) {
     const simJob = TRAINING_JOB;
+    
+    // If not in demo mode and no job, show empty state
+    if (!simJob) {
+      return (
+        <Card className="cyber-panel">
+          <CardHeader>
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-lg bg-muted flex items-center justify-center">
+                <Activity className="w-5 h-5 text-muted-foreground" />
+              </div>
+              <div>
+                <CardTitle className="text-base font-display tracking-wide">Training Telemetry</CardTitle>
+                <p className="text-xs text-muted-foreground">No active training jobs</p>
+              </div>
+            </div>
+          </CardHeader>
+          <CardContent>
+            <div className="text-center py-8 text-muted-foreground">
+              <p>Start a new training job to see telemetry data here.</p>
+            </div>
+          </CardContent>
+        </Card>
+      );
+    }
+    
     const simProgress = (simJob.currentStep / simJob.totalSteps) * 100;
     return (
       <Card className="cyber-panel">

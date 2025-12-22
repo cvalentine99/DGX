@@ -59,6 +59,9 @@ import {
 } from "@/components/ui/alert-dialog";
 import { InferenceTestPanel } from "@/components/InferenceTestPanel";
 
+// Note: SYSTEM_PROMPTS and DEFAULT_CONFIG are configuration presets, not demo data
+// They are always available regardless of DEMO_MODE
+
 // System Prompt Presets
 const SYSTEM_PROMPTS = [
   { 
