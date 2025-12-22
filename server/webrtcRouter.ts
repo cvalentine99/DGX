@@ -1,6 +1,10 @@
 import { z } from "zod";
 import { publicProcedure, router } from "./_core/trpc";
 import { Client } from "ssh2";
+import { exec as execCallback } from 'child_process';
+import { promisify } from 'util';
+
+const execAsync = promisify(execCallback);
 
 // WebRTC Session Management
 interface WebRTCSession {
@@ -29,23 +33,42 @@ interface WebRTCSession {
 // Active WebRTC sessions
 const activeSessions = new Map<string, WebRTCSession>();
 
-// DGX Spark host configurations
+// DGX Spark host configurations - unified with local/remote logic
 const DGX_HOSTS = {
   alpha: {
     name: "DGX Spark Alpha",
-    host: process.env.DGX_SSH_HOST || "0.tcp.ngrok.io",
-    port: parseInt(process.env.DGX_SSH_PORT || "17974"),
-    localIp: "192.168.50.139",
+    ip: "192.168.50.139",
+    sshHost: process.env.DGX_SSH_HOST || "192.168.50.139",
+    sshPort: parseInt(process.env.DGX_SSH_PORT || "22"),
+    isLocal: false, // Alpha is REMOTE - accessed via SSH
   },
   beta: {
     name: "DGX Spark Beta",
-    host: process.env.DGX_SSH_HOST || "0.tcp.ngrok.io",
-    port: parseInt(process.env.DGX_SSH_PORT || "17974"),
-    localIp: "192.168.50.110",
+    ip: "192.168.50.110",
+    sshHost: process.env.DGX_SSH_HOST_BETA || "192.168.50.110",
+    sshPort: parseInt(process.env.DGX_SSH_PORT_BETA || "22"),
+    isLocal: process.env.LOCAL_HOST === 'beta' || process.env.LOCAL_HOST === undefined, // Beta is LOCAL by default
   },
 } as const;
 
 type HostId = keyof typeof DGX_HOSTS;
+
+// Execute command locally (for Beta when running on Beta)
+async function executeLocalCommand(command: string): Promise<{ stdout: string; stderr: string; code: number }> {
+  try {
+    const { stdout, stderr } = await execAsync(command, {
+      maxBuffer: 50 * 1024 * 1024,
+      timeout: 60000,
+    });
+    return { stdout: stdout || '', stderr: stderr || '', code: 0 };
+  } catch (error: any) {
+    return { 
+      stdout: error.stdout || '', 
+      stderr: error.stderr || error.message || 'Command failed', 
+      code: error.code || 1 
+    };
+  }
+}
 
 // Get SSH credentials
 function getSSHCredentials() {
@@ -53,18 +76,26 @@ function getSSHCredentials() {
   const password = process.env.DGX_SSH_PASSWORD;
   const privateKey = process.env.DGX_SSH_PRIVATE_KEY;
 
-  if (!username) {
-    throw new Error("DGX_SSH_USERNAME not configured");
-  }
-
   return { username, password, privateKey };
 }
 
-// Create SSH connection
+// Check if SSH credentials are configured
+function hasSSHCredentials(): boolean {
+  const creds = getSSHCredentials();
+  return !!(creds.username && (creds.password || creds.privateKey));
+}
+
+// Create SSH connection (only for remote hosts)
 function createSSHConnection(hostId: HostId): Promise<Client> {
   return new Promise((resolve, reject) => {
     const host = DGX_HOSTS[hostId];
     const credentials = getSSHCredentials();
+    
+    if (!credentials.username) {
+      reject(new Error("DGX_SSH_USERNAME not configured"));
+      return;
+    }
+    
     const conn = new Client();
 
     const timeout = setTimeout(() => {
@@ -83,8 +114,8 @@ function createSSHConnection(hostId: HostId): Promise<Client> {
     });
 
     const config: any = {
-      host: host.host,
-      port: host.port,
+      host: host.sshHost,
+      port: host.sshPort,
       username: credentials.username,
       readyTimeout: 10000,
     };
@@ -129,6 +160,26 @@ function executeSSHCommand(
   });
 }
 
+// Execute command on host - automatically chooses local or SSH
+async function executeOnHost(hostId: HostId, command: string): Promise<{ stdout: string; stderr: string; code: number }> {
+  const host = DGX_HOSTS[hostId];
+  
+  if (host.isLocal) {
+    console.log(`[WebRTC] Executing locally on ${host.name}: ${command.substring(0, 80)}...`);
+    return executeLocalCommand(command);
+  } else {
+    // Remote host - use SSH
+    if (!hasSSHCredentials()) {
+      return { stdout: '', stderr: 'SSH credentials not configured', code: 1 };
+    }
+    
+    const conn = await createSSHConnection(hostId);
+    const result = await executeSSHCommand(conn, command);
+    conn.end();
+    return result;
+  }
+}
+
 // Clean up old sessions (older than 5 minutes)
 function cleanupOldSessions() {
   const now = Date.now();
@@ -149,7 +200,6 @@ function generateGStreamerPipeline(session: WebRTCSession): string {
   const camera = session.camera;
   
   // GStreamer pipeline for WebRTC streaming with hardware encoding on DGX Spark
-  // Uses v4l2src for camera capture and nvv4l2h264enc for GPU-accelerated encoding
   const pipeline = `
     gst-launch-1.0 -v \\
       v4l2src device=${camera} ! \\
@@ -179,6 +229,7 @@ export const webrtcRouter = router({
       cleanupOldSessions();
       
       const sessionId = `webrtc-${input.hostId}-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+      const host = DGX_HOSTS[input.hostId];
       
       const session: WebRTCSession = {
         id: sessionId,
@@ -195,15 +246,16 @@ export const webrtcRouter = router({
       };
       
       activeSessions.set(sessionId, session);
-      
-      // In a real implementation, this would start the GStreamer pipeline on the DGX Spark
-      // For now, we simulate the session creation
       session.status = "connecting";
       
       return {
         success: true,
         sessionId,
-        host: DGX_HOSTS[input.hostId],
+        host: {
+          name: host.name,
+          ip: host.ip,
+          isLocal: host.isLocal,
+        },
         config: {
           camera: input.camera,
           resolution: input.resolution,
@@ -237,14 +289,10 @@ export const webrtcRouter = router({
       session.offer = input.offer as RTCSessionDescriptionInit;
       session.lastActivity = Date.now();
       
-      // In a real implementation, this would send the offer to the GStreamer pipeline
-      // and receive an answer. For simulation, we generate a mock answer.
-      
       // Simulate processing delay
       await new Promise(resolve => setTimeout(resolve, 100));
       
       // Generate a simulated SDP answer
-      // In production, this would come from the GStreamer WebRTC pipeline
       const mockAnswer: RTCSessionDescriptionInit = {
         type: "answer",
         sdp: generateMockSdpAnswer(input.offer.sdp, session),
@@ -314,8 +362,7 @@ export const webrtcRouter = router({
       
       session.lastActivity = Date.now();
       
-      // In a real implementation, these would come from the GStreamer pipeline
-      // For simulation, generate mock ICE candidates
+      // Generate mock ICE candidates if streaming
       if (session.iceCandidates.length === 0 && session.status === "streaming") {
         session.iceCandidates = generateMockIceCandidates();
       }
@@ -343,10 +390,10 @@ export const webrtcRouter = router({
       // Update simulated stats
       if (session.status === "streaming") {
         session.stats = {
-          bitrate: 3500000 + Math.random() * 1000000, // ~3.5-4.5 Mbps
+          bitrate: 3500000 + Math.random() * 1000000,
           framesReceived: Math.floor((Date.now() - session.createdAt) / 1000 * session.fps),
           framesDropped: Math.floor(Math.random() * 5),
-          latency: 15 + Math.random() * 10, // 15-25ms
+          latency: 15 + Math.random() * 10,
         };
       }
       
@@ -379,10 +426,6 @@ export const webrtcRouter = router({
       }
       
       session.status = "stopped";
-      
-      // In a real implementation, this would stop the GStreamer pipeline on DGX Spark
-      // via SSH command
-      
       activeSessions.delete(input.sessionId);
       
       return { success: true, message: "Session stopped" };
@@ -416,7 +459,7 @@ export const webrtcRouter = router({
       };
     }),
 
-  // Start GStreamer pipeline on DGX Spark (real implementation)
+  // Start GStreamer pipeline on DGX Spark (uses local or SSH based on host)
   startGStreamerPipeline: publicProcedure
     .input(z.object({
       hostId: z.enum(["alpha", "beta"]),
@@ -428,20 +471,18 @@ export const webrtcRouter = router({
         return { success: false, error: "Session not found" };
       }
       
+      const host = DGX_HOSTS[input.hostId];
+      
       try {
-        const conn = await createSSHConnection(input.hostId);
-        
         // Check if GStreamer is available
-        const gstCheck = await executeSSHCommand(conn, "which gst-launch-1.0");
+        const gstCheck = await executeOnHost(input.hostId, "which gst-launch-1.0");
         if (gstCheck.code !== 0) {
-          conn.end();
           return { success: false, error: "GStreamer not found on host" };
         }
         
         // Check if camera is available
-        const camCheck = await executeSSHCommand(conn, `ls -la ${session.camera}`);
+        const camCheck = await executeOnHost(input.hostId, `ls -la ${session.camera}`);
         if (camCheck.code !== 0) {
-          conn.end();
           return { success: false, error: `Camera ${session.camera} not found` };
         }
         
@@ -449,14 +490,13 @@ export const webrtcRouter = router({
         const pipeline = generateGStreamerPipeline(session);
         const startCmd = `nohup ${pipeline} > /tmp/webrtc-${session.id}.log 2>&1 &`;
         
-        await executeSSHCommand(conn, startCmd);
-        conn.end();
+        await executeOnHost(input.hostId, startCmd);
         
         session.status = "streaming";
         
         return {
           success: true,
-          message: "GStreamer pipeline started",
+          message: `GStreamer pipeline started on ${host.name} (${host.isLocal ? 'LOCAL' : 'REMOTE'})`,
           pipeline: pipeline,
         };
       } catch (error: any) {
@@ -465,12 +505,56 @@ export const webrtcRouter = router({
         return { success: false, error: error.message };
       }
     }),
+
+  // Get available cameras on a host
+  getCameras: publicProcedure
+    .input(z.object({
+      hostId: z.enum(["alpha", "beta"]),
+    }))
+    .query(async ({ input }) => {
+      const host = DGX_HOSTS[input.hostId];
+      
+      // Check if we can access this host
+      if (!host.isLocal && !hasSSHCredentials()) {
+        return {
+          success: false,
+          error: "SSH credentials not configured for remote host",
+          cameras: [],
+        };
+      }
+      
+      try {
+        const result = await executeOnHost(input.hostId, "ls -la /dev/video* 2>/dev/null || echo 'No cameras found'");
+        
+        const cameras: string[] = [];
+        const lines = result.stdout.split('\n');
+        for (const line of lines) {
+          const match = line.match(/\/dev\/video\d+/);
+          if (match) {
+            cameras.push(match[0]);
+          }
+        }
+        
+        return {
+          success: true,
+          cameras,
+          host: {
+            name: host.name,
+            isLocal: host.isLocal,
+          },
+        };
+      } catch (error: any) {
+        return {
+          success: false,
+          error: error.message,
+          cameras: [],
+        };
+      }
+    }),
 });
 
 // Generate a mock SDP answer for simulation
 function generateMockSdpAnswer(offerSdp: string, session: WebRTCSession): string {
-  const [width, height] = session.resolution.split("x").map(Number);
-  
   return `v=0
 o=- ${Date.now()} 2 IN IP4 127.0.0.1
 s=-
@@ -498,22 +582,23 @@ a=ssrc:${Math.floor(Math.random() * 4294967295)} msid:stream video
 
 // Generate mock fingerprint
 function generateMockFingerprint(): string {
-  const bytes = Array.from({ length: 32 }, () => 
-    Math.floor(Math.random() * 256).toString(16).padStart(2, "0").toUpperCase()
-  );
-  return bytes.join(":");
+  const bytes: string[] = [];
+  for (let i = 0; i < 32; i++) {
+    bytes.push(Math.floor(Math.random() * 256).toString(16).padStart(2, '0').toUpperCase());
+  }
+  return bytes.join(':');
 }
 
 // Generate mock ICE candidates
 function generateMockIceCandidates(): RTCIceCandidateInit[] {
   return [
     {
-      candidate: `candidate:1 1 UDP 2130706431 192.168.50.139 ${49152 + Math.floor(Math.random() * 1000)} typ host`,
+      candidate: `candidate:1 1 UDP 2130706431 192.168.50.110 ${50000 + Math.floor(Math.random() * 1000)} typ host`,
       sdpMid: "0",
       sdpMLineIndex: 0,
     },
     {
-      candidate: `candidate:2 1 UDP 1694498815 ${DGX_HOSTS.alpha.host} ${49152 + Math.floor(Math.random() * 1000)} typ srflx raddr 192.168.50.139 rport ${49152 + Math.floor(Math.random() * 1000)}`,
+      candidate: `candidate:2 1 UDP 1694498815 ${Math.floor(Math.random() * 256)}.${Math.floor(Math.random() * 256)}.${Math.floor(Math.random() * 256)}.${Math.floor(Math.random() * 256)} ${50000 + Math.floor(Math.random() * 1000)} typ srflx raddr 192.168.50.110 rport ${50000 + Math.floor(Math.random() * 1000)}`,
       sdpMid: "0",
       sdpMLineIndex: 0,
     },

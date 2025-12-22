@@ -1061,3 +1061,13 @@
 - [x] Update default metrics with isLocal flags
 - [x] All 199 tests passing
 - [ ] Test on actual DGX Spark Beta (bare metal deployment)
+
+
+# V9 - Unified Local/Remote Host Logic (December 2024)
+- [x] Fix webrtcRouter.ts to use executeOnHost pattern (local vs SSH)
+- [x] Fix webrtcSignaling.ts to use executeOnHost pattern (local vs SSH)
+- [x] Verify dcgmRouter.ts already has correct local/remote logic
+- [x] All routers now respect "Beta is LOCAL" rule
+- [x] All 199 tests passing
+- [x] Build successful
+- [x] Create simplified INSTALL.sh deployment script

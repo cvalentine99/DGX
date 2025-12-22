@@ -1,11 +1,16 @@
 /**
  * WebRTC Signaling Server using Socket.IO
  * Provides real-time SDP and ICE candidate exchange for WebRTC streaming
+ * Supports both LOCAL (direct commands) and REMOTE (SSH) execution
  */
 
 import { Server as HttpServer } from "http";
 import { Server as SocketIOServer, Socket } from "socket.io";
 import { Client } from "ssh2";
+import { exec as execCallback } from 'child_process';
+import { promisify } from 'util';
+
+const execAsync = promisify(execCallback);
 
 // Types for signaling messages
 interface SignalingSession {
@@ -35,19 +40,21 @@ interface StreamConfig {
   format: string;
 }
 
-// DGX Spark host configurations
+// DGX Spark host configurations - unified with local/remote logic
 const DGX_HOSTS = {
   alpha: {
     name: "DGX Spark Alpha",
-    host: process.env.DGX_SSH_HOST || "0.tcp.ngrok.io",
-    port: parseInt(process.env.DGX_SSH_PORT || "17974"),
-    localIp: "192.168.50.139",
+    ip: "192.168.50.139",
+    sshHost: process.env.DGX_SSH_HOST || "192.168.50.139",
+    sshPort: parseInt(process.env.DGX_SSH_PORT || "22"),
+    isLocal: false, // Alpha is REMOTE - accessed via SSH
   },
   beta: {
     name: "DGX Spark Beta",
-    host: process.env.DGX_SSH_HOST || "0.tcp.ngrok.io",
-    port: parseInt(process.env.DGX_SSH_PORT || "17974"),
-    localIp: "192.168.50.110",
+    ip: "192.168.50.110",
+    sshHost: process.env.DGX_SSH_HOST_BETA || "192.168.50.110",
+    sshPort: parseInt(process.env.DGX_SSH_PORT_BETA || "22"),
+    isLocal: process.env.LOCAL_HOST === 'beta' || process.env.LOCAL_HOST === undefined, // Beta is LOCAL by default
   },
 } as const;
 
@@ -101,20 +108,49 @@ function getSSHCredentials() {
   const password = process.env.DGX_SSH_PASSWORD;
   const privateKey = process.env.DGX_SSH_PRIVATE_KEY;
 
-  if (!username) {
-    throw new Error("DGX_SSH_USERNAME not configured");
-  }
-
   return { username, password, privateKey };
 }
 
 /**
- * Create SSH connection to DGX Spark
+ * Check if SSH credentials are configured
+ */
+function hasSSHCredentials(): boolean {
+  const creds = getSSHCredentials();
+  return !!(creds.username && (creds.password || creds.privateKey));
+}
+
+/**
+ * Execute command locally (for Beta when running on Beta)
+ */
+async function executeLocalCommand(command: string): Promise<{ stdout: string; stderr: string; code: number }> {
+  try {
+    const { stdout, stderr } = await execAsync(command, {
+      maxBuffer: 50 * 1024 * 1024,
+      timeout: 60000,
+    });
+    return { stdout: stdout || '', stderr: stderr || '', code: 0 };
+  } catch (error: any) {
+    return { 
+      stdout: error.stdout || '', 
+      stderr: error.stderr || error.message || 'Command failed', 
+      code: error.code || 1 
+    };
+  }
+}
+
+/**
+ * Create SSH connection to DGX Spark (only for remote hosts)
  */
 function createSSHConnection(hostId: "alpha" | "beta"): Promise<Client> {
   return new Promise((resolve, reject) => {
     const host = DGX_HOSTS[hostId];
     const credentials = getSSHCredentials();
+    
+    if (!credentials.username) {
+      reject(new Error("DGX_SSH_USERNAME not configured"));
+      return;
+    }
+    
     const conn = new Client();
 
     const timeout = setTimeout(() => {
@@ -133,8 +169,8 @@ function createSSHConnection(hostId: "alpha" | "beta"): Promise<Client> {
     });
 
     const config: any = {
-      host: host.host,
-      port: host.port,
+      host: host.sshHost,
+      port: host.sshPort,
       username: credentials.username,
       readyTimeout: 10000,
     };
@@ -182,16 +218,35 @@ function executeSSHCommand(
 }
 
 /**
+ * Execute command on host - automatically chooses local or SSH
+ */
+async function executeOnHost(hostId: "alpha" | "beta", command: string): Promise<{ stdout: string; stderr: string; code: number }> {
+  const host = DGX_HOSTS[hostId];
+  
+  if (host.isLocal) {
+    console.log(`[WebRTC Signaling] Executing locally on ${host.name}: ${command.substring(0, 80)}...`);
+    return executeLocalCommand(command);
+  } else {
+    // Remote host - use SSH
+    if (!hasSSHCredentials()) {
+      return { stdout: '', stderr: 'SSH credentials not configured', code: 1 };
+    }
+    
+    const conn = await createSSHConnection(hostId);
+    const result = await executeSSHCommand(conn, command);
+    conn.end();
+    return result;
+  }
+}
+
+/**
  * Generate GStreamer WebRTC pipeline command
  */
 function generateGStreamerPipeline(
   session: SignalingSession,
   signalingUrl: string
 ): string {
-  const [width, height] = session.resolution.split("x").map(Number);
-
   // GStreamer pipeline for WebRTC streaming with hardware encoding
-  // Uses the Python WebRTC sender script for proper signaling integration
   const pipeline = `python3 /opt/nemo/gstreamer-webrtc-sender.py \\
     --device ${session.camera} \\
     --resolution ${session.resolution} \\
@@ -203,19 +258,18 @@ function generateGStreamerPipeline(
 }
 
 /**
- * Start GStreamer pipeline on DGX Spark via SSH
+ * Start GStreamer pipeline on DGX Spark (local or SSH)
  */
 async function startGStreamerPipeline(
   session: SignalingSession,
   signalingUrl: string
 ): Promise<{ success: boolean; error?: string; pid?: number }> {
+  const host = DGX_HOSTS[session.hostId];
+  
   try {
-    const conn = await createSSHConnection(session.hostId);
-
     // Check if camera is available
-    const camCheck = await executeSSHCommand(conn, `ls -la ${session.camera}`);
+    const camCheck = await executeOnHost(session.hostId, `ls -la ${session.camera}`);
     if (camCheck.code !== 0) {
-      conn.end();
       return { success: false, error: `Camera ${session.camera} not found` };
     }
 
@@ -224,12 +278,11 @@ async function startGStreamerPipeline(
 
     // Start pipeline in background and get PID
     const startCmd = `nohup ${pipeline} > /tmp/webrtc-${session.id}.log 2>&1 & echo $!`;
-    const result = await executeSSHCommand(conn, startCmd);
-
-    conn.end();
+    const result = await executeOnHost(session.hostId, startCmd);
 
     if (result.code === 0 && result.stdout.trim()) {
       const pid = parseInt(result.stdout.trim());
+      console.log(`[WebRTC Signaling] Started pipeline on ${host.name} (${host.isLocal ? 'LOCAL' : 'REMOTE'}), PID: ${pid}`);
       return { success: true, pid };
     }
 
@@ -240,7 +293,7 @@ async function startGStreamerPipeline(
 }
 
 /**
- * Stop GStreamer pipeline on DGX Spark via SSH
+ * Stop GStreamer pipeline on DGX Spark (local or SSH)
  */
 async function stopGStreamerPipeline(
   session: SignalingSession
@@ -250,12 +303,8 @@ async function stopGStreamerPipeline(
   }
 
   try {
-    const conn = await createSSHConnection(session.hostId);
-
     // Kill the GStreamer process
-    await executeSSHCommand(conn, `kill ${session.gstreamerPid} 2>/dev/null || true`);
-
-    conn.end();
+    await executeOnHost(session.hostId, `kill ${session.gstreamerPid} 2>/dev/null || true`);
     return { success: true };
   } catch (error: any) {
     return { success: false, error: error.message };
@@ -307,6 +356,14 @@ export function initializeSignalingServer(httpServer: HttpServer): SocketIOServe
       config: StreamConfig;
     }, callback) => {
       try {
+        const host = DGX_HOSTS[data.hostId];
+        
+        // Check if we can access this host
+        if (!host.isLocal && !hasSSHCredentials()) {
+          callback({ success: false, error: "SSH credentials not configured for remote host" });
+          return;
+        }
+        
         const sessionId = `ws-${data.hostId}-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
 
         const session: SignalingSession = {
@@ -330,13 +387,17 @@ export function initializeSignalingServer(httpServer: HttpServer): SocketIOServe
         // Join session room
         socket.join(sessionId);
 
-        console.log(`[WebRTC Signaling] Session created: ${sessionId}`);
+        console.log(`[WebRTC Signaling] Session created: ${sessionId} on ${host.name} (${host.isLocal ? 'LOCAL' : 'REMOTE'})`);
 
         callback({
           success: true,
           sessionId,
           iceServers: getIceServers(),
-          host: DGX_HOSTS[data.hostId],
+          host: {
+            name: host.name,
+            ip: host.ip,
+            isLocal: host.isLocal,
+          },
         });
       } catch (error: any) {
         callback({ success: false, error: error.message });
@@ -363,7 +424,7 @@ export function initializeSignalingServer(httpServer: HttpServer): SocketIOServe
       socketToSession.set(socket.id, data.sessionId);
       socket.join(data.sessionId);
 
-      console.log(`[WebRTC Signaling] Sender registered for session: ${data.sessionId}`);
+      console.log(`[WebRTC Signaling] Sender registered for session ${data.sessionId}`);
 
       // Notify receiver that sender is ready
       socket.to(data.sessionId).emit("sender-ready", {
@@ -376,49 +437,59 @@ export function initializeSignalingServer(httpServer: HttpServer): SocketIOServe
       callback({ success: true });
     });
 
-    // Handle SDP offer from sender
-    socket.on("offer", (data: {
+    // Handle SDP offer from receiver
+    socket.on("offer", async (data: {
       sessionId: string;
-      sdp: string;
-    }) => {
+      offer: RTCSessionDescriptionInit;
+    }, callback) => {
       const session = sessions.get(data.sessionId);
-      if (!session) return;
+      if (!session) {
+        callback({ success: false, error: "Session not found" });
+        return;
+      }
 
-      session.offer = { type: "offer", sdp: data.sdp };
+      session.offer = data.offer;
       session.lastActivity = Date.now();
 
-      console.log(`[WebRTC Signaling] Offer received for session: ${data.sessionId}`);
+      // Forward offer to sender
+      if (session.senderSocket) {
+        io?.to(session.senderSocket).emit("offer", {
+          sessionId: data.sessionId,
+          offer: data.offer,
+        });
+      }
 
-      // Forward offer to receiver
-      socket.to(data.sessionId).emit("offer", {
-        sessionId: data.sessionId,
-        sdp: data.sdp,
-      });
+      callback({ success: true });
     });
 
-    // Handle SDP answer from receiver
-    socket.on("answer", (data: {
+    // Handle SDP answer from sender
+    socket.on("answer", async (data: {
       sessionId: string;
-      sdp: string;
-    }) => {
+      answer: RTCSessionDescriptionInit;
+    }, callback) => {
       const session = sessions.get(data.sessionId);
-      if (!session) return;
+      if (!session) {
+        callback({ success: false, error: "Session not found" });
+        return;
+      }
 
-      session.answer = { type: "answer", sdp: data.sdp };
+      session.answer = data.answer;
       session.status = "streaming";
       session.lastActivity = Date.now();
 
-      console.log(`[WebRTC Signaling] Answer received for session: ${data.sessionId}`);
+      // Forward answer to receiver
+      if (session.receiverSocket) {
+        io?.to(session.receiverSocket).emit("answer", {
+          sessionId: data.sessionId,
+          answer: data.answer,
+        });
+      }
 
-      // Forward answer to sender
-      socket.to(data.sessionId).emit("answer", {
-        sessionId: data.sessionId,
-        sdp: data.sdp,
-      });
+      callback({ success: true });
     });
 
     // Handle ICE candidate from either peer
-    socket.on("ice-candidate", (data: {
+    socket.on("ice-candidate", async (data: {
       sessionId: string;
       candidate: RTCIceCandidateInit;
       from: "sender" | "receiver";
@@ -428,126 +499,95 @@ export function initializeSignalingServer(httpServer: HttpServer): SocketIOServe
 
       session.lastActivity = Date.now();
 
-      // Store candidate
+      // Store and forward candidate
       if (data.from === "sender") {
         session.senderCandidates.push(data.candidate);
+        if (session.receiverSocket) {
+          io?.to(session.receiverSocket).emit("ice-candidate", {
+            sessionId: data.sessionId,
+            candidate: data.candidate,
+          });
+        }
       } else {
         session.receiverCandidates.push(data.candidate);
+        if (session.senderSocket) {
+          io?.to(session.senderSocket).emit("ice-candidate", {
+            sessionId: data.sessionId,
+            candidate: data.candidate,
+          });
+        }
       }
-
-      // Forward to the other peer
-      socket.to(data.sessionId).emit("ice-candidate", {
-        sessionId: data.sessionId,
-        candidate: data.candidate,
-        from: data.from,
-      });
     });
 
-    // Handle start stream request
-    socket.on("start-stream", async (data: {
-      sessionId: string;
-    }, callback) => {
+    // Handle session stop request
+    socket.on("stop-session", async (data: { sessionId: string }, callback) => {
       const session = sessions.get(data.sessionId);
       if (!session) {
         callback({ success: false, error: "Session not found" });
         return;
       }
-
-      // Get signaling URL for GStreamer
-      const protocol = process.env.NODE_ENV === "production" ? "wss" : "ws";
-      const host = process.env.SIGNALING_HOST || "localhost:3000";
-      const signalingUrl = `${protocol}://${host}/webrtc-signaling`;
-
-      console.log(`[WebRTC Signaling] Starting stream for session: ${data.sessionId}`);
-
-      // Start GStreamer pipeline on DGX Spark
-      const result = await startGStreamerPipeline(session, signalingUrl);
-
-      if (result.success) {
-        session.gstreamerPid = result.pid;
-        session.status = "connecting";
-        callback({ success: true, message: "Pipeline started" });
-      } else {
-        session.status = "error";
-        session.error = result.error;
-        callback({ success: false, error: result.error });
-      }
-    });
-
-    // Handle stop stream request
-    socket.on("stop-stream", async (data: {
-      sessionId: string;
-    }, callback) => {
-      const session = sessions.get(data.sessionId);
-      if (!session) {
-        callback({ success: false, error: "Session not found" });
-        return;
-      }
-
-      console.log(`[WebRTC Signaling] Stopping stream for session: ${data.sessionId}`);
 
       // Stop GStreamer pipeline
-      await stopGStreamerPipeline(session);
+      if (session.gstreamerPid) {
+        await stopGStreamerPipeline(session);
+      }
 
       session.status = "stopped";
-      session.gstreamerPid = undefined;
 
-      // Notify all peers
-      io?.to(data.sessionId).emit("stream-stopped", {
-        sessionId: data.sessionId,
-      });
+      // Notify all participants
+      io?.to(data.sessionId).emit("session-stopped", { sessionId: data.sessionId });
+
+      // Clean up
+      sessions.delete(data.sessionId);
+      if (session.senderSocket) socketToSession.delete(session.senderSocket);
+      if (session.receiverSocket) socketToSession.delete(session.receiverSocket);
 
       callback({ success: true });
     });
 
-    // Handle connection state update
-    socket.on("connection-state", (data: {
+    // Handle start pipeline request
+    socket.on("start-pipeline", async (data: {
       sessionId: string;
-      state: string;
-    }) => {
+      signalingUrl: string;
+    }, callback) => {
       const session = sessions.get(data.sessionId);
-      if (!session) return;
+      if (!session) {
+        callback({ success: false, error: "Session not found" });
+        return;
+      }
 
-      session.lastActivity = Date.now();
+      const result = await startGStreamerPipeline(session, data.signalingUrl);
+      if (result.success && result.pid) {
+        session.gstreamerPid = result.pid;
+      }
 
-      console.log(`[WebRTC Signaling] Connection state for ${data.sessionId}: ${data.state}`);
-
-      // Forward to other peers
-      socket.to(data.sessionId).emit("connection-state", data);
+      callback(result);
     });
 
-    // Handle disconnect
-    socket.on("disconnect", async () => {
+    // Handle disconnection
+    socket.on("disconnect", () => {
       console.log(`[WebRTC Signaling] Client disconnected: ${socket.id}`);
 
       const sessionId = socketToSession.get(socket.id);
       if (sessionId) {
         const session = sessions.get(sessionId);
         if (session) {
-          // If sender disconnected, stop the pipeline
+          // Mark session as error if sender disconnected
           if (session.senderSocket === socket.id) {
-            await stopGStreamerPipeline(session);
-            session.senderSocket = undefined;
-          }
-
-          // If receiver disconnected, notify sender
-          if (session.receiverSocket === socket.id) {
-            session.receiverSocket = undefined;
-            io?.to(sessionId).emit("receiver-disconnected", { sessionId });
-          }
-
-          // If both disconnected, clean up session
-          if (!session.senderSocket && !session.receiverSocket) {
-            sessions.delete(sessionId);
+            session.status = "error";
+            session.error = "Sender disconnected";
+            io?.to(sessionId).emit("session-error", {
+              sessionId,
+              error: "Sender disconnected",
+            });
           }
         }
-
         socketToSession.delete(socket.id);
       }
     });
   });
 
-  console.log("[WebRTC Signaling] Server initialized");
+  console.log("[WebRTC Signaling] Signaling server initialized");
   return io;
 }
 

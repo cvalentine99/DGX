@@ -1,7 +1,7 @@
 #!/bin/bash
 #===============================================================================
-# NeMo Command Center - DGX Spark Bare Metal Installer
-# Interactive installer with MySQL database support
+# NeMo Command Center - DGX Spark Bare Metal Installer V8
+# Builds from source, MySQL database, proper systemd service
 #===============================================================================
 
 set -e
@@ -17,18 +17,17 @@ BOLD='\033[1m'
 DIM='\033[2m'
 NC='\033[0m'
 
-# Configuration defaults
+# Configuration
 APP_NAME="nemo-command-center"
 INSTALL_DIR="/opt/${APP_NAME}"
-DATA_DIR="/var/lib/nemo"
 CONFIG_DIR="/etc/nemo"
+LOG_DIR="/var/log/nemo"
 SERVICE_USER="nemo"
 APP_PORT=3000
-DB_NAME="nemo_db"
-DB_USER="nemo"
+NGINX_PORT=87
 
-# Collected configuration
-declare -A CONFIG
+# Get script directory (where the source code is)
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 #===============================================================================
 # Helper Functions
@@ -46,108 +45,27 @@ print_banner() {
     echo "║     ██║ ╚████║███████╗██║ ╚═╝ ██║╚██████╔╝                            ║"
     echo "║     ╚═╝  ╚═══╝╚══════╝╚═╝     ╚═╝ ╚═════╝                             ║"
     echo "║                                                                       ║"
-    echo "║              ${BOLD}Command Center - Bare Metal Installer${NC}${CYAN}                   ║"
-    echo "║                      DGX Spark Edition                                ║"
+    echo "║              ${BOLD}Command Center - V8 Installer${NC}${CYAN}                          ║"
+    echo "║                  DGX Spark Bare Metal                                 ║"
     echo "║                                                                       ║"
     echo "╚═══════════════════════════════════════════════════════════════════════╝"
     echo -e "${NC}"
 }
 
-print_section() {
-    echo ""
-    echo -e "${MAGENTA}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-    echo -e "${BOLD}${CYAN}  $1${NC}"
-    echo -e "${MAGENTA}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-    echo ""
+log_step() {
+    echo -e "${BLUE}▸${NC} $1"
 }
 
-prompt() {
-    local var_name="$1"
-    local prompt_text="$2"
-    local default_value="$3"
-    local is_secret="$4"
-    local value
-    
-    if [[ -n "$default_value" ]]; then
-        echo -e -n "${BOLD}${prompt_text}${NC} ${DIM}[${default_value}]${NC}: "
-    else
-        echo -e -n "${BOLD}${prompt_text}${NC}: "
-    fi
-    
-    if [[ "$is_secret" == "true" ]]; then
-        read -s value
-        echo ""
-    else
-        read value
-    fi
-    
-    if [[ -z "$value" && -n "$default_value" ]]; then
-        value="$default_value"
-    fi
-    
-    CONFIG[$var_name]="$value"
+log_success() {
+    echo -e "${GREEN}✓${NC} $1"
 }
 
-prompt_yes_no() {
-    local var_name="$1"
-    local prompt_text="$2"
-    local default="$3"
-    local value
-    
-    if [[ "$default" == "y" ]]; then
-        echo -e -n "${BOLD}${prompt_text}${NC} ${DIM}[Y/n]${NC}: "
-    else
-        echo -e -n "${BOLD}${prompt_text}${NC} ${DIM}[y/N]${NC}: "
-    fi
-    
-    read value
-    value=$(echo "$value" | tr '[:upper:]' '[:lower:]')
-    
-    if [[ -z "$value" ]]; then
-        value="$default"
-    fi
-    
-    if [[ "$value" == "y" || "$value" == "yes" ]]; then
-        CONFIG[$var_name]="true"
-    else
-        CONFIG[$var_name]="false"
-    fi
+log_warn() {
+    echo -e "${YELLOW}!${NC} $1"
 }
 
-spinner() {
-    local pid=$1
-    local delay=0.1
-    local spinstr='⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏'
-    while ps -p $pid > /dev/null 2>&1; do
-        local temp=${spinstr#?}
-        printf " ${CYAN}%c${NC}  " "$spinstr"
-        local spinstr=$temp${spinstr%"$temp"}
-        sleep $delay
-        printf "\b\b\b\b"
-    done
-    printf "    \b\b\b\b"
-}
-
-run_step() {
-    local description="$1"
-    local command="$2"
-    
-    echo -e -n "  ${BLUE}▸${NC} ${description}..."
-    
-    eval "$command" > /tmp/install_output.log 2>&1 &
-    local pid=$!
-    spinner $pid
-    wait $pid
-    local status=$?
-    
-    if [[ $status -eq 0 ]]; then
-        echo -e " ${GREEN}✓${NC}"
-    else
-        echo -e " ${RED}✗${NC}"
-        echo -e "${RED}Error output:${NC}"
-        cat /tmp/install_output.log
-        exit 1
-    fi
+log_error() {
+    echo -e "${RED}✗${NC} $1"
 }
 
 generate_password() {
@@ -159,1067 +77,459 @@ generate_password() {
 #===============================================================================
 
 detect_system() {
-    print_section "System Detection"
+    echo -e "\n${MAGENTA}━━━ System Detection ━━━${NC}\n"
     
-    echo -e "  ${BLUE}▸${NC} Detecting system configuration..."
-    echo ""
+    LOCAL_IP=$(hostname -I | awk '{print $1}')
+    echo -e "  Hostname: ${BOLD}$(hostname)${NC}"
+    echo -e "  IP Address: ${BOLD}$LOCAL_IP${NC}"
     
-    # OS
-    if [[ -f /etc/os-release ]]; then
-        . /etc/os-release
-        echo -e "  ${GREEN}●${NC} Operating System: ${BOLD}$PRETTY_NAME${NC}"
+    # Detect if this is Alpha or Beta
+    if [[ "$LOCAL_IP" == "192.168.50.110" ]]; then
+        echo -e "  ${GREEN}●${NC} Detected: ${BOLD}DGX Spark Beta (LOCAL)${NC}"
+        IS_BETA=true
+        REMOTE_HOST="192.168.50.139"
+    elif [[ "$LOCAL_IP" == "192.168.50.139" ]]; then
+        echo -e "  ${GREEN}●${NC} Detected: ${BOLD}DGX Spark Alpha (LOCAL)${NC}"
+        IS_BETA=false
+        REMOTE_HOST="192.168.50.110"
+    else
+        echo -e "  ${YELLOW}●${NC} Unknown host - will configure manually"
+        IS_BETA=true
+        REMOTE_HOST=""
     fi
     
-    # Hostname
-    echo -e "  ${GREEN}●${NC} Hostname: ${BOLD}$(hostname)${NC}"
-    
-    # IP Address
-    LOCAL_IP=$(hostname -I | awk '{print $1}')
-    echo -e "  ${GREEN}●${NC} IP Address: ${BOLD}$LOCAL_IP${NC}"
-    
-    # CPU
-    CPU_INFO=$(lscpu | grep "Model name" | cut -d: -f2 | xargs)
-    CPU_CORES=$(nproc)
-    echo -e "  ${GREEN}●${NC} CPU: ${BOLD}$CPU_INFO ($CPU_CORES cores)${NC}"
-    
-    # Memory
-    TOTAL_MEM=$(free -g | awk '/^Mem:/{print $2}')
-    echo -e "  ${GREEN}●${NC} Memory: ${BOLD}${TOTAL_MEM}GB${NC}"
-    
-    # GPU
+    # Check GPU
     if command -v nvidia-smi &> /dev/null; then
         GPU_INFO=$(nvidia-smi --query-gpu=name --format=csv,noheader 2>/dev/null | head -1)
-        GPU_COUNT=$(nvidia-smi --query-gpu=name --format=csv,noheader 2>/dev/null | wc -l)
-        echo -e "  ${GREEN}●${NC} GPU: ${BOLD}${GPU_COUNT}x $GPU_INFO${NC}"
-        CONFIG[HAS_GPU]="true"
-    else
-        echo -e "  ${YELLOW}●${NC} GPU: ${DIM}Not detected (nvidia-smi not found)${NC}"
-        CONFIG[HAS_GPU]="false"
+        echo -e "  GPU: ${BOLD}$GPU_INFO${NC}"
     fi
     
-    # Disk
-    AVAIL_DISK=$(df -BG /opt 2>/dev/null | awk 'NR==2{print $4}' | tr -d 'G')
-    echo -e "  ${GREEN}●${NC} Available Disk: ${BOLD}${AVAIL_DISK}GB${NC} in /opt"
-    
-    # Check for MySQL
+    # Check MySQL
     if command -v mysql &> /dev/null; then
         MYSQL_VERSION=$(mysql --version 2>/dev/null | awk '{print $3}')
-        echo -e "  ${GREEN}●${NC} MySQL: ${BOLD}$MYSQL_VERSION (installed)${NC}"
-        CONFIG[MYSQL_INSTALLED]="true"
+        echo -e "  MySQL: ${BOLD}$MYSQL_VERSION${NC}"
+        MYSQL_INSTALLED=true
     else
-        echo -e "  ${YELLOW}●${NC} MySQL: ${DIM}Not installed (will be installed)${NC}"
-        CONFIG[MYSQL_INSTALLED]="false"
+        echo -e "  MySQL: ${DIM}Not installed${NC}"
+        MYSQL_INSTALLED=false
     fi
     
-    echo ""
-    echo -e "  ${DIM}Press Enter to continue...${NC}"
-    read
+    # Check Node.js
+    if command -v node &> /dev/null; then
+        NODE_VERSION=$(node --version)
+        echo -e "  Node.js: ${BOLD}$NODE_VERSION${NC}"
+    else
+        echo -e "  Node.js: ${DIM}Not installed${NC}"
+    fi
 }
 
 #===============================================================================
-# Configuration Prompts
+# Configuration Collection
 #===============================================================================
 
-collect_basic_config() {
-    print_section "Basic Configuration"
+collect_config() {
+    echo -e "\n${MAGENTA}━━━ Configuration ━━━${NC}\n"
     
-    echo -e "  ${DIM}Configure the basic settings for NeMo Command Center${NC}"
-    echo ""
+    # Database
+    echo -e "${CYAN}Database Configuration:${NC}"
+    read -p "  Database name [nemo_db]: " DB_NAME
+    DB_NAME=${DB_NAME:-nemo_db}
     
-    prompt "APP_PORT" "Application port" "3000"
-    prompt_yes_no "ENABLE_NGINX" "Enable nginx reverse proxy (recommended)" "y"
+    read -p "  Database user [nemo]: " DB_USER
+    DB_USER=${DB_USER:-nemo}
     
-    if [[ "${CONFIG[ENABLE_NGINX]}" == "true" ]]; then
-        prompt "NGINX_PORT" "Nginx port" "87"
-    fi
-    
-    prompt_yes_no "ENABLE_SSL" "Enable SSL/HTTPS" "n"
-    
-    if [[ "${CONFIG[ENABLE_SSL]}" == "true" ]]; then
-        prompt "DOMAIN" "Domain name for SSL certificate" ""
-    fi
-}
-
-collect_database_config() {
-    print_section "Database Configuration"
-    
-    echo -e "  ${DIM}Configure MySQL database settings${NC}"
-    echo ""
-    
-    if [[ "${CONFIG[MYSQL_INSTALLED]}" == "true" ]]; then
-        echo -e "  ${GREEN}●${NC} MySQL is already installed on this system."
-        echo ""
-        prompt_yes_no "USE_EXISTING_MYSQL" "Use existing MySQL installation" "y"
-        
-        if [[ "${CONFIG[USE_EXISTING_MYSQL]}" == "true" ]]; then
-            prompt "MYSQL_HOST" "MySQL host" "localhost"
-            prompt "MYSQL_PORT" "MySQL port" "3306"
-            prompt "MYSQL_ROOT_PASSWORD" "MySQL root password" "" "true"
-        fi
-    else
-        echo -e "  ${YELLOW}●${NC} MySQL will be installed and configured automatically."
-        echo ""
-        CONFIG[USE_EXISTING_MYSQL]="false"
-        CONFIG[MYSQL_HOST]="localhost"
-        CONFIG[MYSQL_PORT]="3306"
-    fi
-    
-    prompt "DB_NAME" "Database name" "nemo_db"
-    prompt "DB_USER" "Database user" "nemo"
-    
-    # Generate a random password for the database user
     DEFAULT_DB_PASS=$(generate_password)
-    prompt "DB_PASSWORD" "Database password (auto-generated)" "$DEFAULT_DB_PASS" "true"
-}
-
-collect_dgx_config() {
-    print_section "Remote DGX Spark Management"
-    
-    LOCAL_IP=$(hostname -I | awk '{print $1}')
-    
-    echo -e "  ${CYAN}┌─────────────────────────────────────────────────────────────────┐${NC}"
-    echo -e "  ${CYAN}│${NC}  ${BOLD}Installation Host (this machine):${NC} ${GREEN}${LOCAL_IP}${NC}"
-    echo -e "  ${CYAN}│${NC}  ${DIM}The Command Center will be installed and run HERE${NC}"
-    echo -e "  ${CYAN}└─────────────────────────────────────────────────────────────────┘${NC}"
+    read -s -p "  Database password [$DEFAULT_DB_PASS]: " DB_PASSWORD
     echo ""
-    echo -e "  ${DIM}Do you want to manage ANOTHER DGX Spark host via SSH?${NC}"
-    echo -e "  ${DIM}Example: Install on Beta (192.168.50.110), manage Alpha (192.168.50.139)${NC}"
-    echo ""
+    DB_PASSWORD=${DB_PASSWORD:-$DEFAULT_DB_PASS}
     
-    prompt_yes_no "CONFIGURE_SSH" "Configure remote DGX host to manage" "y"
-    
-    if [[ "${CONFIG[CONFIGURE_SSH]}" == "true" ]]; then
+    if [[ "$MYSQL_INSTALLED" == "true" ]]; then
+        read -s -p "  MySQL root password: " MYSQL_ROOT_PASS
         echo ""
-        echo -e "  ${CYAN}┌─────────────────────────────────────────────────────────────────┐${NC}"
-        echo -e "  ${CYAN}│${NC}  ${BOLD}Remote Host Configuration${NC}"
-        echo -e "  ${CYAN}│${NC}  ${DIM}Enter the IP of the DGX Spark you want to MANAGE remotely${NC}"
-        echo -e "  ${CYAN}└─────────────────────────────────────────────────────────────────┘${NC}"
-        echo ""
-        
-        # Default to Alpha if installing on Beta, or Beta if installing on Alpha
-        if [[ "$LOCAL_IP" == "192.168.50.110" ]]; then
-            DEFAULT_REMOTE="192.168.50.139"
-            echo -e "  ${DIM}Detected: Installing on Beta → defaulting to Alpha${NC}"
-        elif [[ "$LOCAL_IP" == "192.168.50.139" ]]; then
-            DEFAULT_REMOTE="192.168.50.110"
-            echo -e "  ${DIM}Detected: Installing on Alpha → defaulting to Beta${NC}"
-        else
-            DEFAULT_REMOTE="192.168.50.139"
-        fi
-        echo ""
-        
-        prompt "DGX_SSH_HOST" "Remote DGX Spark IP to manage" "$DEFAULT_REMOTE"
-        prompt "DGX_SSH_PORT" "SSH port" "22"
-        prompt "DGX_SSH_USERNAME" "SSH username on remote host" "$(whoami)"
-        
-        echo ""
-        echo -e "  ${DIM}Choose authentication method for remote host:${NC}"
-        echo -e "    ${BOLD}1)${NC} Password"
-        echo -e "    ${BOLD}2)${NC} SSH Private Key"
-        echo -e -n "  ${BOLD}Select [1/2]:${NC} "
-        read auth_choice
-        
-        if [[ "$auth_choice" == "2" ]]; then
-            CONFIG[SSH_AUTH_METHOD]="key"
-            prompt "DGX_SSH_KEY_PATH" "Path to SSH private key" "~/.ssh/id_rsa"
-        else
-            CONFIG[SSH_AUTH_METHOD]="password"
-            prompt "DGX_SSH_PASSWORD" "SSH password for remote host" "" "true"
-        fi
-    else
-        echo ""
-        echo -e "  ${YELLOW}Note:${NC} Managing localhost only. You can add remote hosts later in Settings."
-        CONFIG[DGX_SSH_HOST]="localhost"
-        CONFIG[DGX_SSH_PORT]="22"
-        CONFIG[DGX_SSH_USERNAME]="$(whoami)"
     fi
-}
-
-collect_api_keys() {
-    print_section "API Keys & Credentials"
     
-    echo -e "  ${DIM}Enter your API keys for NVIDIA and HuggingFace services${NC}"
-    echo -e "  ${DIM}(These can be added later in /etc/nemo/nemo-command-center.env)${NC}"
+    # JWT Secret
+    DEFAULT_JWT=$(generate_password)
+    read -s -p "  JWT Secret [$DEFAULT_JWT]: " JWT_SECRET
     echo ""
+    JWT_SECRET=${JWT_SECRET:-$DEFAULT_JWT}
     
-    prompt "NGC_API_KEY" "NVIDIA NGC API Key (optional)" ""
-    prompt "HUGGINGFACE_TOKEN" "HuggingFace Token (optional)" ""
-    
-    echo ""
-    prompt_yes_no "CONFIGURE_VLLM" "Configure vLLM inference server" "n"
-    
-    if [[ "${CONFIG[CONFIGURE_VLLM]}" == "true" ]]; then
-        prompt "VLLM_API_URL" "vLLM API URL" "http://localhost:8000"
-        prompt "VLLM_API_KEY" "vLLM API Key (optional)" ""
+    # Remote SSH (for managing the other DGX Spark)
+    echo -e "\n${CYAN}Remote DGX Spark Configuration:${NC}"
+    if [[ -n "$REMOTE_HOST" ]]; then
+        echo -e "  ${DIM}This host is LOCAL. Configure SSH to manage the REMOTE host.${NC}"
     fi
-}
-
-collect_turn_config() {
-    print_section "WebRTC Configuration (Optional)"
     
-    echo -e "  ${DIM}Configure TURN server for WebRTC remote desktop features${NC}"
-    echo ""
+    read -p "  Configure remote SSH? [Y/n]: " CONFIGURE_SSH
+    CONFIGURE_SSH=${CONFIGURE_SSH:-Y}
     
-    prompt_yes_no "CONFIGURE_TURN" "Configure TURN server" "n"
-    
-    if [[ "${CONFIG[CONFIGURE_TURN]}" == "true" ]]; then
-        prompt "TURN_SERVER_URL" "TURN server URL" "turn:your-server:3478"
-        prompt "TURN_SERVER_USERNAME" "TURN username" ""
-        prompt "TURN_SERVER_CREDENTIAL" "TURN credential" "" "true"
+    if [[ "$CONFIGURE_SSH" =~ ^[Yy] ]]; then
+        read -p "  Remote host IP [$REMOTE_HOST]: " DGX_SSH_HOST
+        DGX_SSH_HOST=${DGX_SSH_HOST:-$REMOTE_HOST}
+        
+        read -p "  Remote SSH port [22]: " DGX_SSH_PORT
+        DGX_SSH_PORT=${DGX_SSH_PORT:-22}
+        
+        read -p "  Remote SSH username [cvalentine]: " DGX_SSH_USERNAME
+        DGX_SSH_USERNAME=${DGX_SSH_USERNAME:-cvalentine}
+        
+        read -s -p "  Remote SSH password: " DGX_SSH_PASSWORD
+        echo ""
     fi
+    
+    # API Keys
+    echo -e "\n${CYAN}API Keys (optional):${NC}"
+    read -p "  NGC API Key: " NGC_API_KEY
+    read -p "  HuggingFace Token: " HUGGINGFACE_TOKEN
+    
+    # vLLM
+    echo -e "\n${CYAN}vLLM Configuration:${NC}"
+    read -p "  vLLM URL [http://localhost:8001/v1]: " VLLM_API_URL
+    VLLM_API_URL=${VLLM_API_URL:-http://localhost:8001/v1}
 }
 
 #===============================================================================
-# Configuration Review
-#===============================================================================
-
-review_config() {
-    print_section "Configuration Review"
-    
-    echo -e "  ${BOLD}Please review your configuration:${NC}"
-    echo ""
-    
-    echo -e "  ${CYAN}Basic Settings${NC}"
-    echo -e "    Application Port: ${BOLD}${CONFIG[APP_PORT]}${NC}"
-    echo -e "    Nginx Enabled: ${BOLD}${CONFIG[ENABLE_NGINX]}${NC}"
-    if [[ "${CONFIG[ENABLE_NGINX]}" == "true" ]]; then
-        echo -e "    Nginx Port: ${BOLD}${CONFIG[NGINX_PORT]}${NC}"
-    fi
-    echo -e "    SSL Enabled: ${BOLD}${CONFIG[ENABLE_SSL]}${NC}"
-    
-    echo ""
-    echo -e "  ${CYAN}Database Configuration${NC}"
-    echo -e "    MySQL Host: ${BOLD}${CONFIG[MYSQL_HOST]}:${CONFIG[MYSQL_PORT]}${NC}"
-    echo -e "    Database Name: ${BOLD}${CONFIG[DB_NAME]}${NC}"
-    echo -e "    Database User: ${BOLD}${CONFIG[DB_USER]}${NC}"
-    
-    echo ""
-    echo -e "  ${CYAN}DGX SSH Configuration${NC}"
-    echo -e "    SSH Host: ${BOLD}${CONFIG[DGX_SSH_HOST]}${NC}"
-    echo -e "    SSH Port: ${BOLD}${CONFIG[DGX_SSH_PORT]}${NC}"
-    echo -e "    SSH Username: ${BOLD}${CONFIG[DGX_SSH_USERNAME]}${NC}"
-    if [[ "${CONFIG[SSH_AUTH_METHOD]}" == "key" ]]; then
-        echo -e "    Auth Method: ${BOLD}SSH Key${NC}"
-    elif [[ -n "${CONFIG[DGX_SSH_PASSWORD]}" ]]; then
-        echo -e "    Auth Method: ${BOLD}Password${NC}"
-    fi
-    
-    echo ""
-    echo -e "  ${CYAN}API Keys${NC}"
-    if [[ -n "${CONFIG[NGC_API_KEY]}" ]]; then
-        echo -e "    NGC API Key: ${BOLD}****${CONFIG[NGC_API_KEY]: -4}${NC}"
-    else
-        echo -e "    NGC API Key: ${DIM}Not configured${NC}"
-    fi
-    if [[ -n "${CONFIG[HUGGINGFACE_TOKEN]}" ]]; then
-        echo -e "    HuggingFace Token: ${BOLD}****${CONFIG[HUGGINGFACE_TOKEN]: -4}${NC}"
-    else
-        echo -e "    HuggingFace Token: ${DIM}Not configured${NC}"
-    fi
-    
-    if [[ "${CONFIG[CONFIGURE_VLLM]}" == "true" ]]; then
-        echo ""
-        echo -e "  ${CYAN}vLLM Configuration${NC}"
-        echo -e "    vLLM URL: ${BOLD}${CONFIG[VLLM_API_URL]}${NC}"
-    fi
-    
-    echo ""
-    echo -e "  ${CYAN}Installation Paths${NC}"
-    echo -e "    Install Directory: ${BOLD}$INSTALL_DIR${NC}"
-    echo -e "    Data Directory: ${BOLD}$DATA_DIR${NC}"
-    echo -e "    Config Directory: ${BOLD}$CONFIG_DIR${NC}"
-    
-    echo ""
-    echo -e -n "  ${BOLD}Proceed with installation? [Y/n]:${NC} "
-    read confirm
-    confirm=$(echo "$confirm" | tr '[:upper:]' '[:lower:]')
-    
-    if [[ "$confirm" == "n" || "$confirm" == "no" ]]; then
-        echo -e "${YELLOW}Installation cancelled.${NC}"
-        exit 0
-    fi
-}
-
-#===============================================================================
-# Installation
+# Installation Steps
 #===============================================================================
 
 install_dependencies() {
-    print_section "Installing Dependencies"
+    echo -e "\n${MAGENTA}━━━ Installing Dependencies ━━━${NC}\n"
     
-    run_step "Updating package lists" "apt-get update -qq"
-    run_step "Installing system packages" "apt-get install -y -qq curl wget git build-essential nginx"
+    log_step "Updating package lists..."
+    apt-get update -qq
+    log_success "Package lists updated"
     
-    # Node.js
-    if ! command -v node &> /dev/null; then
-        run_step "Installing Node.js 22 LTS" "curl -fsSL https://deb.nodesource.com/setup_22.x | bash - && apt-get install -y -qq nodejs"
+    log_step "Installing system packages..."
+    apt-get install -y -qq curl wget git build-essential nginx
+    log_success "System packages installed"
+    
+    # Node.js 22
+    if ! command -v node &> /dev/null || [[ "$(node --version | cut -d. -f1 | tr -d 'v')" -lt 22 ]]; then
+        log_step "Installing Node.js 22..."
+        curl -fsSL https://deb.nodesource.com/setup_22.x | bash - > /dev/null 2>&1
+        apt-get install -y -qq nodejs
+        log_success "Node.js 22 installed"
     else
-        echo -e "  ${GREEN}✓${NC} Node.js already installed ($(node --version))"
+        log_success "Node.js already installed"
     fi
     
     # pnpm
     if ! command -v pnpm &> /dev/null; then
-        run_step "Installing pnpm" "npm install -g pnpm"
+        log_step "Installing pnpm..."
+        npm install -g pnpm > /dev/null 2>&1
+        log_success "pnpm installed"
     else
-        echo -e "  ${GREEN}✓${NC} pnpm already installed"
+        log_success "pnpm already installed"
     fi
 }
 
-install_mysql() {
-    print_section "Setting Up MySQL Database"
+setup_mysql() {
+    echo -e "\n${MAGENTA}━━━ Setting Up MySQL ━━━${NC}\n"
     
-    if [[ "${CONFIG[MYSQL_INSTALLED]}" != "true" ]]; then
-        # Install MySQL server
-        run_step "Installing MySQL server" "DEBIAN_FRONTEND=noninteractive apt-get install -y -qq mysql-server"
-        run_step "Starting MySQL service" "systemctl start mysql && systemctl enable mysql"
+    if [[ "$MYSQL_INSTALLED" != "true" ]]; then
+        log_step "Installing MySQL server..."
+        DEBIAN_FRONTEND=noninteractive apt-get install -y -qq mysql-server
+        systemctl start mysql
+        systemctl enable mysql
+        log_success "MySQL installed and started"
         
-        # Secure MySQL installation (set root password)
-        ROOT_PASS=$(generate_password)
-        CONFIG[MYSQL_ROOT_PASSWORD]="$ROOT_PASS"
-        
-        run_step "Securing MySQL installation" "mysql -e \"ALTER USER 'root'@'localhost' IDENTIFIED WITH mysql_native_password BY '${ROOT_PASS}'; FLUSH PRIVILEGES;\""
-        
-        echo -e "  ${YELLOW}!${NC} MySQL root password: ${BOLD}${ROOT_PASS}${NC}"
-        echo -e "  ${DIM}(Save this password securely!)${NC}"
-    else
-        echo -e "  ${GREEN}✓${NC} Using existing MySQL installation"
+        MYSQL_ROOT_PASS=$(generate_password)
+        mysql -e "ALTER USER 'root'@'localhost' IDENTIFIED WITH mysql_native_password BY '${MYSQL_ROOT_PASS}'; FLUSH PRIVILEGES;"
+        log_warn "MySQL root password: $MYSQL_ROOT_PASS (SAVE THIS!)"
     fi
     
-    # Create database and user
-    MYSQL_ROOT_PASS="${CONFIG[MYSQL_ROOT_PASSWORD]}"
+    log_step "Creating database and user..."
+    mysql -u root -p"${MYSQL_ROOT_PASS}" -e "CREATE DATABASE IF NOT EXISTS ${DB_NAME} CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;" 2>/dev/null || \
+    mysql -u root -e "CREATE DATABASE IF NOT EXISTS ${DB_NAME} CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;"
     
-    run_step "Creating database '${CONFIG[DB_NAME]}'" "mysql -u root -p'${MYSQL_ROOT_PASS}' -e \"CREATE DATABASE IF NOT EXISTS ${CONFIG[DB_NAME]} CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;\""
+    mysql -u root -p"${MYSQL_ROOT_PASS}" -e "CREATE USER IF NOT EXISTS '${DB_USER}'@'localhost' IDENTIFIED BY '${DB_PASSWORD}'; GRANT ALL PRIVILEGES ON ${DB_NAME}.* TO '${DB_USER}'@'localhost'; FLUSH PRIVILEGES;" 2>/dev/null || \
+    mysql -u root -e "CREATE USER IF NOT EXISTS '${DB_USER}'@'localhost' IDENTIFIED BY '${DB_PASSWORD}'; GRANT ALL PRIVILEGES ON ${DB_NAME}.* TO '${DB_USER}'@'localhost'; FLUSH PRIVILEGES;"
     
-    run_step "Creating database user '${CONFIG[DB_USER]}'" "mysql -u root -p'${MYSQL_ROOT_PASS}' -e \"CREATE USER IF NOT EXISTS '${CONFIG[DB_USER]}'@'localhost' IDENTIFIED BY '${CONFIG[DB_PASSWORD]}'; GRANT ALL PRIVILEGES ON ${CONFIG[DB_NAME]}.* TO '${CONFIG[DB_USER]}'@'localhost'; FLUSH PRIVILEGES;\""
+    log_success "Database '${DB_NAME}' and user '${DB_USER}' created"
     
-    # Build the DATABASE_URL
-    CONFIG[DATABASE_URL]="mysql://${CONFIG[DB_USER]}:${CONFIG[DB_PASSWORD]}@${CONFIG[MYSQL_HOST]}:${CONFIG[MYSQL_PORT]}/${CONFIG[DB_NAME]}"
+    DATABASE_URL="mysql://${DB_USER}:${DB_PASSWORD}@localhost:3306/${DB_NAME}"
 }
 
 setup_directories() {
-    print_section "Setting Up Directories"
+    echo -e "\n${MAGENTA}━━━ Setting Up Directories ━━━${NC}\n"
     
-    # Create service user
+    log_step "Creating directories..."
+    mkdir -p "$INSTALL_DIR" "$CONFIG_DIR" "$LOG_DIR"
+    
+    # Create service user if not exists
     if ! id "$SERVICE_USER" &>/dev/null; then
-        run_step "Creating service user" "useradd --system --home-dir $INSTALL_DIR --shell /bin/false $SERVICE_USER"
+        useradd --system --home-dir "$INSTALL_DIR" --shell /bin/false "$SERVICE_USER"
+        log_success "Service user '$SERVICE_USER' created"
     else
-        echo -e "  ${GREEN}✓${NC} Service user already exists"
+        log_success "Service user already exists"
     fi
     
-    run_step "Creating directories" "mkdir -p $INSTALL_DIR $DATA_DIR $CONFIG_DIR $INSTALL_DIR/logs"
+    log_success "Directories created"
 }
 
-copy_files() {
-    print_section "Copying Application Files"
+copy_source() {
+    echo -e "\n${MAGENTA}━━━ Copying Source Files ━━━${NC}\n"
     
-    SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+    log_step "Copying source code to $INSTALL_DIR..."
     
-    if [[ -d "$SCRIPT_DIR/dist" ]]; then
-        run_step "Copying application files" "cp -r $SCRIPT_DIR/dist/* $INSTALL_DIR/"
-    else
-        echo -e "${RED}Error: dist directory not found!${NC}"
-        exit 1
-    fi
+    # Copy all source directories
+    cp -r "$SCRIPT_DIR/client" "$INSTALL_DIR/"
+    cp -r "$SCRIPT_DIR/server" "$INSTALL_DIR/"
+    cp -r "$SCRIPT_DIR/shared" "$INSTALL_DIR/"
+    cp -r "$SCRIPT_DIR/drizzle" "$INSTALL_DIR/" 2>/dev/null || true
     
-    run_step "Copying package files" "cp $SCRIPT_DIR/package.json $INSTALL_DIR/"
+    # Copy config files
+    cp "$SCRIPT_DIR/package.json" "$INSTALL_DIR/"
+    cp "$SCRIPT_DIR/pnpm-lock.yaml" "$INSTALL_DIR/" 2>/dev/null || true
+    cp "$SCRIPT_DIR/tsconfig.json" "$INSTALL_DIR/" 2>/dev/null || true
+    cp "$SCRIPT_DIR/vite.config.ts" "$INSTALL_DIR/" 2>/dev/null || true
+    cp "$SCRIPT_DIR/drizzle.config.ts" "$INSTALL_DIR/" 2>/dev/null || true
+    cp "$SCRIPT_DIR/tailwind.config.js" "$INSTALL_DIR/" 2>/dev/null || true
+    cp "$SCRIPT_DIR/postcss.config.js" "$INSTALL_DIR/" 2>/dev/null || true
+    cp "$SCRIPT_DIR/components.json" "$INSTALL_DIR/" 2>/dev/null || true
     
-    if [[ -d "$SCRIPT_DIR/drizzle" ]]; then
-        run_step "Copying database migrations" "cp -r $SCRIPT_DIR/drizzle $INSTALL_DIR/"
-    fi
-    
-    if [[ -d "$SCRIPT_DIR/shared" ]]; then
-        run_step "Copying shared modules" "cp -r $SCRIPT_DIR/shared $INSTALL_DIR/"
-    fi
-    
-    if [[ -d "$SCRIPT_DIR/server" ]]; then
-        run_step "Copying server source" "cp -r $SCRIPT_DIR/server $INSTALL_DIR/"
-    fi
-    
-    if [[ -f "$SCRIPT_DIR/pnpm-lock.yaml" ]]; then
-        cp "$SCRIPT_DIR/pnpm-lock.yaml" "$INSTALL_DIR/" 2>/dev/null || true
-    fi
-    
-    if [[ -f "$SCRIPT_DIR/tsconfig.json" ]]; then
-        cp "$SCRIPT_DIR/tsconfig.json" "$INSTALL_DIR/" 2>/dev/null || true
-    fi
-    
-    if [[ -f "$SCRIPT_DIR/drizzle.config.ts" ]]; then
-        cp "$SCRIPT_DIR/drizzle.config.ts" "$INSTALL_DIR/" 2>/dev/null || true
-    fi
+    log_success "Source files copied"
 }
 
-install_node_deps() {
-    print_section "Installing Node.js Dependencies"
+install_npm_deps() {
+    echo -e "\n${MAGENTA}━━━ Installing Node Dependencies ━━━${NC}\n"
     
-    run_step "Installing production dependencies" "cd $INSTALL_DIR && pnpm install --prod"
+    log_step "Installing dependencies (this may take a few minutes)..."
+    cd "$INSTALL_DIR"
+    pnpm install --frozen-lockfile 2>/dev/null || pnpm install
+    log_success "Dependencies installed"
+}
+
+build_app() {
+    echo -e "\n${MAGENTA}━━━ Building Application ━━━${NC}\n"
+    
+    log_step "Building application..."
+    cd "$INSTALL_DIR"
+    
+    # Export DATABASE_URL for build
+    export DATABASE_URL
+    
+    pnpm build
+    log_success "Application built successfully"
 }
 
 run_migrations() {
-    print_section "Running Database Migrations"
+    echo -e "\n${MAGENTA}━━━ Running Database Migrations ━━━${NC}\n"
     
-    # Create a migration script that uses the schema
-    cat > "$INSTALL_DIR/migrate.mjs" << 'MIGRATE_EOF'
-import { drizzle } from 'drizzle-orm/mysql2';
-import mysql from 'mysql2/promise';
-import { sql } from 'drizzle-orm';
-
-const DATABASE_URL = process.env.DATABASE_URL;
-if (!DATABASE_URL) {
-  console.error('DATABASE_URL is required');
-  process.exit(1);
+    log_step "Running database migrations..."
+    cd "$INSTALL_DIR"
+    
+    export DATABASE_URL
+    pnpm db:push
+    
+    log_success "Database migrations complete"
 }
 
-async function migrate() {
-  console.log('Connecting to database...');
-  
-  // Parse the connection URL
-  const url = new URL(DATABASE_URL);
-  const connection = await mysql.createConnection({
-    host: url.hostname,
-    port: parseInt(url.port) || 3306,
-    user: url.username,
-    password: url.password,
-    database: url.pathname.slice(1),
-  });
-  
-  const db = drizzle(connection);
-  
-  console.log('Running migrations...');
-  
-  // Create tables
-  const migrations = [
-    // Users table
-    `CREATE TABLE IF NOT EXISTS users (
-      id INT AUTO_INCREMENT PRIMARY KEY,
-      openId VARCHAR(64) NOT NULL UNIQUE,
-      name TEXT,
-      email VARCHAR(320),
-      loginMethod VARCHAR(64),
-      role ENUM('user', 'admin') NOT NULL DEFAULT 'user',
-      createdAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-      updatedAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-      lastSignedIn TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
-    )`,
+write_env_file() {
+    echo -e "\n${MAGENTA}━━━ Writing Configuration ━━━${NC}\n"
     
-    // Container pull history
-    `CREATE TABLE IF NOT EXISTS container_pull_history (
-      id INT AUTO_INCREMENT PRIMARY KEY,
-      hostId VARCHAR(32) NOT NULL,
-      hostName VARCHAR(128) NOT NULL,
-      hostIp VARCHAR(45) NOT NULL,
-      imageTag VARCHAR(512) NOT NULL,
-      action ENUM('pull', 'update', 'remove') NOT NULL,
-      status ENUM('started', 'completed', 'failed') NOT NULL,
-      userId INT,
-      userName VARCHAR(256),
-      errorMessage TEXT,
-      startedAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-      completedAt TIMESTAMP,
-      FOREIGN KEY (userId) REFERENCES users(id)
-    )`,
+    log_step "Writing environment file..."
     
-    // GPU metrics history
-    `CREATE TABLE IF NOT EXISTS gpu_metrics_history (
-      id INT AUTO_INCREMENT PRIMARY KEY,
-      hostId VARCHAR(32) NOT NULL,
-      timestamp TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-      gpuUtilization INT NOT NULL,
-      gpuTemperature INT NOT NULL,
-      gpuPowerDraw INT NOT NULL,
-      gpuMemoryUsed INT NOT NULL,
-      gpuMemoryTotal INT NOT NULL,
-      cpuUtilization INT,
-      systemMemoryUsed INT,
-      systemMemoryTotal INT,
-      INDEX idx_host_time (hostId, timestamp)
-    )`,
-    
-    // Inference request logs
-    `CREATE TABLE IF NOT EXISTS inference_request_logs (
-      id INT AUTO_INCREMENT PRIMARY KEY,
-      timestamp TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-      model VARCHAR(256) NOT NULL,
-      promptTokens INT NOT NULL,
-      completionTokens INT NOT NULL,
-      totalTokens INT NOT NULL,
-      latencyMs INT NOT NULL,
-      userId INT,
-      success INT NOT NULL DEFAULT 1,
-      FOREIGN KEY (userId) REFERENCES users(id),
-      INDEX idx_timestamp (timestamp)
-    )`,
-    
-    // System alerts
-    `CREATE TABLE IF NOT EXISTS system_alerts (
-      id INT AUTO_INCREMENT PRIMARY KEY,
-      timestamp TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-      type ENUM('success', 'info', 'warning', 'error') NOT NULL,
-      message TEXT NOT NULL,
-      hostId VARCHAR(32),
-      dismissed INT NOT NULL DEFAULT 0
-    )`,
-    
-    // System settings
-    `CREATE TABLE IF NOT EXISTS system_settings (
-      id INT AUTO_INCREMENT PRIMARY KEY,
-      sshHost VARCHAR(256),
-      sshPort INT,
-      sshUsername VARCHAR(128),
-      sshPassword VARCHAR(256),
-      vllmUrl VARCHAR(512),
-      vllmApiKey VARCHAR(256),
-      turnUrl VARCHAR(256),
-      turnUsername VARCHAR(128),
-      turnCredential VARCHAR(256),
-      tempWarning INT,
-      tempCritical INT,
-      powerWarning INT,
-      memoryWarning INT,
-      alertsEnabled INT DEFAULT 1,
-      splunkHost VARCHAR(256),
-      splunkPort INT,
-      splunkToken VARCHAR(256),
-      splunkIndex VARCHAR(128),
-      splunkSourceType VARCHAR(128),
-      splunkSsl INT DEFAULT 1,
-      splunkEnabled INT DEFAULT 0,
-      splunkForwardMetrics INT DEFAULT 1,
-      splunkForwardAlerts INT DEFAULT 1,
-      splunkForwardContainers INT DEFAULT 0,
-      splunkForwardInference INT DEFAULT 0,
-      splunkInterval INT DEFAULT 60,
-      createdAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-      updatedAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
-    )`,
-    
-    // Container presets
-    `CREATE TABLE IF NOT EXISTS container_presets (
-      id INT AUTO_INCREMENT PRIMARY KEY,
-      userId INT,
-      name VARCHAR(128) NOT NULL,
-      description TEXT,
-      category VARCHAR(64) NOT NULL DEFAULT 'Custom',
-      icon VARCHAR(32) DEFAULT 'box',
-      image VARCHAR(512) NOT NULL,
-      defaultPort INT NOT NULL DEFAULT 8080,
-      gpuRequired INT NOT NULL DEFAULT 0,
-      command TEXT,
-      envVars TEXT,
-      volumes TEXT,
-      networkMode VARCHAR(32) DEFAULT 'bridge',
-      restartPolicy VARCHAR(32) DEFAULT 'no',
-      isPublic INT NOT NULL DEFAULT 0,
-      createdAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-      updatedAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-      FOREIGN KEY (userId) REFERENCES users(id)
-    )`,
-    
-    // Training jobs
-    `CREATE TABLE IF NOT EXISTS training_jobs (
-      id INT AUTO_INCREMENT PRIMARY KEY,
-      userId INT,
-      name VARCHAR(256) NOT NULL,
-      description TEXT,
-      baseModel VARCHAR(256) NOT NULL,
-      modelPath VARCHAR(512),
-      outputPath VARCHAR(512),
-      trainingType ENUM('sft', 'lora', 'qlora', 'full') NOT NULL DEFAULT 'lora',
-      datasetPath VARCHAR(512) NOT NULL,
-      epochs INT NOT NULL DEFAULT 3,
-      batchSize INT NOT NULL DEFAULT 4,
-      learningRate VARCHAR(32) DEFAULT '2e-5',
-      maxSeqLength INT DEFAULT 2048,
-      gradientAccumulation INT DEFAULT 1,
-      warmupSteps INT DEFAULT 100,
-      loraRank INT DEFAULT 16,
-      loraAlpha INT DEFAULT 32,
-      loraDropout VARCHAR(16) DEFAULT '0.05',
-      hostId VARCHAR(32) NOT NULL,
-      gpuCount INT NOT NULL DEFAULT 1,
-      status ENUM('queued', 'preparing', 'running', 'completed', 'failed', 'cancelled') NOT NULL DEFAULT 'queued',
-      progress INT DEFAULT 0,
-      currentEpoch INT DEFAULT 0,
-      currentStep INT DEFAULT 0,
-      totalSteps INT DEFAULT 0,
-      trainLoss VARCHAR(32),
-      evalLoss VARCHAR(32),
-      startedAt TIMESTAMP,
-      completedAt TIMESTAMP,
-      estimatedTimeRemaining INT,
-      errorMessage TEXT,
-      logPath VARCHAR(512),
-      createdAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-      updatedAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-      FOREIGN KEY (userId) REFERENCES users(id)
-    )`,
-    
-    // Training templates
-    `CREATE TABLE IF NOT EXISTS training_templates (
-      id INT AUTO_INCREMENT PRIMARY KEY,
-      userId INT,
-      name VARCHAR(256) NOT NULL,
-      description TEXT,
-      isPublic BOOLEAN DEFAULT FALSE,
-      baseModel VARCHAR(256) NOT NULL,
-      trainingType ENUM('lora', 'qlora', 'full_sft', 'full_finetune') NOT NULL,
-      datasetPath VARCHAR(512),
-      epochs INT NOT NULL DEFAULT 3,
-      batchSize INT NOT NULL DEFAULT 4,
-      learningRate VARCHAR(32) NOT NULL DEFAULT '2e-5',
-      warmupSteps INT DEFAULT 100,
-      loraRank INT DEFAULT 16,
-      loraAlpha INT DEFAULT 32,
-      gpuCount INT NOT NULL DEFAULT 1,
-      preferredHost VARCHAR(32),
-      createdAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-      updatedAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-      FOREIGN KEY (userId) REFERENCES users(id)
-    )`
-  ];
-  
-  for (const migration of migrations) {
-    try {
-      await connection.execute(migration);
-      console.log('✓ Migration executed successfully');
-    } catch (error) {
-      if (error.code === 'ER_TABLE_EXISTS_ERROR') {
-        console.log('✓ Table already exists, skipping');
-      } else {
-        console.error('Migration error:', error.message);
-      }
-    }
-  }
-  
-  // Insert default settings if not exists
-  const [settings] = await connection.execute('SELECT COUNT(*) as count FROM system_settings');
-  if (settings[0].count === 0) {
-    await connection.execute(`INSERT INTO system_settings (tempWarning, tempCritical, powerWarning, memoryWarning) VALUES (75, 85, 250, 90)`);
-    console.log('✓ Default settings created');
-  }
-  
-  await connection.end();
-  console.log('Migration completed successfully!');
-}
-
-migrate().catch(console.error);
-MIGRATE_EOF
-
-    run_step "Running database migrations" "cd $INSTALL_DIR && DATABASE_URL='${CONFIG[DATABASE_URL]}' node migrate.mjs"
-}
-
-write_config() {
-    print_section "Writing Configuration"
-    
-    # Generate JWT secret
-    JWT_SECRET=$(openssl rand -base64 32)
-    
-    # Build environment file
     cat > "$CONFIG_DIR/${APP_NAME}.env" << EOF
-#===============================================================================
 # NeMo Command Center Configuration
 # Generated on $(date)
-# Edit this file to update your configuration
-#===============================================================================
 
-# Server Configuration
+# Server
 NODE_ENV=production
-PORT=${CONFIG[APP_PORT]}
+PORT=${APP_PORT}
 
 # Security
 JWT_SECRET=${JWT_SECRET}
 
 # Database (MySQL)
-DATABASE_URL=${CONFIG[DATABASE_URL]}
+DATABASE_URL=${DATABASE_URL}
 
-# DGX SSH Configuration
-DGX_SSH_HOST=${CONFIG[DGX_SSH_HOST]}
-DGX_SSH_PORT=${CONFIG[DGX_SSH_PORT]}
-DGX_SSH_USERNAME=${CONFIG[DGX_SSH_USERNAME]}
-EOF
+# Local Host Detection
+LOCAL_HOST=${IS_BETA:+beta}${IS_BETA:-alpha}
 
-    if [[ "${CONFIG[SSH_AUTH_METHOD]}" == "key" && -n "${CONFIG[DGX_SSH_KEY_PATH]}" ]]; then
-        # Read and base64 encode the SSH key
-        if [[ -f "${CONFIG[DGX_SSH_KEY_PATH]}" ]]; then
-            SSH_KEY_B64=$(base64 -w 0 "${CONFIG[DGX_SSH_KEY_PATH]}")
-            echo "DGX_SSH_PRIVATE_KEY=${SSH_KEY_B64}" >> "$CONFIG_DIR/${APP_NAME}.env"
-        fi
-    elif [[ -n "${CONFIG[DGX_SSH_PASSWORD]}" ]]; then
-        echo "DGX_SSH_PASSWORD=${CONFIG[DGX_SSH_PASSWORD]}" >> "$CONFIG_DIR/${APP_NAME}.env"
-    fi
-
-    cat >> "$CONFIG_DIR/${APP_NAME}.env" << EOF
+# Remote DGX SSH Configuration
+DGX_SSH_HOST=${DGX_SSH_HOST:-}
+DGX_SSH_PORT=${DGX_SSH_PORT:-22}
+DGX_SSH_USERNAME=${DGX_SSH_USERNAME:-}
+DGX_SSH_PASSWORD=${DGX_SSH_PASSWORD:-}
 
 # NVIDIA NGC API
-EOF
-    if [[ -n "${CONFIG[NGC_API_KEY]}" ]]; then
-        echo "NGC_API_KEY=${CONFIG[NGC_API_KEY]}" >> "$CONFIG_DIR/${APP_NAME}.env"
-    else
-        echo "# NGC_API_KEY=your-ngc-api-key" >> "$CONFIG_DIR/${APP_NAME}.env"
-    fi
-
-    cat >> "$CONFIG_DIR/${APP_NAME}.env" << EOF
+NGC_API_KEY=${NGC_API_KEY:-}
 
 # HuggingFace
-EOF
-    if [[ -n "${CONFIG[HUGGINGFACE_TOKEN]}" ]]; then
-        echo "HUGGINGFACE_TOKEN=${CONFIG[HUGGINGFACE_TOKEN]}" >> "$CONFIG_DIR/${APP_NAME}.env"
-    else
-        echo "# HUGGINGFACE_TOKEN=your-hf-token" >> "$CONFIG_DIR/${APP_NAME}.env"
-    fi
-
-    if [[ "${CONFIG[CONFIGURE_VLLM]}" == "true" ]]; then
-        cat >> "$CONFIG_DIR/${APP_NAME}.env" << EOF
+HUGGINGFACE_TOKEN=${HUGGINGFACE_TOKEN:-}
 
 # vLLM Inference Server
-VLLM_API_URL=${CONFIG[VLLM_API_URL]}
+VLLM_API_URL=${VLLM_API_URL:-http://localhost:8001/v1}
 EOF
-        if [[ -n "${CONFIG[VLLM_API_KEY]}" ]]; then
-            echo "VLLM_API_KEY=${CONFIG[VLLM_API_KEY]}" >> "$CONFIG_DIR/${APP_NAME}.env"
-        fi
-    fi
 
-    if [[ "${CONFIG[CONFIGURE_TURN]}" == "true" ]]; then
-        cat >> "$CONFIG_DIR/${APP_NAME}.env" << EOF
-
-# WebRTC TURN Server
-TURN_SERVER_URL=${CONFIG[TURN_SERVER_URL]}
-TURN_SERVER_USERNAME=${CONFIG[TURN_SERVER_USERNAME]}
-TURN_SERVER_CREDENTIAL=${CONFIG[TURN_SERVER_CREDENTIAL]}
-EOF
-    fi
-
-    echo -e "  ${GREEN}✓${NC} Configuration written to $CONFIG_DIR/${APP_NAME}.env"
-    
-    # Set permissions
-    run_step "Setting permissions" "chown -R $SERVICE_USER:$SERVICE_USER $INSTALL_DIR && chown -R $SERVICE_USER:$SERVICE_USER $DATA_DIR && chmod 600 $CONFIG_DIR/${APP_NAME}.env"
+    chmod 600 "$CONFIG_DIR/${APP_NAME}.env"
+    log_success "Environment file written to $CONFIG_DIR/${APP_NAME}.env"
 }
 
 setup_systemd() {
-    print_section "Setting Up Systemd Service"
+    echo -e "\n${MAGENTA}━━━ Setting Up Systemd Service ━━━${NC}\n"
+    
+    log_step "Creating systemd service..."
     
     cat > /etc/systemd/system/${APP_NAME}.service << EOF
 [Unit]
 Description=NeMo Command Center
 Documentation=https://github.com/valentine-rf/nemo-command-center
 After=network.target mysql.service
+Wants=mysql.service
 
 [Service]
 Type=simple
 User=${SERVICE_USER}
 Group=${SERVICE_USER}
 WorkingDirectory=${INSTALL_DIR}
-ExecStart=/usr/bin/node ${INSTALL_DIR}/index.js
-Restart=on-failure
+ExecStart=/usr/bin/node ${INSTALL_DIR}/dist/index.js
+Restart=always
 RestartSec=10
-StandardOutput=append:${INSTALL_DIR}/logs/app.log
-StandardError=append:${INSTALL_DIR}/logs/error.log
+
+# Environment
 EnvironmentFile=${CONFIG_DIR}/${APP_NAME}.env
 
-# Security hardening
+# Logging
+StandardOutput=append:${LOG_DIR}/app.log
+StandardError=append:${LOG_DIR}/error.log
+
+# Security
 NoNewPrivileges=true
-ProtectSystem=strict
-ProtectHome=true
-ReadWritePaths=${DATA_DIR} ${INSTALL_DIR}/logs
-PrivateTmp=true
 
 [Install]
 WantedBy=multi-user.target
 EOF
 
-    run_step "Reloading systemd" "systemctl daemon-reload"
-    echo -e "  ${GREEN}✓${NC} Systemd service created"
+    # Set ownership
+    chown -R "$SERVICE_USER:$SERVICE_USER" "$INSTALL_DIR"
+    chown -R "$SERVICE_USER:$SERVICE_USER" "$LOG_DIR"
+    
+    systemctl daemon-reload
+    log_success "Systemd service created"
 }
 
 setup_nginx() {
-    if [[ "${CONFIG[ENABLE_NGINX]}" != "true" ]]; then
-        return
-    fi
+    echo -e "\n${MAGENTA}━━━ Configuring Nginx ━━━${NC}\n"
     
-    print_section "Configuring Nginx"
+    log_step "Creating nginx configuration..."
     
     cat > /etc/nginx/sites-available/${APP_NAME} << EOF
 server {
-    listen ${CONFIG[NGINX_PORT]};
+    listen ${NGINX_PORT};
     server_name _;
 
     # Security headers
     add_header X-Frame-Options "SAMEORIGIN" always;
     add_header X-Content-Type-Options "nosniff" always;
-    add_header X-XSS-Protection "1; mode=block" always;
 
-    # Gzip compression for static assets
+    # Gzip
     gzip on;
-    gzip_vary on;
-    gzip_min_length 1024;
-    gzip_proxied any;
-    gzip_types text/plain text/css text/xml text/javascript application/javascript application/json application/xml;
+    gzip_types text/plain text/css application/json application/javascript text/xml application/xml;
 
-    # Static assets - serve directly from disk (high performance)
+    # Static assets with caching
     location /assets/ {
-        alias ${INSTALL_DIR}/public/assets/;
-        expires 1y;
-        add_header Cache-Control "public, immutable";
-        access_log off;
+        proxy_pass http://127.0.0.1:${APP_PORT};
+        proxy_cache_valid 200 1d;
+        add_header Cache-Control "public, max-age=86400";
     }
 
-    # Images - serve directly from disk
-    location /images/ {
-        alias ${INSTALL_DIR}/public/images/;
-        expires 30d;
-        add_header Cache-Control "public";
-        access_log off;
-    }
-
-    # Favicon and static root files
-    location ~* ^/(favicon\.ico|robots\.txt|\.well-known)/ {
-        root ${INSTALL_DIR}/public;
-        expires 7d;
-        access_log off;
-    }
-
-    # API and dynamic routes - proxy to Node.js
-    location /api/ {
-        proxy_pass http://127.0.0.1:${CONFIG[APP_PORT]};
-        proxy_http_version 1.1;
-        proxy_set_header Upgrade \$http_upgrade;
-        proxy_set_header Connection 'upgrade';
-        proxy_set_header Host \$host;
-        proxy_set_header X-Real-IP \$remote_addr;
-        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto \$scheme;
-        proxy_cache_bypass \$http_upgrade;
-        proxy_read_timeout 86400;
-        proxy_send_timeout 86400;
-        proxy_buffering off;
-    }
-
-    # tRPC endpoint
-    location /trpc/ {
-        proxy_pass http://127.0.0.1:${CONFIG[APP_PORT]};
-        proxy_http_version 1.1;
-        proxy_set_header Upgrade \$http_upgrade;
-        proxy_set_header Connection 'upgrade';
-        proxy_set_header Host \$host;
-        proxy_set_header X-Real-IP \$remote_addr;
-        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto \$scheme;
-        proxy_cache_bypass \$http_upgrade;
-        proxy_read_timeout 86400;
-        proxy_send_timeout 86400;
-        proxy_buffering off;
-    }
-
-    # Socket.io WebSocket connections
-    location /socket.io/ {
-        proxy_pass http://127.0.0.1:${CONFIG[APP_PORT]};
+    # API and WebSocket
+    location / {
+        proxy_pass http://127.0.0.1:${APP_PORT};
         proxy_http_version 1.1;
         proxy_set_header Upgrade \$http_upgrade;
         proxy_set_header Connection "upgrade";
         proxy_set_header Host \$host;
         proxy_set_header X-Real-IP \$remote_addr;
         proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
-        proxy_read_timeout 86400;
-        proxy_send_timeout 86400;
-    }
-
-    # Health check endpoint
-    location /api/health {
-        proxy_pass http://127.0.0.1:${CONFIG[APP_PORT]};
-        proxy_http_version 1.1;
-        proxy_set_header Host \$host;
-    }
-
-    # SPA fallback - try static file first, then proxy to Node.js
-    location / {
-        root ${INSTALL_DIR}/public;
-        try_files \$uri \$uri/ @backend;
-    }
-
-    # Backend fallback for SPA routes
-    location @backend {
-        proxy_pass http://127.0.0.1:${CONFIG[APP_PORT]};
-        proxy_http_version 1.1;
-        proxy_set_header Upgrade \$http_upgrade;
-        proxy_set_header Connection 'upgrade';
-        proxy_set_header Host \$host;
-        proxy_set_header X-Real-IP \$remote_addr;
-        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto \$scheme;
-        proxy_cache_bypass \$http_upgrade;
+        proxy_read_timeout 86400;
     }
 }
 EOF
 
-    run_step "Enabling nginx site" "ln -sf /etc/nginx/sites-available/${APP_NAME} /etc/nginx/sites-enabled/ && rm -f /etc/nginx/sites-enabled/default"
-    run_step "Testing nginx config" "nginx -t"
-    run_step "Reloading nginx" "systemctl reload nginx"
+    # Enable site
+    ln -sf /etc/nginx/sites-available/${APP_NAME} /etc/nginx/sites-enabled/
+    rm -f /etc/nginx/sites-enabled/default 2>/dev/null || true
+    
+    nginx -t && systemctl reload nginx
+    log_success "Nginx configured on port ${NGINX_PORT}"
 }
 
-setup_data_pruning() {
-    print_section "Setting Up Data Pruning"
+setup_cron() {
+    echo -e "\n${MAGENTA}━━━ Setting Up Maintenance Cron ━━━${NC}\n"
     
-    # Create the pruning script
-    cat > ${INSTALL_DIR}/prune-metrics.sh << 'PRUNE_EOF'
+    log_step "Creating data pruning cron job..."
+    
+    # Daily cleanup of old metrics (keep 30 days)
+    cat > /etc/cron.daily/nemo-cleanup << 'EOF'
 #!/bin/bash
-#===============================================================================
-# NeMo Command Center - Metrics Data Pruning Script
-# Deletes metrics older than specified retention period to prevent disk fill
-#===============================================================================
-
-# Load environment
-if [[ -f /etc/nemo/nemo-command-center.env ]]; then
-    source /etc/nemo/nemo-command-center.env
-fi
-
-# Default retention: 30 days
-RETENTION_DAYS=${METRICS_RETENTION_DAYS:-30}
-
-# Parse DATABASE_URL to extract credentials
-if [[ -z "$DATABASE_URL" ]]; then
-    echo "ERROR: DATABASE_URL not set"
-    exit 1
-fi
-
-# Extract MySQL connection details from URL
-# Format: mysql://user:password@host:port/database
-DB_USER=$(echo $DATABASE_URL | sed -E 's|mysql://([^:]+):.*|\1|')
-DB_PASS=$(echo $DATABASE_URL | sed -E 's|mysql://[^:]+:([^@]+)@.*|\1|')
-DB_HOST=$(echo $DATABASE_URL | sed -E 's|mysql://[^@]+@([^:]+):.*|\1|')
-DB_PORT=$(echo $DATABASE_URL | sed -E 's|mysql://[^@]+@[^:]+:([0-9]+)/.*|\1|')
-DB_NAME=$(echo $DATABASE_URL | sed -E 's|mysql://[^/]+/(.+)|\1|')
-
-LOG_FILE="/opt/nemo-command-center/logs/prune.log"
-
-log() {
-    echo "$(date '+%Y-%m-%d %H:%M:%S') - $1" >> "$LOG_FILE"
+source /etc/nemo/nemo-command-center.env
+mysql -u nemo -p"${DB_PASSWORD}" nemo_db -e "DELETE FROM gpu_metrics_history WHERE timestamp < DATE_SUB(NOW(), INTERVAL 30 DAY);" 2>/dev/null
+mysql -u nemo -p"${DB_PASSWORD}" nemo_db -e "DELETE FROM inference_request_logs WHERE timestamp < DATE_SUB(NOW(), INTERVAL 30 DAY);" 2>/dev/null
+mysql -u nemo -p"${DB_PASSWORD}" nemo_db -e "DELETE FROM system_alerts WHERE timestamp < DATE_SUB(NOW(), INTERVAL 30 DAY);" 2>/dev/null
+EOF
+    
+    chmod +x /etc/cron.daily/nemo-cleanup
+    log_success "Cron job created"
 }
 
-log "Starting metrics pruning (retention: ${RETENTION_DAYS} days)"
-
-# Prune gpu_metrics_history
-GPU_DELETED=$(mysql -u"$DB_USER" -p"$DB_PASS" -h"$DB_HOST" -P"$DB_PORT" "$DB_NAME" -N -e "
-    DELETE FROM gpu_metrics_history 
-    WHERE timestamp < DATE_SUB(NOW(), INTERVAL ${RETENTION_DAYS} DAY);
-    SELECT ROW_COUNT();
-" 2>/dev/null)
-log "Deleted ${GPU_DELETED:-0} rows from gpu_metrics_history"
-
-# Prune inference_request_logs
-INFERENCE_DELETED=$(mysql -u"$DB_USER" -p"$DB_PASS" -h"$DB_HOST" -P"$DB_PORT" "$DB_NAME" -N -e "
-    DELETE FROM inference_request_logs 
-    WHERE timestamp < DATE_SUB(NOW(), INTERVAL ${RETENTION_DAYS} DAY);
-    SELECT ROW_COUNT();
-" 2>/dev/null)
-log "Deleted ${INFERENCE_DELETED:-0} rows from inference_request_logs"
-
-# Prune dismissed system_alerts older than 7 days
-ALERTS_DELETED=$(mysql -u"$DB_USER" -p"$DB_PASS" -h"$DB_HOST" -P"$DB_PORT" "$DB_NAME" -N -e "
-    DELETE FROM system_alerts 
-    WHERE dismissed = 1 AND timestamp < DATE_SUB(NOW(), INTERVAL 7 DAY);
-    SELECT ROW_COUNT();
-" 2>/dev/null)
-log "Deleted ${ALERTS_DELETED:-0} dismissed alerts"
-
-# Optimize tables after deletion
-mysql -u"$DB_USER" -p"$DB_PASS" -h"$DB_HOST" -P"$DB_PORT" "$DB_NAME" -e "
-    OPTIMIZE TABLE gpu_metrics_history;
-    OPTIMIZE TABLE inference_request_logs;
-    OPTIMIZE TABLE system_alerts;
-" 2>/dev/null
-log "Tables optimized"
-
-log "Pruning complete"
-PRUNE_EOF
-
-    chmod +x ${INSTALL_DIR}/prune-metrics.sh
+start_service() {
+    echo -e "\n${MAGENTA}━━━ Starting Service ━━━${NC}\n"
     
-    # Add cron job to run daily at 3 AM
-    CRON_LINE="0 3 * * * ${INSTALL_DIR}/prune-metrics.sh"
+    log_step "Starting NeMo Command Center..."
+    systemctl enable ${APP_NAME}
+    systemctl start ${APP_NAME}
     
-    # Check if cron job already exists
-    if ! crontab -l 2>/dev/null | grep -q "prune-metrics.sh"; then
-        (crontab -l 2>/dev/null; echo "$CRON_LINE") | crontab -
-        echo -e "  ${GREEN}✓${NC} Cron job added (daily at 3 AM)"
+    sleep 3
+    
+    if systemctl is-active --quiet ${APP_NAME}; then
+        log_success "Service started successfully!"
     else
-        echo -e "  ${GREEN}✓${NC} Cron job already exists"
+        log_error "Service failed to start. Check logs:"
+        echo "  journalctl -u ${APP_NAME} -n 50"
+        exit 1
     fi
-    
-    # Add retention config to env file if not present
-    if ! grep -q "METRICS_RETENTION_DAYS" "$CONFIG_DIR/${APP_NAME}.env" 2>/dev/null; then
-        echo "" >> "$CONFIG_DIR/${APP_NAME}.env"
-        echo "# Data retention (days) - metrics older than this are automatically deleted" >> "$CONFIG_DIR/${APP_NAME}.env"
-        echo "METRICS_RETENTION_DAYS=30" >> "$CONFIG_DIR/${APP_NAME}.env"
-    fi
-    
-    echo -e "  ${GREEN}✓${NC} Data pruning configured (30 day retention)"
 }
 
-#===============================================================================
-# Completion
-#===============================================================================
-
-print_completion() {
+print_summary() {
     LOCAL_IP=$(hostname -I | awk '{print $1}')
     
-    echo ""
-    echo -e "${GREEN}"
+    echo -e "\n${GREEN}"
     echo "╔═══════════════════════════════════════════════════════════════════════╗"
     echo "║                                                                       ║"
-    echo "║                    Installation Complete! 🎉                          ║"
+    echo "║              ${BOLD}Installation Complete!${NC}${GREEN}                                  ║"
     echo "║                                                                       ║"
     echo "╚═══════════════════════════════════════════════════════════════════════╝"
     echo -e "${NC}"
     
-    echo -e "${CYAN}${BOLD}Quick Start Commands:${NC}"
-    echo ""
-    echo -e "  ${BOLD}Start the service:${NC}"
-    echo -e "    sudo systemctl start ${APP_NAME}"
-    echo -e "    sudo systemctl enable ${APP_NAME}"
-    echo ""
-    echo -e "  ${BOLD}Check status:${NC}"
-    echo -e "    sudo systemctl status ${APP_NAME}"
-    echo ""
-    echo -e "  ${BOLD}View logs:${NC}"
-    echo -e "    sudo journalctl -u ${APP_NAME} -f"
-    echo -e "    tail -f ${INSTALL_DIR}/logs/app.log"
-    echo ""
+    echo -e "${CYAN}Access URLs:${NC}"
+    echo -e "  Nginx:  ${BOLD}http://${LOCAL_IP}:${NGINX_PORT}${NC}"
+    echo -e "  Direct: ${BOLD}http://${LOCAL_IP}:${APP_PORT}${NC}"
     
-    echo -e "${CYAN}${BOLD}Access URLs:${NC}"
-    echo ""
-    if [[ "${CONFIG[ENABLE_NGINX]}" == "true" ]]; then
-        echo -e "  ${GREEN}▸${NC} http://${LOCAL_IP}:${CONFIG[NGINX_PORT]}"
+    echo -e "\n${CYAN}Service Commands:${NC}"
+    echo -e "  Status:  ${DIM}sudo systemctl status ${APP_NAME}${NC}"
+    echo -e "  Restart: ${DIM}sudo systemctl restart ${APP_NAME}${NC}"
+    echo -e "  Logs:    ${DIM}sudo journalctl -u ${APP_NAME} -f${NC}"
+    
+    echo -e "\n${CYAN}Configuration:${NC}"
+    echo -e "  Env File: ${DIM}${CONFIG_DIR}/${APP_NAME}.env${NC}"
+    echo -e "  App Dir:  ${DIM}${INSTALL_DIR}${NC}"
+    echo -e "  Logs:     ${DIM}${LOG_DIR}${NC}"
+    
+    echo -e "\n${CYAN}Database:${NC}"
+    echo -e "  Name: ${BOLD}${DB_NAME}${NC}"
+    echo -e "  User: ${BOLD}${DB_USER}${NC}"
+    echo -e "  URL:  ${DIM}${DATABASE_URL}${NC}"
+    
+    if [[ -n "$DGX_SSH_HOST" ]]; then
+        echo -e "\n${CYAN}Remote Host:${NC}"
+        echo -e "  SSH Host: ${BOLD}${DGX_SSH_HOST}:${DGX_SSH_PORT}${NC}"
+        echo -e "  Username: ${BOLD}${DGX_SSH_USERNAME}${NC}"
     fi
-    echo -e "  ${GREEN}▸${NC} http://localhost:${CONFIG[APP_PORT]}"
-    echo ""
     
-    echo -e "${CYAN}${BOLD}Database Information:${NC}"
-    echo ""
-    echo -e "  ${GREEN}▸${NC} MySQL Host: ${BOLD}${CONFIG[MYSQL_HOST]}:${CONFIG[MYSQL_PORT]}${NC}"
-    echo -e "  ${GREEN}▸${NC} Database: ${BOLD}${CONFIG[DB_NAME]}${NC}"
-    echo -e "  ${GREEN}▸${NC} User: ${BOLD}${CONFIG[DB_USER]}${NC}"
-    if [[ "${CONFIG[MYSQL_INSTALLED]}" != "true" ]]; then
-        echo -e "  ${YELLOW}▸${NC} MySQL Root Password: ${BOLD}${CONFIG[MYSQL_ROOT_PASSWORD]}${NC}"
-    fi
-    echo ""
-    
-    echo -e "${CYAN}${BOLD}Configuration Files:${NC}"
-    echo ""
-    echo -e "  ${GREEN}▸${NC} Environment: ${BOLD}$CONFIG_DIR/${APP_NAME}.env${NC}"
-    echo -e "  ${GREEN}▸${NC} Systemd: ${BOLD}/etc/systemd/system/${APP_NAME}.service${NC}"
-    if [[ "${CONFIG[ENABLE_NGINX]}" == "true" ]]; then
-        echo -e "  ${GREEN}▸${NC} Nginx: ${BOLD}/etc/nginx/sites-available/${APP_NAME}${NC}"
-    fi
-    echo ""
-    
-    echo -e "${YELLOW}${BOLD}Next Steps:${NC}"
-    echo ""
-    echo -e "  1. Review configuration: ${BOLD}sudo nano $CONFIG_DIR/${APP_NAME}.env${NC}"
-    echo -e "  2. Start the service: ${BOLD}sudo systemctl start ${APP_NAME}${NC}"
-    echo -e "  3. Enable auto-start: ${BOLD}sudo systemctl enable ${APP_NAME}${NC}"
-    echo -e "  4. Open in browser: ${BOLD}http://${LOCAL_IP}${NC}"
-    echo ""
-    
-    echo -e "${DIM}For support, visit: https://github.com/valentine-rf/nemo-command-center${NC}"
     echo ""
 }
 
@@ -1228,43 +538,36 @@ print_completion() {
 #===============================================================================
 
 main() {
-    # Check root
+    # Must run as root
     if [[ $EUID -ne 0 ]]; then
-        echo -e "${RED}This script must be run as root (use sudo)${NC}"
+        echo -e "${RED}This script must be run as root (sudo)${NC}"
         exit 1
     fi
     
     print_banner
+    detect_system
     
-    echo -e "  ${DIM}Welcome to the NeMo Command Center installer!${NC}"
-    echo -e "  ${DIM}This wizard will guide you through the installation process.${NC}"
-    echo ""
-    echo -e "  ${DIM}Press Enter to begin...${NC}"
+    echo -e "\n${BOLD}Press Enter to start configuration...${NC}"
     read
     
-    # Collect configuration
-    detect_system
-    collect_basic_config
-    collect_database_config
-    collect_dgx_config
-    collect_api_keys
-    collect_turn_config
-    review_config
+    collect_config
     
-    # Install
+    echo -e "\n${BOLD}Ready to install. Press Enter to continue or Ctrl+C to cancel...${NC}"
+    read
+    
     install_dependencies
-    install_mysql
+    setup_mysql
     setup_directories
-    copy_files
-    install_node_deps
+    copy_source
+    install_npm_deps
+    build_app
     run_migrations
-    write_config
+    write_env_file
     setup_systemd
     setup_nginx
-    setup_data_pruning
-    
-    # Done
-    print_completion
+    setup_cron
+    start_service
+    print_summary
 }
 
 main "$@"
