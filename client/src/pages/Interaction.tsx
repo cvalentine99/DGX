@@ -45,6 +45,7 @@ import { Slider } from "@/components/ui/slider";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
 import {
@@ -341,10 +342,11 @@ function ChatInterface({
     refetchInterval: 30000,
   });
   
-  // RAG context query
+  // RAG context query - disabled by default, fetched on-demand via refetch() in handleSend
+  // This prevents unnecessary API calls on every keystroke
   const ragContextQuery = trpc.rag.getContext.useQuery(
     { query: input, maxTokens: 2000 },
-    { enabled: config.useRag && input.length > 10 }
+    { enabled: false }
   );
   
   // Chat completion mutation
@@ -797,25 +799,26 @@ function InferenceConfig({
             <Brain className="w-3 h-3" />
             Model
           </Label>
-          <select
-            value={selectedModel}
-            onChange={(e) => onModelChange(e.target.value)}
-            className="w-full bg-black/50 border border-gray-700 rounded-md px-3 py-2 text-sm text-white"
-          >
-            {availableModels.length > 0 ? (
-              availableModels.map((model: { id: string; status?: string; size?: string; contextLength?: number }) => (
-                <option key={model.id} value={model.id}>
-                  {model.id.split('/').pop()} {model.status === "loaded" ? "✓" : ""} {model.size ? `(${model.size})` : ""}
-                </option>
-              ))
-            ) : (
-              <>
-                <option value="nemotron-3-nano-30b">Nemotron-3-Nano-30B (30B)</option>
-                <option value="llama-3.1-8b">Llama 3.1 8B (8B)</option>
-                <option value="mistral-7b">Mistral 7B (7B)</option>
-              </>
-            )}
-          </select>
+          <Select value={selectedModel} onValueChange={onModelChange}>
+            <SelectTrigger className="w-full bg-black/50 border-gray-700">
+              <SelectValue placeholder="Select a model" />
+            </SelectTrigger>
+            <SelectContent>
+              {availableModels.length > 0 ? (
+                availableModels.map((model: { id: string; status?: string; size?: string; contextLength?: number }) => (
+                  <SelectItem key={model.id} value={model.id}>
+                    {model.id.split('/').pop()} {model.status === "loaded" ? "✓" : ""} {model.size ? `(${model.size})` : ""}
+                  </SelectItem>
+                ))
+              ) : (
+                <>
+                  <SelectItem value="nemotron-3-nano-30b">Nemotron-3-Nano-30B (30B)</SelectItem>
+                  <SelectItem value="llama-3.1-8b">Llama 3.1 8B (8B)</SelectItem>
+                  <SelectItem value="mistral-7b">Mistral 7B (7B)</SelectItem>
+                </>
+              )}
+            </SelectContent>
+          </Select>
           {/* Model Info Panel */}
           {availableModels.length > 0 && (() => {
             const currentModel = availableModels.find((m: { id: string }) => m.id === selectedModel) as { id: string; status?: string; size?: string; contextLength?: number; type?: string; description?: string } | undefined;

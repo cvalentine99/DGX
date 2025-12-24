@@ -155,12 +155,16 @@ function HostCard({
   // DGX Spark has 128GB unified memory (shared CPU+GPU via NVLink-C2C)
   // nvidia-smi reports 0 for GPU memory because it's unified with system RAM
   const ramUsedGB = (metrics.systemMetrics.memoryUsed / 1024).toFixed(1);
-  // Use 128GB as the spec total (OS reports ~120GB due to reserved coherent memory)
-  const ramTotalGB = 128;
+  // Use actual system memory if available, otherwise default to 128GB spec
+  const ramTotalGB = metrics.systemMetrics.memoryTotal > 0
+    ? Math.round(metrics.systemMetrics.memoryTotal / 1024)
+    : 128;
   // GPU memory is part of unified memory pool - show portion allocated to GPU workloads
   const gpuMemUsedGB = gpu ? (gpu.memoryUsed > 0 ? (gpu.memoryUsed / 1024).toFixed(1) : "0") : "0";
-  // For unified memory, GPU can access up to 128GB but typically uses a portion
-  const gpuMemTotalGB = 128;
+  // Use actual GPU memory if reported, otherwise fall back to unified memory spec
+  const gpuMemTotalGB = gpu && gpu.memoryTotal > 0
+    ? Math.round(gpu.memoryTotal / 1024)
+    : 128;
   
   return (
     <motion.div variants={itemVariants}>

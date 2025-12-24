@@ -192,22 +192,9 @@ async function addToDbHistory(hostId: string, metrics: HostMetrics) {
   });
   
   lastDbWrite.set(hostId, Date.now());
-  
-  // Check for alert conditions
-  if (gpu.utilization > 90) {
-    await createSystemAlert({
-      type: "warning",
-      message: `GPU utilization above 90% on ${metrics.hostName}`,
-      hostId,
-    });
-  }
-  if (gpu.temperature > 80) {
-    await createSystemAlert({
-      type: "warning",
-      message: `GPU temperature above 80°C on ${metrics.hostName}`,
-      hostId,
-    });
-  }
+
+  // Note: Alert conditions are handled by checkAlertThresholds() which has
+  // proper cooldown logic to prevent duplicate alerts. Do not add alerts here.
 }
 
 // Cleanup old metrics periodically

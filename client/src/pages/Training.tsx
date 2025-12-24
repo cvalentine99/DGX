@@ -475,7 +475,7 @@ function TrainingTelemetryCard() {
             </div>
             <div className="flex justify-between mt-1 text-[10px] text-muted-foreground font-mono">
               <span>0</span>
-              <span>{LOSS_HISTORY[LOSS_HISTORY.length - 1].step}</span>
+              <span>{LOSS_HISTORY.length > 0 ? LOSS_HISTORY[LOSS_HISTORY.length - 1].step : 0}</span>
             </div>
           </div>
         </CardContent>

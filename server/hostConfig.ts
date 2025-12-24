@@ -35,6 +35,8 @@ export interface DGXHost {
   isLocal: boolean;
 }
 
+export type HostId = "alpha" | "beta";
+
 /**
  * DGX Spark host configurations
  * 
@@ -66,8 +68,6 @@ export const DGX_HOSTS: Record<HostId, DGXHost> = {
     isLocal: process.env.LOCAL_HOST === 'beta' || process.env.LOCAL_HOST === undefined,
   },
 };
-
-export type HostId = "alpha" | "beta";
 
 /**
  * Get all hosts as an array

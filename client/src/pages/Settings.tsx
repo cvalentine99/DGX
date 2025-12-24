@@ -423,6 +423,27 @@ export default function Settings() {
     },
   });
 
+  // Pull image mutation
+  const pullImageMutation = trpc.ssh.pullImage.useMutation({
+    onSuccess: (data) => {
+      if (data.success) {
+        setPullProgress("Pull complete!");
+        toast.success(data.message || `Successfully pulled ${pullImageName}`);
+        setPullImageName("");
+        handleRefreshContainers();
+      } else {
+        setPullProgress("");
+        toast.error(data.error || "Failed to pull image");
+      }
+      setPullingImage(false);
+    },
+    onError: (error) => {
+      setPullProgress("");
+      toast.error(`Failed to pull image: ${error.message}`);
+      setPullingImage(false);
+    },
+  });
+
   // Kubernetes status query
   const { data: k8sStatus } = trpc.ssh.getKubernetesStatus.useQuery(
     { hostId: dockerSelectedHost },
@@ -474,16 +495,8 @@ export default function Settings() {
     if (!pullImageName) return;
     setPullingImage(true);
     setPullProgress("Starting pull...");
-    // Use existing pullImage endpoint from sshRouter
     toast.info(`Pulling ${pullImageName}...`);
-    // For now, simulate - the actual pull uses the existing pullImage mutation with progress tracking
-    setTimeout(() => setPullProgress("Downloading layers..."), 1000);
-    setTimeout(() => {
-      setPullProgress("Pull complete!");
-      setPullingImage(false);
-      toast.success(`Successfully pulled ${pullImageName}`);
-      setPullImageName("");
-    }, 3000);
+    pullImageMutation.mutate({ hostId: dockerSelectedHost, imageTag: pullImageName });
   };
 
   const handlePullPlaybookImages = () => {
@@ -525,7 +538,7 @@ export default function Settings() {
       {/* Content */}
       <div className="container py-6">
         <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-6">
-          <TabsList className="grid w-full grid-cols-7 lg:w-auto lg:inline-grid">
+          <TabsList className="grid w-full grid-cols-6 lg:w-auto lg:inline-grid">
             <TabsTrigger value="ssh" className="gap-2">
               <Server className="h-4 w-4" />
               <span className="hidden sm:inline">SSH</span>
@@ -546,7 +559,6 @@ export default function Settings() {
               <Activity className="h-4 w-4" />
               <span className="hidden sm:inline">Splunk</span>
             </TabsTrigger>
-
             <TabsTrigger value="system" className="gap-2">
               <Shield className="h-4 w-4" />
               <span className="hidden sm:inline">System</span>
