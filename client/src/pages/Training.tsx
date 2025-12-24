@@ -36,7 +36,7 @@ import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
-import { Loader2, Plus, Trash2, RefreshCw, CheckCircle, XCircle, AlertCircle } from "lucide-react";
+import { Loader2, Plus, Trash2, RefreshCw, CheckCircle, XCircle } from "lucide-react";
 
 // Demo data imports - only used when DEMO_MODE is enabled
 import { DEMO_MODE } from "@/demo";
@@ -802,7 +802,7 @@ function JobQueueCard() {
 
       {/* Create Job Modal */}
       <Dialog open={showCreateModal} onOpenChange={setShowCreateModal}>
-        <DialogContent className="max-w-lg bg-black/95 border-gray-800">
+        <DialogContent className="max-w-lg bg-background border-gray-800">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <Brain className="h-5 w-5 text-nvidia-green" />

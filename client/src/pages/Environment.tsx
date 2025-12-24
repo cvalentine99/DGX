@@ -171,8 +171,9 @@ function HardwareTopologyCard() {
   
   const getHostStatus = (hostId: string) => {
     if (!connectionStatus) return 'offline';
-    // hostId is already 'alpha' or 'beta' from TOPOLOGY_DATA
-    const host = (connectionStatus as any)[hostId];
+    // hostId is 'alpha' or 'beta' from TOPOLOGY_DATA
+    const hostKey = hostId as 'alpha' | 'beta';
+    const host = connectionStatus[hostKey];
     if (!host) return 'offline';
     const lastSuccess = host.lastSuccess ? new Date(host.lastSuccess).getTime() : 0;
     const isRecent = Date.now() - lastSuccess < 30000;

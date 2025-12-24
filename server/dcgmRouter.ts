@@ -56,6 +56,9 @@ interface HostMetrics {
 const metricsCache: Map<string, { data: HostMetrics; timestamp: number }> = new Map();
 const CACHE_TTL = 5000; // 5 seconds
 
+// Track in-flight requests to prevent concurrent fetches for the same host
+const pendingRequests: Map<string, Promise<HostMetrics>> = new Map();
+
 // Alert thresholds
 const ALERT_THRESHOLDS = {
   temperatureWarning: 65, // °C
@@ -344,7 +347,27 @@ async function fetchHostMetrics(host: DGXHost): Promise<HostMetrics> {
   if (cached && Date.now() - cached.timestamp < CACHE_TTL) {
     return cached.data;
   }
-  
+
+  // Check if there's already an in-flight request for this host
+  const pendingRequest = pendingRequests.get(host.id);
+  if (pendingRequest) {
+    return pendingRequest;
+  }
+
+  // Create the fetch promise and store it
+  const fetchPromise = fetchHostMetricsImpl(host);
+  pendingRequests.set(host.id, fetchPromise);
+
+  try {
+    const result = await fetchPromise;
+    return result;
+  } finally {
+    pendingRequests.delete(host.id);
+  }
+}
+
+// Internal implementation of metric fetching
+async function fetchHostMetricsImpl(host: DGXHost): Promise<HostMetrics> {
   try {
     // nvidia-smi query for GPU metrics
     const nvidiaSmiCmd = `nvidia-smi --query-gpu=index,name,uuid,utilization.gpu,memory.used,memory.total,utilization.memory,temperature.gpu,power.draw,power.limit,fan.speed,clocks.current.graphics,clocks.current.memory,pcie.link.gen.current,pcie.link.width.current --format=csv,noheader,nounits`;
