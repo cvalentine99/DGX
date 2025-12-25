@@ -185,23 +185,24 @@ const pipelineTemplates = [
   },
 ];
 
-// Simulated running applications
-const initialApps = [
-  {
-    id: "brio-object-detection",
-    name: "BRIO Object Detection",
-    template: "object-detection",
-    status: "running",
-    camera: "/dev/video0",
-    resolution: "1920x1080",
-    fps: 60,
-    actualFps: 58.5,
-    latency: 14.2,
-    gpuUtil: 35,
-    memUsed: 1.8,
-    uptime: "2h 15m",
-  },
-];
+// Type for running pipeline apps
+interface PipelineApp {
+  id: string;
+  name: string;
+  template: string;
+  status: "running" | "stopped" | "starting" | "error";
+  camera?: string;
+  resolution?: string;
+  fps?: number;
+  actualFps?: number;
+  latency?: number;
+  gpuUtil?: number;
+  memUsed?: number;
+  uptime?: string;
+  image?: string;
+  ports?: string;
+  isFromBackend?: boolean; // Flag to identify backend-sourced pipelines
+}
 
 // Pipeline operators for visualization
 const getOperatorsForTemplate = (templateId: string) => {
@@ -237,13 +238,13 @@ const generateLogs = (appName: string) => [
 ];
 
 export default function Holoscan() {
-  const [apps, setApps] = useState(initialApps);
-  const [selectedApp, setSelectedApp] = useState(apps[0] || null);
+  const [apps, setApps] = useState<PipelineApp[]>([]);
+  const [selectedApp, setSelectedApp] = useState<PipelineApp | null>(null);
   const [selectedOperator, setSelectedOperator] = useState<any>(null);
   const [autoRefresh, setAutoRefresh] = useState(true);
   const [cameraConnected, setCameraConnected] = useState(true);
   const [showDeployDialog, setShowDeployDialog] = useState(false);
-  const [logs, setLogs] = useState(generateLogs("BRIO Object Detection"));
+  const [logs, setLogs] = useState(generateLogs("Holoscan Pipeline"));
   const [selectedHost, setSelectedHost] = useState<"alpha" | "beta">("alpha");
 
   // Backend API queries
@@ -379,6 +380,51 @@ export default function Holoscan() {
     { enabled: false }
   );
 
+  // Sync holoscanPipelines from backend to local apps state
+  useEffect(() => {
+    if (holoscanPipelines?.success && holoscanPipelines.pipelines) {
+      const backendApps: PipelineApp[] = holoscanPipelines.pipelines.map((pipeline: any) => ({
+        id: pipeline.id,
+        name: pipeline.name || pipeline.id,
+        template: detectTemplateFromImage(pipeline.image || ""),
+        status: pipeline.status?.includes("Up") ? "running" as const : "stopped" as const,
+        image: pipeline.image,
+        ports: pipeline.ports,
+        gpuUtil: pipeline.gpuMemory ? parseInt(pipeline.gpuMemory) : undefined,
+        isFromBackend: true,
+      }));
+
+      // Merge with any locally-created apps that haven't been confirmed by backend yet
+      setApps(prevApps => {
+        const localOnlyApps = prevApps.filter(app => !app.isFromBackend);
+        // Remove local apps that now appear in backend (by matching name/id)
+        const filteredLocalApps = localOnlyApps.filter(
+          localApp => !backendApps.some(backendApp =>
+            backendApp.name === localApp.name || backendApp.id === localApp.id
+          )
+        );
+        return [...backendApps, ...filteredLocalApps];
+      });
+
+      // Select first app if none selected
+      if (!selectedApp && backendApps.length > 0) {
+        setSelectedApp(backendApps[0]);
+      }
+    }
+  }, [holoscanPipelines]);
+
+  // Helper to detect template from docker image name
+  const detectTemplateFromImage = (image: string): string => {
+    const imageLower = image.toLowerCase();
+    if (imageLower.includes("object") || imageLower.includes("detect")) return "object-detection";
+    if (imageLower.includes("pose")) return "pose-estimation";
+    if (imageLower.includes("segment")) return "segmentation";
+    if (imageLower.includes("face")) return "face-detection";
+    if (imageLower.includes("rf") || imageLower.includes("radio")) return "valentine-rf";
+    if (imageLower.includes("net") || imageLower.includes("security")) return "netsec-forensics";
+    return "object-detection"; // default
+  };
+
   const handleValidateSyntax = () => {
     setValidationStatus("validating");
     validateSyntaxMutation.mutate({
@@ -508,17 +554,41 @@ export default function Holoscan() {
   };
 
   const handleStartApp = (appId: string) => {
-    setApps(apps.map(app => 
-      app.id === appId ? { ...app, status: "running" } : app
+    const app = apps.find(a => a.id === appId);
+    if (!app) return;
+
+    // Update local state immediately for UI feedback
+    setApps(apps.map(a =>
+      a.id === appId ? { ...a, status: "starting" as const } : a
     ));
-    toast.success(`Starting pipeline: ${appId}`);
+
+    // Start the pipeline with the template config
+    startPipelineMutation.mutate({
+      hostId: selectedHost,
+      pipelineType: app.template,
+      config: {
+        camera: app.camera ?? "/dev/video0",
+        resolution: app.resolution ?? "1920x1080",
+        fps: app.fps ?? 60,
+        format: "MJPEG",
+      },
+    });
   };
 
   const handleStopApp = (appId: string) => {
-    setApps(apps.map(app => 
-      app.id === appId ? { ...app, status: "stopped", actualFps: 0, gpuUtil: 0 } : app
+    const app = apps.find(a => a.id === appId);
+    if (!app) return;
+
+    // Update local state immediately for UI feedback
+    setApps(apps.map(a =>
+      a.id === appId ? { ...a, status: "stopped" as const, actualFps: 0, gpuUtil: 0 } : a
     ));
-    toast.info(`Stopping pipeline: ${appId}`);
+
+    // Call backend to stop the pipeline
+    stopPipelineMutation.mutate({
+      hostId: selectedHost,
+      pipelineId: appId,
+    });
   };
 
   const handleDeployPipeline = () => {
@@ -880,21 +950,21 @@ export default function Holoscan() {
                     <div className="grid grid-cols-2 gap-2 text-xs text-muted-foreground">
                       <div className="flex items-center gap-1">
                         <Camera className="h-3 w-3" />
-                        {app.camera.split('/').pop()}
+                        {app.camera?.split('/').pop() ?? "N/A"}
                       </div>
                       <div className="flex items-center gap-1">
                         <Maximize2 className="h-3 w-3" />
-                        {app.resolution}
+                        {app.resolution ?? "N/A"}
                       </div>
                       {app.status === "running" && (
                         <>
                           <div className="flex items-center gap-1">
                             <Activity className="h-3 w-3 text-nvidia-green" />
-                            {app.actualFps.toFixed(1)} FPS
+                            {(app.actualFps ?? 0).toFixed(1)} FPS
                           </div>
                           <div className="flex items-center gap-1">
                             <Clock className="h-3 w-3 text-nvidia-teal" />
-                            {app.latency}ms
+                            {app.latency ?? 0}ms
                           </div>
                         </>
                       )}
@@ -1163,30 +1233,30 @@ export default function Holoscan() {
                 <div>
                   <div className="flex justify-between text-sm mb-1">
                     <span className="text-muted-foreground">Frame Rate</span>
-                    <span className="font-mono text-nvidia-green">{selectedApp.actualFps.toFixed(1)} / {selectedApp.fps} FPS</span>
+                    <span className="font-mono text-nvidia-green">{(selectedApp.actualFps ?? 0).toFixed(1)} / {selectedApp.fps ?? 60} FPS</span>
                   </div>
-                  <Progress value={(selectedApp.actualFps / selectedApp.fps) * 100} className="h-2" />
+                  <Progress value={((selectedApp.actualFps ?? 0) / (selectedApp.fps ?? 60)) * 100} className="h-2" />
                 </div>
                 <div>
                   <div className="flex justify-between text-sm mb-1">
                     <span className="text-muted-foreground">Latency</span>
-                    <span className="font-mono text-nvidia-teal">{selectedApp.latency}ms</span>
+                    <span className="font-mono text-nvidia-teal">{selectedApp.latency ?? 0}ms</span>
                   </div>
-                  <Progress value={100 - (selectedApp.latency / 50) * 100} className="h-2" />
+                  <Progress value={100 - ((selectedApp.latency ?? 0) / 50) * 100} className="h-2" />
                 </div>
                 <div>
                   <div className="flex justify-between text-sm mb-1">
                     <span className="text-muted-foreground">GPU Utilization</span>
-                    <span className="font-mono">{selectedApp.gpuUtil}%</span>
+                    <span className="font-mono">{selectedApp.gpuUtil ?? 0}%</span>
                   </div>
-                  <Progress value={selectedApp.gpuUtil} className="h-2" />
+                  <Progress value={selectedApp.gpuUtil ?? 0} className="h-2" />
                 </div>
                 <div>
                   <div className="flex justify-between text-sm mb-1">
                     <span className="text-muted-foreground">GPU Memory</span>
-                    <span className="font-mono">{selectedApp.memUsed.toFixed(1)} GB</span>
+                    <span className="font-mono">{(selectedApp.memUsed ?? 0).toFixed(1)} GB</span>
                   </div>
-                  <Progress value={(selectedApp.memUsed / 8) * 100} className="h-2" />
+                  <Progress value={((selectedApp.memUsed ?? 0) / 8) * 100} className="h-2" />
                 </div>
               </CardContent>
             </Card>

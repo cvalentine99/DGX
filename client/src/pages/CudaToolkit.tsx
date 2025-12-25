@@ -241,16 +241,52 @@ function getStatusBadge(status: string) {
 
 export default function CudaToolkit() {
   const [selectedHostId, setSelectedHostId] = useState<"alpha" | "beta">("alpha");
+  const [lastRefreshed, setLastRefreshed] = useState<Date | null>(null);
 
   // Fetch live CUDA versions from backend
-  const { data: cudaData, isLoading, refetch, isRefetching } = trpc.ssh.getCudaVersions.useQuery(
+  const { data: cudaData, isLoading, refetch, isRefetching, error, dataUpdatedAt } = trpc.ssh.getCudaVersions.useQuery(
     { hostId: selectedHostId },
     { refetchInterval: 60000 } // Refresh every minute
   );
 
+  // Handle data updates and errors via useEffect (React Query v5 pattern)
+  useEffect(() => {
+    if (dataUpdatedAt) {
+      setLastRefreshed(new Date(dataUpdatedAt));
+    }
+    if (cudaData && !cudaData.success && cudaData.error) {
+      toast.error("Failed to fetch CUDA versions", {
+        description: cudaData.error,
+      });
+    }
+  }, [dataUpdatedAt, cudaData]);
+
+  // Handle query errors
+  useEffect(() => {
+    if (error) {
+      toast.error("Connection failed", {
+        description: error.message || "Could not connect to DGX host",
+      });
+    }
+  }, [error]);
+
   const handleRefresh = () => {
     refetch();
-    toast.success("Refreshing version information...");
+    toast.info("Refreshing version information...");
+  };
+
+  // Format the last refreshed time
+  const formatLastRefreshed = () => {
+    if (!lastRefreshed) return "Never";
+    const now = new Date();
+    const diffMs = now.getTime() - lastRefreshed.getTime();
+    const diffSecs = Math.floor(diffMs / 1000);
+    const diffMins = Math.floor(diffSecs / 60);
+
+    if (diffSecs < 10) return "Just now";
+    if (diffSecs < 60) return `${diffSecs}s ago`;
+    if (diffMins < 60) return `${diffMins}m ago`;
+    return lastRefreshed.toLocaleTimeString();
   };
 
   // Transform API data to match existing UI structure
@@ -332,16 +368,24 @@ export default function CudaToolkit() {
     ] as VersionInfo[];
   }, [cudaData]);
 
-  // Use live data if available, fallback to static
+  // Determine if we have valid live data
+  const hasLiveData = liveVersions !== null && cudaData?.success;
+  const hasError = error || (cudaData && !cudaData.success);
+  const errorMessage = error?.message || cudaData?.error || "Unknown error";
+
+  // Use live data if available, show error state if failed (no silent fallback)
   const selectedHostIndex = selectedHostId === "alpha" ? 0 : 1;
-  const currentHost = liveVersions ? {
+  const currentHost = hasLiveData ? {
     hostname: cudaData?.host?.name || "DGX Spark",
     ip: cudaData?.host?.localIp || "Unknown",
-    versions: liveVersions,
-  } : hostVersionData[selectedHostIndex] || hostVersionData[0];
-  
-  const compatibleCount = currentHost.versions.filter(v => v.status === "compatible").length;
-  const totalCount = currentHost.versions.length;
+    versions: liveVersions!,
+  } : null;
+
+  // Only for loading state, use static data temporarily
+  const loadingHost = hostVersionData[selectedHostIndex] || hostVersionData[0];
+
+  const compatibleCount = currentHost?.versions.filter(v => v.status === "compatible").length ?? 0;
+  const totalCount = currentHost?.versions.length ?? 7;
   const isRefreshing = isLoading || isRefetching;
 
   return (
@@ -357,20 +401,37 @@ export default function CudaToolkit() {
               GPU software stack version management and compatibility checking
             </p>
           </div>
-          <div className="flex gap-2">
-            <Button
-              variant="outline"
-              onClick={handleRefresh}
-              disabled={isRefreshing}
-              className="gap-2"
-            >
-              <RefreshCw className={`w-4 h-4 ${isRefreshing ? "animate-spin" : ""}`} />
-              Refresh
-            </Button>
-            <Button variant="outline" className="gap-2">
-              <Download className="w-4 h-4" />
-              Export Report
-            </Button>
+          <div className="flex items-center gap-4">
+            {/* Last Refreshed Indicator */}
+            <div className="text-sm text-muted-foreground flex items-center gap-2">
+              <Clock className="w-4 h-4" />
+              <span>Last updated: {formatLastRefreshed()}</span>
+              {hasLiveData && (
+                <Badge variant="outline" className="text-xs bg-green-500/10 text-green-400 border-green-500/30">
+                  Live
+                </Badge>
+              )}
+              {hasError && !isLoading && (
+                <Badge variant="outline" className="text-xs bg-red-500/10 text-red-400 border-red-500/30">
+                  Error
+                </Badge>
+              )}
+            </div>
+            <div className="flex gap-2">
+              <Button
+                variant="outline"
+                onClick={handleRefresh}
+                disabled={isRefreshing}
+                className="gap-2"
+              >
+                <RefreshCw className={`w-4 h-4 ${isRefreshing ? "animate-spin" : ""}`} />
+                Refresh
+              </Button>
+              <Button variant="outline" className="gap-2">
+                <Download className="w-4 h-4" />
+                Export Report
+              </Button>
+            </div>
           </div>
         </div>
 
@@ -457,6 +518,30 @@ export default function CudaToolkit() {
 
           {/* Installed Versions Tab */}
           <TabsContent value="versions" className="space-y-4">
+            {/* Error Banner */}
+            {hasError && !isLoading && (
+              <Card className="bg-red-500/10 border-red-500/30">
+                <CardContent className="p-4">
+                  <div className="flex items-center gap-3">
+                    <AlertTriangle className="w-6 h-6 text-red-400" />
+                    <div>
+                      <p className="font-semibold text-red-400">Failed to fetch live data</p>
+                      <p className="text-sm text-muted-foreground">{errorMessage}</p>
+                    </div>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={handleRefresh}
+                      className="ml-auto gap-2 border-red-500/30 hover:bg-red-500/10"
+                    >
+                      <RefreshCw className="w-4 h-4" />
+                      Retry
+                    </Button>
+                  </div>
+                </CardContent>
+              </Card>
+            )}
+
             {/* Summary Cards */}
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               <Card className="bg-card/50 border-border">
@@ -464,13 +549,21 @@ export default function CudaToolkit() {
                   <div className="flex items-center justify-between">
                     <div>
                       <p className="text-sm text-muted-foreground">Overall Status</p>
-                      <p className="text-2xl font-bold text-blue-400">All Compatible</p>
+                      <p className={`text-2xl font-bold ${hasError ? "text-red-400" : compatibleCount === totalCount ? "text-blue-400" : "text-yellow-400"}`}>
+                        {isLoading ? "Loading..." : hasError ? "Connection Error" : compatibleCount === totalCount ? "All Compatible" : `${compatibleCount}/${totalCount} Compatible`}
+                      </p>
                     </div>
-                    <div className="w-12 h-12 rounded-lg bg-blue-500/10 flex items-center justify-center">
-                      <CheckCircle2 className="w-6 h-6 text-blue-400" />
+                    <div className={`w-12 h-12 rounded-lg flex items-center justify-center ${hasError ? "bg-red-500/10" : "bg-blue-500/10"}`}>
+                      {isLoading ? (
+                        <RefreshCw className="w-6 h-6 text-muted-foreground animate-spin" />
+                      ) : hasError ? (
+                        <XCircle className="w-6 h-6 text-red-400" />
+                      ) : (
+                        <CheckCircle2 className="w-6 h-6 text-blue-400" />
+                      )}
                     </div>
                   </div>
-                  <Progress value={(compatibleCount / totalCount) * 100} className="mt-3 h-2" />
+                  <Progress value={hasError ? 0 : (compatibleCount / totalCount) * 100} className="mt-3 h-2" />
                 </CardContent>
               </Card>
               <Card className="bg-card/50 border-border">
@@ -492,20 +585,20 @@ export default function CudaToolkit() {
                   <div className="flex items-center justify-between">
                     <div>
                       <p className="text-sm text-muted-foreground">Last Checked</p>
-                      <p className="text-2xl font-bold">Just Now</p>
+                      <p className="text-2xl font-bold">{formatLastRefreshed()}</p>
                     </div>
                     <div className="w-12 h-12 rounded-lg bg-blue-500/10 flex items-center justify-center">
                       <Clock className="w-6 h-6 text-blue-400" />
                     </div>
                   </div>
-                  <p className="text-xs text-muted-foreground mt-2">{currentHost.hostname}</p>
+                  <p className="text-xs text-muted-foreground mt-2">{currentHost?.hostname || "DGX Spark"}</p>
                 </CardContent>
               </Card>
             </div>
 
             {/* Version Cards Grid */}
             <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
-              {currentHost.versions.map((version, index) => {
+              {(currentHost?.versions || loadingHost.versions).map((version, index) => {
                 const Icon = version.icon;
                 return (
                   <motion.div
