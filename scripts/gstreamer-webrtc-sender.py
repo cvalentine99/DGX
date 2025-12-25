@@ -57,9 +57,6 @@ class WebRTCStreamer:
         bitrate: int = 4000000,
         signaling_url: str = "ws://localhost:8765",
         stun_server: str = "stun://stun.l.google.com:19302",
-        turn_server: Optional[str] = None,
-        turn_user: Optional[str] = None,
-        turn_pass: Optional[str] = None,
     ):
         self.device = device
         self.width = width
@@ -68,9 +65,6 @@ class WebRTCStreamer:
         self.bitrate = bitrate
         self.signaling_url = signaling_url
         self.stun_server = stun_server
-        self.turn_server = turn_server
-        self.turn_user = turn_user
-        self.turn_pass = turn_pass
         
         self.pipeline: Optional[Gst.Pipeline] = None
         self.webrtcbin: Optional[Gst.Element] = None
@@ -170,18 +164,10 @@ class WebRTCStreamer:
         logger.info("Pipeline created successfully")
         
     def _configure_ice_servers(self):
-        """Configure STUN and TURN servers."""
-        # Add STUN server
+        """Configure STUN server for local webcam access."""
         if self.stun_server:
             self.webrtcbin.set_property("stun-server", self.stun_server)
             logger.info(f"STUN server configured: {self.stun_server}")
-        
-        # Add TURN server if configured
-        if self.turn_server and self.turn_user and self.turn_pass:
-            turn_url = f"turn://{self.turn_user}:{self.turn_pass}@{self.turn_server}"
-            # GStreamer webrtcbin uses a different format for TURN
-            self.webrtcbin.emit("add-turn-server", turn_url)
-            logger.info(f"TURN server configured: {self.turn_server}")
             
     def _on_negotiation_needed(self, element):
         """Called when negotiation is needed - create offer."""
@@ -419,18 +405,6 @@ def main():
         help="STUN server URL"
     )
     parser.add_argument(
-        "--turn-server",
-        help="TURN server host:port"
-    )
-    parser.add_argument(
-        "--turn-user",
-        help="TURN server username"
-    )
-    parser.add_argument(
-        "--turn-pass",
-        help="TURN server password"
-    )
-    parser.add_argument(
         "--verbose", "-v",
         action="store_true",
         help="Enable verbose logging"
@@ -457,9 +431,6 @@ def main():
         bitrate=args.bitrate,
         signaling_url=args.signaling_url,
         stun_server=args.stun_server,
-        turn_server=args.turn_server,
-        turn_user=args.turn_user,
-        turn_pass=args.turn_pass,
     )
     
     # Handle signals

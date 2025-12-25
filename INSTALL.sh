@@ -91,15 +91,6 @@ read -p "vLLM URL [http://localhost:8001/v1]: " VLLM_URL
 VLLM_URL=${VLLM_URL:-http://localhost:8001/v1}
 read -p "vLLM API Key (optional): " VLLM_KEY
 
-echo ""
-echo -e "${CYAN}=== TURN Server (for WebRTC, optional) ===${NC}"
-read -p "TURN Server URL (leave blank to skip): " TURN_URL
-if [[ -n "$TURN_URL" ]]; then
-    read -p "TURN Username: " TURN_USER
-    read -s -p "TURN Credential: " TURN_CRED
-    echo ""
-fi
-
 #===============================================================================
 # INSTALL
 #===============================================================================
@@ -235,11 +226,6 @@ NGC_API_KEY=$NGC_KEY
 HUGGINGFACE_TOKEN=$HF_TOKEN
 VLLM_API_URL=$VLLM_URL
 VLLM_API_KEY=$VLLM_KEY
-
-# TURN Server for WebRTC camera streaming
-TURN_SERVER_URL=$TURN_URL
-TURN_SERVER_USERNAME=$TURN_USER
-TURN_SERVER_CREDENTIAL=$TURN_CRED
 
 # Demo mode - set to false for production (real data from API)
 VITE_DEMO_MODE=false

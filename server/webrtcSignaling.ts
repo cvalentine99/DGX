@@ -47,13 +47,6 @@ interface StreamConfig {
 
 // DGX_HOSTS imported from hostConfig.ts - single source of truth
 
-// TURN server configuration
-interface TurnConfig {
-  urls: string;
-  username?: string;
-  credential?: string;
-}
-
 // Active signaling sessions
 const sessions = new Map<string, SignalingSession>();
 
@@ -64,29 +57,14 @@ const socketToSession = new Map<string, string>();
 let io: SocketIOServer | null = null;
 
 /**
- * Get ICE server configuration including STUN and TURN
+ * Get ICE server configuration (STUN only - local webcam access)
  */
-function getIceServers(): (RTCIceServer | TurnConfig)[] {
-  const servers: (RTCIceServer | TurnConfig)[] = [
+function getIceServers(): RTCIceServer[] {
+  return [
     { urls: "stun:stun.l.google.com:19302" },
     { urls: "stun:stun1.l.google.com:19302" },
     { urls: "stun:stun2.l.google.com:19302" },
   ];
-
-  // Add TURN server if configured
-  const turnServer = process.env.TURN_SERVER_URL;
-  const turnUser = process.env.TURN_SERVER_USERNAME;
-  const turnPass = process.env.TURN_SERVER_CREDENTIAL;
-
-  if (turnServer) {
-    servers.push({
-      urls: turnServer,
-      username: turnUser,
-      credential: turnPass,
-    });
-  }
-
-  return servers;
 }
 
 /**

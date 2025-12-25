@@ -252,18 +252,6 @@ a=fmtp:96 level-asymmetry-allowed=1;packetization-mode=1;profile-level-id=42e01f
         expect(server.urls).toMatch(/^stun:stun\d?\.l\.google\.com:19302$/);
       });
     });
-
-    it("should support TURN server configuration", () => {
-      const turnServer = {
-        urls: "turn:turn.example.com:3478",
-        username: "user",
-        credential: "password",
-      };
-
-      expect(turnServer.urls).toContain("turn:");
-      expect(turnServer.username).toBeDefined();
-      expect(turnServer.credential).toBeDefined();
-    });
   });
 
   describe("Connection Quality", () => {
