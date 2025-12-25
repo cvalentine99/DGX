@@ -47,6 +47,8 @@ interface WebRTCPreviewProps {
   onStreamStart?: () => void;
   onStreamStop?: () => void;
   className?: string;
+  /** Use local browser webcam instead of remote camera */
+  useLocalCamera?: boolean;
 }
 
 interface StreamStats {
@@ -67,17 +69,21 @@ export function WebRTCPreview({
   onStreamStart,
   onStreamStop,
   className = "",
+  useLocalCamera = false,
 }: WebRTCPreviewProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const peerConnectionRef = useRef<RTCPeerConnection | null>(null);
+  const localStreamRef = useRef<MediaStream | null>(null);
   const statsIntervalRef = useRef<NodeJS.Timeout | null>(null);
-  
+
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [isStreaming, setIsStreaming] = useState(false);
   const [isConnecting, setIsConnecting] = useState(false);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [showStats, setShowStats] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [localCameras, setLocalCameras] = useState<MediaDeviceInfo[]>([]);
+  const [selectedLocalCamera, setSelectedLocalCamera] = useState<string>("");
   const [stats, setStats] = useState<StreamStats>({
     bitrate: 0,
     framesReceived: 0,
@@ -103,6 +109,41 @@ export function WebRTCPreview({
     { sessionId: sessionId || "" },
     { enabled: !!sessionId && isStreaming, refetchInterval: 2000 }
   );
+
+  // Enumerate local cameras on mount when useLocalCamera is true
+  useEffect(() => {
+    if (!useLocalCamera) return;
+
+    const enumerateCameras = async () => {
+      try {
+        // Request permission first to get device labels
+        await navigator.mediaDevices.getUserMedia({ video: true }).then(stream => {
+          stream.getTracks().forEach(track => track.stop());
+        });
+
+        const devices = await navigator.mediaDevices.enumerateDevices();
+        const videoDevices = devices.filter(device => device.kind === "videoinput");
+        setLocalCameras(videoDevices);
+
+        if (videoDevices.length > 0 && !selectedLocalCamera) {
+          setSelectedLocalCamera(videoDevices[0].deviceId);
+        }
+      } catch (err) {
+        console.error("Failed to enumerate cameras:", err);
+        setError("Failed to access camera. Please ensure camera permissions are granted.");
+      }
+    };
+
+    enumerateCameras();
+
+    // Listen for device changes
+    const handleDeviceChange = () => enumerateCameras();
+    navigator.mediaDevices.addEventListener("devicechange", handleDeviceChange);
+
+    return () => {
+      navigator.mediaDevices.removeEventListener("devicechange", handleDeviceChange);
+    };
+  }, [useLocalCamera, selectedLocalCamera]);
 
   // Update stats from server
   useEffect(() => {
@@ -182,8 +223,74 @@ export function WebRTCPreview({
     return pc;
   }, [sessionId, addIceCandidate, onStreamStart]);
 
-  // Start the WebRTC stream
+  // Start local camera stream (for useLocalCamera mode)
+  const handleStartLocalCamera = async () => {
+    setIsConnecting(true);
+    setError(null);
+
+    try {
+      const [width, height] = streamConfig.resolution.split("x").map(Number);
+
+      const constraints: MediaStreamConstraints = {
+        video: {
+          deviceId: selectedLocalCamera ? { exact: selectedLocalCamera } : undefined,
+          width: { ideal: width },
+          height: { ideal: height },
+          frameRate: { ideal: streamConfig.fps },
+        },
+        audio: false,
+      };
+
+      const stream = await navigator.mediaDevices.getUserMedia(constraints);
+      localStreamRef.current = stream;
+
+      if (videoRef.current) {
+        videoRef.current.srcObject = stream;
+        setIsStreaming(true);
+        setIsConnecting(false);
+        onStreamStart?.();
+        toast.success("Local camera started");
+
+        // Start stats collection for local stream
+        statsIntervalRef.current = setInterval(() => {
+          const videoTrack = stream.getVideoTracks()[0];
+          if (videoTrack) {
+            const settings = videoTrack.getSettings();
+            setStats(prev => ({
+              ...prev,
+              bitrate: 0, // Local stream doesn't have bitrate
+              framesReceived: prev.framesReceived + (settings.frameRate || streamConfig.fps),
+              framesDropped: 0,
+              latency: 0, // Local stream has no latency
+              connectionState: "local",
+              iceState: "local",
+            }));
+          }
+        }, 1000);
+      }
+    } catch (err: any) {
+      console.error("Failed to start local camera:", err);
+      let errorMsg = "Failed to start local camera";
+      if (err.name === "NotAllowedError") {
+        errorMsg = "Camera permission denied. Please allow camera access.";
+      } else if (err.name === "NotFoundError") {
+        errorMsg = "No camera found. Please connect a camera.";
+      } else if (err.name === "NotReadableError") {
+        errorMsg = "Camera is in use by another application.";
+      }
+      setError(errorMsg);
+      setIsConnecting(false);
+      toast.error(errorMsg);
+    }
+  };
+
+  // Start the WebRTC stream (for remote camera mode)
   const handleStartStream = async () => {
+    // If using local camera, use the local handler
+    if (useLocalCamera) {
+      return handleStartLocalCamera();
+    }
+
     setIsConnecting(true);
     setError(null);
 
@@ -369,6 +476,12 @@ export function WebRTCPreview({
 
   // Stop the WebRTC stream
   const handleStopStream = async () => {
+    // Stop local camera stream if active
+    if (localStreamRef.current) {
+      localStreamRef.current.getTracks().forEach(track => track.stop());
+      localStreamRef.current = null;
+    }
+
     if (peerConnectionRef.current) {
       peerConnectionRef.current.close();
       peerConnectionRef.current = null;
@@ -402,7 +515,7 @@ export function WebRTCPreview({
       connectionState: "new",
       iceState: "new",
     });
-    
+
     onStreamStop?.();
     toast.info("Stream stopped");
   };
@@ -421,6 +534,10 @@ export function WebRTCPreview({
   // Cleanup on unmount
   useEffect(() => {
     return () => {
+      // Stop local camera stream
+      if (localStreamRef.current) {
+        localStreamRef.current.getTracks().forEach(track => track.stop());
+      }
       if (peerConnectionRef.current) {
         peerConnectionRef.current.close();
       }
@@ -490,16 +607,45 @@ export function WebRTCPreview({
             <div className="absolute inset-0 flex items-center justify-center bg-background/80">
               <div className="text-center">
                 <Camera className="h-16 w-16 text-muted-foreground mx-auto mb-4" />
-                <p className="text-lg font-medium mb-2">Camera Preview</p>
-                <p className="text-sm text-muted-foreground mb-4">
-                  Click Start to begin streaming from {camera}
+                <p className="text-lg font-medium mb-2">
+                  {useLocalCamera ? "Local Camera Preview" : "Camera Preview"}
                 </p>
+                <p className="text-sm text-muted-foreground mb-4">
+                  {useLocalCamera
+                    ? localCameras.length > 0
+                      ? "Select a camera and click Start"
+                      : "No cameras detected. Please connect a camera."
+                    : `Click Start to begin streaming from ${camera}`}
+                </p>
+                {useLocalCamera && localCameras.length > 0 && (
+                  <div className="mb-4">
+                    <Select
+                      value={selectedLocalCamera}
+                      onValueChange={setSelectedLocalCamera}
+                    >
+                      <SelectTrigger className="w-64 mx-auto">
+                        <SelectValue placeholder="Select camera" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {localCameras.map((cam) => (
+                          <SelectItem key={cam.deviceId} value={cam.deviceId}>
+                            {cam.label || `Camera ${localCameras.indexOf(cam) + 1}`}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                )}
                 <div className="flex items-center justify-center gap-2 text-xs text-muted-foreground">
                   <span>{streamConfig.resolution}</span>
                   <span>•</span>
                   <span>{streamConfig.fps} FPS</span>
-                  <span>•</span>
-                  <span>{streamConfig.format}</span>
+                  {!useLocalCamera && (
+                    <>
+                      <span>•</span>
+                      <span>{streamConfig.format}</span>
+                    </>
+                  )}
                 </div>
               </div>
             </div>
@@ -510,9 +656,13 @@ export function WebRTCPreview({
             <div className="absolute inset-0 flex items-center justify-center bg-background/80">
               <div className="text-center">
                 <Loader2 className="h-12 w-12 text-nvidia-green mx-auto mb-4 animate-spin" />
-                <p className="text-lg font-medium">Connecting...</p>
+                <p className="text-lg font-medium">
+                  {useLocalCamera ? "Starting camera..." : "Connecting..."}
+                </p>
                 <p className="text-sm text-muted-foreground">
-                  Establishing WebRTC connection to DGX Spark
+                  {useLocalCamera
+                    ? "Requesting camera access"
+                    : "Establishing WebRTC connection to DGX Spark"}
                 </p>
               </div>
             </div>
@@ -584,14 +734,20 @@ export function WebRTCPreview({
                   size="sm"
                   className="bg-nvidia-green hover:bg-nvidia-green/90 text-black"
                   onClick={handleStartStream}
-                  disabled={isConnecting}
+                  disabled={isConnecting || (useLocalCamera && localCameras.length === 0)}
                 >
                   {isConnecting ? (
                     <Loader2 className="h-4 w-4 mr-2 animate-spin" />
                   ) : (
                     <Play className="h-4 w-4 mr-2" />
                   )}
-                  {isConnecting ? "Connecting..." : "Start Stream"}
+                  {isConnecting
+                    ? useLocalCamera
+                      ? "Starting..."
+                      : "Connecting..."
+                    : useLocalCamera
+                      ? "Start Camera"
+                      : "Start Stream"}
                 </Button>
               ) : (
                 <Button
@@ -655,17 +811,35 @@ export function WebRTCPreview({
         {isStreaming && (
           <div className="px-4 py-2 bg-muted/30 border-t border-border flex items-center justify-between text-xs">
             <div className="flex items-center gap-4">
-              <div className="flex items-center gap-1">
-                <CheckCircle2 className="h-3 w-3 text-nvidia-green" />
-                <span>ICE: {stats.iceState}</span>
-              </div>
-              <div className="flex items-center gap-1">
-                <Wifi className="h-3 w-3 text-nvidia-teal" />
-                <span>Connection: {stats.connectionState}</span>
-              </div>
+              {useLocalCamera ? (
+                <>
+                  <div className="flex items-center gap-1">
+                    <CheckCircle2 className="h-3 w-3 text-nvidia-green" />
+                    <span>Local Camera Active</span>
+                  </div>
+                  <div className="flex items-center gap-1">
+                    <Camera className="h-3 w-3 text-nvidia-teal" />
+                    <span>
+                      {localCameras.find(c => c.deviceId === selectedLocalCamera)?.label ||
+                        "Camera"}
+                    </span>
+                  </div>
+                </>
+              ) : (
+                <>
+                  <div className="flex items-center gap-1">
+                    <CheckCircle2 className="h-3 w-3 text-nvidia-green" />
+                    <span>ICE: {stats.iceState}</span>
+                  </div>
+                  <div className="flex items-center gap-1">
+                    <Wifi className="h-3 w-3 text-nvidia-teal" />
+                    <span>Connection: {stats.connectionState}</span>
+                  </div>
+                </>
+              )}
             </div>
             <div className="text-muted-foreground">
-              Session: {sessionId?.slice(-8)}
+              {useLocalCamera ? "Local Mode" : `Session: ${sessionId?.slice(-8)}`}
             </div>
           </div>
         )}

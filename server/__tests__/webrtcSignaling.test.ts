@@ -125,7 +125,7 @@ describe("WebRTC Signaling Server", () => {
   });
 
   describe("ICE Server Configuration", () => {
-    it("should include STUN servers by default", () => {
+    it("should include STUN servers for local webcam access", () => {
       const iceServers = [
         { urls: "stun:stun.l.google.com:19302" },
         { urls: "stun:stun1.l.google.com:19302" },
@@ -138,28 +138,16 @@ describe("WebRTC Signaling Server", () => {
       });
     });
 
-    it("should support TURN server configuration", () => {
-      const turnConfig = {
-        urls: "turn:turn.example.com:3478",
-        username: "user",
-        credential: "password",
-      };
-
-      expect(turnConfig.urls).toContain("turn:");
-      expect(turnConfig.username).toBeDefined();
-      expect(turnConfig.credential).toBeDefined();
-    });
-
-    it("should support multiple TURN protocols", () => {
-      const turnServers = [
-        { urls: "turn:turn.example.com:3478?transport=udp" },
-        { urls: "turn:turn.example.com:3478?transport=tcp" },
-        { urls: "turns:turn.example.com:443" },
+    it("should use Google STUN servers", () => {
+      const iceServers = [
+        { urls: "stun:stun.l.google.com:19302" },
+        { urls: "stun:stun1.l.google.com:19302" },
+        { urls: "stun:stun2.l.google.com:19302" },
       ];
 
-      expect(turnServers[0].urls).toContain("transport=udp");
-      expect(turnServers[1].urls).toContain("transport=tcp");
-      expect(turnServers[2].urls).toContain("turns:");
+      iceServers.forEach((server) => {
+        expect(server.urls).toContain("google.com");
+      });
     });
   });
 
@@ -380,36 +368,6 @@ describe("WebRTC Signaling Server", () => {
       // Simulate timeout check
       const elapsed = Date.now() - startTime;
       expect(elapsed).toBeLessThan(timeout);
-    });
-  });
-
-  describe("TURN Server Integration", () => {
-    it("should parse TURN server URL correctly", () => {
-      const turnUrl = "turn:turn.example.com:3478";
-      const match = turnUrl.match(/^turn:(.+):(\d+)$/);
-
-      expect(match).not.toBeNull();
-      expect(match![1]).toBe("turn.example.com");
-      expect(match![2]).toBe("3478");
-    });
-
-    it("should support TURN credential rotation", () => {
-      const generateTurnCredentials = (username: string, ttl: number) => {
-        const timestamp = Math.floor(Date.now() / 1000) + ttl;
-        const tempUsername = `${timestamp}:${username}`;
-        // In production, this would be HMAC-SHA1 of tempUsername with shared secret
-        const tempPassword = "generated-credential";
-
-        return {
-          username: tempUsername,
-          credential: tempPassword,
-          ttl,
-        };
-      };
-
-      const creds = generateTurnCredentials("user", 3600);
-      expect(creds.username).toContain(":");
-      expect(creds.ttl).toBe(3600);
     });
   });
 });

@@ -86,7 +86,24 @@ const itemVariants = {
 function DatasetCatalogCard() {
   const [searchQuery, setSearchQuery] = useState("");
   const [isScanning, setIsScanning] = useState(false);
-  
+  const [showUploadDialog, setShowUploadDialog] = useState(false);
+  const [showNewDatasetDialog, setShowNewDatasetDialog] = useState(false);
+  const [uploadHostId, setUploadHostId] = useState<"alpha" | "beta">("alpha");
+  const [uploadPath, setUploadPath] = useState("/data");
+  const [uploadProgress, setUploadProgress] = useState(0);
+  const [isUploading, setIsUploading] = useState(false);
+  const [dragOver, setDragOver] = useState(false);
+
+  // New dataset form state
+  const [newDataset, setNewDataset] = useState({
+    name: "",
+    description: "",
+    type: "instruction" as "instruction" | "code" | "preference" | "conversation" | "raw",
+    format: "jsonl" as "jsonl" | "parquet" | "csv" | "json" | "txt",
+    hostId: "alpha" as "alpha" | "beta",
+    path: "/data/",
+  });
+
   // Fetch datasets from API when not in demo mode
   const { data: apiData, refetch } = trpc.dataset.list.useQuery(undefined, {
     enabled: !DEMO_MODE,
@@ -106,18 +123,124 @@ function DatasetCatalogCard() {
       setIsScanning(false);
     },
   });
-  
+
+  // Upload file mutation
+  const uploadFileMutation = trpc.ssh.uploadFile.useMutation({
+    onSuccess: (data) => {
+      if (data.success) {
+        toast.success("File uploaded successfully", { description: data.path });
+        refetch();
+        setShowUploadDialog(false);
+        // Trigger a scan to add the new file to the catalog
+        scanMutation.mutate({ hostId: uploadHostId, directory: uploadPath });
+      } else {
+        toast.error("Upload failed", { description: data.error });
+      }
+      setIsUploading(false);
+      setUploadProgress(0);
+    },
+    onError: (error) => {
+      toast.error("Upload failed", { description: error.message });
+      setIsUploading(false);
+      setUploadProgress(0);
+    },
+  });
+
+  // Create dataset mutation
+  const createDatasetMutation = trpc.dataset.create.useMutation({
+    onSuccess: (data) => {
+      if (data.success) {
+        toast.success("Dataset created successfully");
+        refetch();
+        setShowNewDatasetDialog(false);
+        setNewDataset({
+          name: "",
+          description: "",
+          type: "instruction",
+          format: "jsonl",
+          hostId: "alpha",
+          path: "/data/",
+        });
+      } else {
+        toast.error("Create failed", { description: data.error });
+      }
+    },
+    onError: (error) => {
+      toast.error("Create failed", { description: error.message });
+    },
+  });
+
   // Use demo data or API data
   const datasets = DEMO_MODE ? DATASETS : (apiData?.datasets || []);
-  
-  const filteredDatasets = datasets.filter((ds: any) => 
+
+  const filteredDatasets = datasets.filter((ds: any) =>
     ds.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
     ds.type.toLowerCase().includes(searchQuery.toLowerCase())
   );
-  
+
   const handleScan = (hostId: "alpha" | "beta") => {
     setIsScanning(true);
     scanMutation.mutate({ hostId, directory: "/data" });
+  };
+
+  const handleFileUpload = async (files: FileList | null) => {
+    if (!files || files.length === 0) return;
+
+    const file = files[0];
+    const maxSize = 50 * 1024 * 1024; // 50MB limit for datasets
+
+    if (file.size > maxSize) {
+      toast.error("File too large", { description: "Maximum file size is 50MB" });
+      return;
+    }
+
+    setIsUploading(true);
+    setUploadProgress(10);
+
+    try {
+      const reader = new FileReader();
+      reader.onprogress = (e) => {
+        if (e.lengthComputable) {
+          setUploadProgress(Math.round((e.loaded / e.total) * 50));
+        }
+      };
+      reader.onload = async () => {
+        setUploadProgress(60);
+        const base64 = (reader.result as string).split(",")[1];
+        setUploadProgress(80);
+
+        await uploadFileMutation.mutateAsync({
+          hostId: uploadHostId,
+          destinationPath: uploadPath,
+          fileName: file.name,
+          content: base64,
+          overwrite: false,
+        });
+        setUploadProgress(100);
+      };
+      reader.onerror = () => {
+        toast.error("Failed to read file");
+        setIsUploading(false);
+        setUploadProgress(0);
+      };
+      reader.readAsDataURL(file);
+    } catch (error: any) {
+      toast.error("Upload failed", { description: error.message });
+      setIsUploading(false);
+      setUploadProgress(0);
+    }
+  };
+
+  const handleCreateDataset = () => {
+    if (!newDataset.name.trim()) {
+      toast.error("Dataset name is required");
+      return;
+    }
+    if (!newDataset.path.trim()) {
+      toast.error("Dataset path is required");
+      return;
+    }
+    createDatasetMutation.mutate(newDataset);
   };
 
   return (
@@ -130,21 +253,221 @@ function DatasetCatalogCard() {
             </div>
             <div>
               <CardTitle className="text-base font-display tracking-wide">Dataset Catalog</CardTitle>
-              <p className="text-xs text-muted-foreground">{DATASETS.length} datasets available</p>
+              <p className="text-xs text-muted-foreground">{datasets.length} datasets available</p>
             </div>
           </div>
           <div className="flex items-center gap-2">
-            <Button variant="outline" size="sm" className="gap-2" onClick={() => toast.info("Feature coming soon")}>
+            <Button variant="outline" size="sm" className="gap-2" onClick={() => setShowUploadDialog(true)}>
               <Upload className="w-4 h-4" />
               Upload
             </Button>
-            <Button variant="default" size="sm" className="gap-2 bg-primary hover:bg-primary/90" onClick={() => toast.info("Feature coming soon")}>
+            <Button variant="default" size="sm" className="gap-2 bg-primary hover:bg-primary/90" onClick={() => setShowNewDatasetDialog(true)}>
               <Plus className="w-4 h-4" />
               New Dataset
             </Button>
           </div>
         </div>
       </CardHeader>
+
+      {/* Upload Dialog */}
+      <Dialog open={showUploadDialog} onOpenChange={setShowUploadDialog}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Upload className="w-5 h-5 text-primary" />
+              Upload Dataset File
+            </DialogTitle>
+            <DialogDescription>
+              Upload a dataset file to your DGX host
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 mt-4">
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label className="text-xs">Target Host</Label>
+                <Select value={uploadHostId} onValueChange={(v) => setUploadHostId(v as "alpha" | "beta")}>
+                  <SelectTrigger className="h-9">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="alpha">DGX Spark Alpha</SelectItem>
+                    <SelectItem value="beta">DGX Spark Beta</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-2">
+                <Label className="text-xs">Destination Path</Label>
+                <Input
+                  value={uploadPath}
+                  onChange={(e) => setUploadPath(e.target.value)}
+                  placeholder="/data"
+                  className="h-9 font-mono text-sm"
+                />
+              </div>
+            </div>
+
+            {/* Drop Zone */}
+            <div
+              onDrop={(e) => {
+                e.preventDefault();
+                setDragOver(false);
+                handleFileUpload(e.dataTransfer.files);
+              }}
+              onDragOver={(e) => {
+                e.preventDefault();
+                setDragOver(true);
+              }}
+              onDragLeave={() => setDragOver(false)}
+              className={cn(
+                "border-2 border-dashed rounded-lg p-8 text-center transition-colors",
+                dragOver ? "border-primary bg-primary/10" : "border-border/50 hover:border-border",
+                isUploading && "pointer-events-none opacity-50"
+              )}
+            >
+              {isUploading ? (
+                <div className="space-y-3">
+                  <RefreshCw className="w-8 h-8 mx-auto animate-spin text-primary" />
+                  <p className="text-sm">Uploading...</p>
+                  <div className="w-full h-2 bg-muted rounded-full overflow-hidden">
+                    <div
+                      className="h-full bg-primary transition-all duration-300"
+                      style={{ width: `${uploadProgress}%` }}
+                    />
+                  </div>
+                  <p className="text-xs text-muted-foreground">{uploadProgress}%</p>
+                </div>
+              ) : (
+                <>
+                  <Upload className="w-8 h-8 mx-auto text-muted-foreground mb-3" />
+                  <p className="text-sm">Drag and drop a dataset file here</p>
+                  <p className="text-xs text-muted-foreground mt-1">Supports: .jsonl, .parquet, .csv, .json</p>
+                  <label className="mt-3 inline-block">
+                    <input
+                      type="file"
+                      className="hidden"
+                      accept=".jsonl,.parquet,.csv,.json,.txt"
+                      onChange={(e) => handleFileUpload(e.target.files)}
+                    />
+                    <span className="px-4 py-2 rounded-md bg-primary hover:bg-primary/90 text-primary-foreground text-sm cursor-pointer transition-colors">
+                      Browse Files
+                    </span>
+                  </label>
+                  <p className="text-xs text-muted-foreground mt-4">Maximum file size: 50MB</p>
+                </>
+              )}
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* New Dataset Dialog */}
+      <Dialog open={showNewDatasetDialog} onOpenChange={setShowNewDatasetDialog}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Plus className="w-5 h-5 text-primary" />
+              Create New Dataset
+            </DialogTitle>
+            <DialogDescription>
+              Register an existing dataset file or directory
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 mt-4">
+            <div className="space-y-2">
+              <Label className="text-xs">Dataset Name *</Label>
+              <Input
+                value={newDataset.name}
+                onChange={(e) => setNewDataset({ ...newDataset, name: e.target.value })}
+                placeholder="my-training-dataset"
+                className="h-9"
+              />
+            </div>
+
+            <div className="space-y-2">
+              <Label className="text-xs">Description</Label>
+              <Input
+                value={newDataset.description}
+                onChange={(e) => setNewDataset({ ...newDataset, description: e.target.value })}
+                placeholder="Optional description of the dataset"
+                className="h-9"
+              />
+            </div>
+
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label className="text-xs">Type</Label>
+                <Select value={newDataset.type} onValueChange={(v) => setNewDataset({ ...newDataset, type: v as any })}>
+                  <SelectTrigger className="h-9">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="instruction">Instruction</SelectItem>
+                    <SelectItem value="code">Code</SelectItem>
+                    <SelectItem value="preference">Preference</SelectItem>
+                    <SelectItem value="conversation">Conversation</SelectItem>
+                    <SelectItem value="raw">Raw</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-2">
+                <Label className="text-xs">Format</Label>
+                <Select value={newDataset.format} onValueChange={(v) => setNewDataset({ ...newDataset, format: v as any })}>
+                  <SelectTrigger className="h-9">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="jsonl">JSONL</SelectItem>
+                    <SelectItem value="parquet">Parquet</SelectItem>
+                    <SelectItem value="csv">CSV</SelectItem>
+                    <SelectItem value="json">JSON</SelectItem>
+                    <SelectItem value="txt">Text</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label className="text-xs">Host</Label>
+                <Select value={newDataset.hostId} onValueChange={(v) => setNewDataset({ ...newDataset, hostId: v as any })}>
+                  <SelectTrigger className="h-9">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="alpha">DGX Spark Alpha</SelectItem>
+                    <SelectItem value="beta">DGX Spark Beta</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-2">
+                <Label className="text-xs">File Path *</Label>
+                <Input
+                  value={newDataset.path}
+                  onChange={(e) => setNewDataset({ ...newDataset, path: e.target.value })}
+                  placeholder="/data/dataset.jsonl"
+                  className="h-9 font-mono text-sm"
+                />
+              </div>
+            </div>
+          </div>
+
+          <div className="flex justify-end gap-2 mt-4">
+            <Button variant="outline" onClick={() => setShowNewDatasetDialog(false)}>
+              Cancel
+            </Button>
+            <Button
+              onClick={handleCreateDataset}
+              disabled={createDatasetMutation.isPending || !newDataset.name.trim() || !newDataset.path.trim()}
+            >
+              {createDatasetMutation.isPending ? (
+                <><RefreshCw className="w-4 h-4 mr-2 animate-spin" />Creating...</>
+              ) : (
+                "Create Dataset"
+              )}
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
       
       <CardContent className="space-y-4">
         {/* Search */}
@@ -226,8 +549,30 @@ function DatasetCatalogCard() {
 }
 
 function QualityMetricsCard() {
-  const validationRate = (QUALITY_METRICS.validatedSamples / QUALITY_METRICS.totalSamples) * 100;
-  
+  // Fetch quality metrics from API when not in demo mode
+  const { data: apiMetrics, isLoading, error } = trpc.dataset.getQualityMetrics.useQuery(undefined, {
+    enabled: !DEMO_MODE,
+    refetchInterval: 30000, // Refresh every 30 seconds
+  });
+
+  // Use demo data or API data
+  const metrics = DEMO_MODE ? QUALITY_METRICS : (apiMetrics?.success && apiMetrics.metrics ? {
+    totalSamples: apiMetrics.metrics.totalSamples ?? 0,
+    validatedSamples: Math.round((apiMetrics.metrics.totalSamples ?? 0) * ((apiMetrics.metrics.validationRate ?? 0) / 100)),
+    duplicateRate: apiMetrics.metrics.duplicateRate ?? 0,
+    avgTokenLength: apiMetrics.metrics.avgTokenLength ?? 0,
+    languageDistribution: Object.entries(apiMetrics.metrics.typeDistribution ?? {}).map(([type, count]) => ({
+      lang: type.charAt(0).toUpperCase() + type.slice(1),
+      percent: (apiMetrics.metrics?.totalSamples ?? 0) > 0
+        ? Math.round((count as number / (apiMetrics.metrics?.totalSamples ?? 1)) * 100)
+        : 0,
+    })),
+  } : QUALITY_METRICS);
+
+  const validationRate = metrics.totalSamples > 0
+    ? (metrics.validatedSamples / metrics.totalSamples) * 100
+    : 0;
+
   return (
     <Card className="bg-card/50 border-border">
       <CardHeader>
@@ -237,61 +582,83 @@ function QualityMetricsCard() {
           </div>
           <div>
             <CardTitle className="text-base font-display tracking-wide">Quality Metrics</CardTitle>
-            <p className="text-xs text-muted-foreground">Aggregate statistics</p>
+            <p className="text-xs text-muted-foreground">
+              {DEMO_MODE ? "Demo statistics" : (apiMetrics?.success ? "Live statistics" : "Aggregate statistics")}
+            </p>
           </div>
         </div>
       </CardHeader>
-      
+
       <CardContent className="space-y-4">
-        <div className="grid grid-cols-2 gap-4">
-          <div className="p-3 rounded-lg bg-muted/30">
-            <div className="text-xs text-muted-foreground mb-1">Total Samples</div>
-            <div className="text-xl font-mono font-bold">{QUALITY_METRICS.totalSamples.toLocaleString()}</div>
+        {!DEMO_MODE && isLoading ? (
+          <div className="flex items-center justify-center py-8">
+            <RefreshCw className="w-6 h-6 animate-spin text-muted-foreground" />
           </div>
-          <div className="p-3 rounded-lg bg-muted/30">
-            <div className="text-xs text-muted-foreground mb-1">Validation Rate</div>
-            <div className="text-xl font-mono font-bold text-blue-400">{validationRate.toFixed(1)}%</div>
+        ) : !DEMO_MODE && error ? (
+          <div className="flex flex-col items-center justify-center py-8 text-muted-foreground">
+            <AlertTriangle className="w-8 h-8 mb-2 text-yellow-400" />
+            <p className="text-sm">Failed to load metrics</p>
+            <p className="text-xs mt-1">{error.message}</p>
           </div>
-        </div>
-        
-        <div className="space-y-3">
-          <div className="space-y-2">
-            <div className="flex items-center justify-between text-xs">
-              <span className="text-muted-foreground">Duplicate Rate</span>
-              <span className="font-mono text-yellow-400">{QUALITY_METRICS.duplicateRate}%</span>
+        ) : (
+          <>
+            <div className="grid grid-cols-2 gap-4">
+              <div className="p-3 rounded-lg bg-muted/30">
+                <div className="text-xs text-muted-foreground mb-1">Total Samples</div>
+                <div className="text-xl font-mono font-bold">{metrics.totalSamples.toLocaleString()}</div>
+              </div>
+              <div className="p-3 rounded-lg bg-muted/30">
+                <div className="text-xs text-muted-foreground mb-1">Validation Rate</div>
+                <div className="text-xl font-mono font-bold text-blue-400">{validationRate.toFixed(1)}%</div>
+              </div>
             </div>
-            <div className="h-2 rounded-full bg-muted/50 overflow-hidden">
-              <div 
-                className="h-full rounded-full bg-yellow-400"
-                style={{ width: `${QUALITY_METRICS.duplicateRate * 10}%` }}
-              />
-            </div>
-          </div>
-          
-          <div className="flex items-center justify-between text-xs p-2 rounded bg-muted/30">
-            <span className="text-muted-foreground">Avg Token Length</span>
-            <span className="font-mono">{QUALITY_METRICS.avgTokenLength}</span>
-          </div>
-        </div>
-        
-        {/* Language Distribution */}
-        <div className="pt-3 border-t border-border/50">
-          <span className="text-xs text-muted-foreground">Language Distribution</span>
-          <div className="mt-2 space-y-2">
-            {QUALITY_METRICS.languageDistribution.map((item) => (
-              <div key={item.lang} className="flex items-center gap-2">
-                <span className="text-xs w-16">{item.lang}</span>
-                <div className="flex-1 h-2 rounded-full bg-muted/50 overflow-hidden">
-                  <div 
-                    className="h-full rounded-full bg-cyan-400"
-                    style={{ width: `${item.percent}%` }}
+
+            <div className="space-y-3">
+              <div className="space-y-2">
+                <div className="flex items-center justify-between text-xs">
+                  <span className="text-muted-foreground">Duplicate Rate</span>
+                  <span className="font-mono text-yellow-400">{metrics.duplicateRate}%</span>
+                </div>
+                <div className="h-2 rounded-full bg-muted/50 overflow-hidden">
+                  <div
+                    className="h-full rounded-full bg-yellow-400"
+                    style={{ width: `${Math.min(metrics.duplicateRate * 10, 100)}%` }}
                   />
                 </div>
-                <span className="text-xs font-mono w-10 text-right">{item.percent}%</span>
               </div>
-            ))}
-          </div>
-        </div>
+
+              <div className="flex items-center justify-between text-xs p-2 rounded bg-muted/30">
+                <span className="text-muted-foreground">Avg Token Length</span>
+                <span className="font-mono">{metrics.avgTokenLength}</span>
+              </div>
+            </div>
+
+            {/* Type/Language Distribution */}
+            <div className="pt-3 border-t border-border/50">
+              <span className="text-xs text-muted-foreground">
+                {DEMO_MODE ? "Language Distribution" : "Type Distribution"}
+              </span>
+              <div className="mt-2 space-y-2">
+                {metrics.languageDistribution.length > 0 ? (
+                  metrics.languageDistribution.map((item) => (
+                    <div key={item.lang} className="flex items-center gap-2">
+                      <span className="text-xs w-16">{item.lang}</span>
+                      <div className="flex-1 h-2 rounded-full bg-muted/50 overflow-hidden">
+                        <div
+                          className="h-full rounded-full bg-cyan-400"
+                          style={{ width: `${item.percent}%` }}
+                        />
+                      </div>
+                      <span className="text-xs font-mono w-10 text-right">{item.percent}%</span>
+                    </div>
+                  ))
+                ) : (
+                  <p className="text-xs text-muted-foreground">No data available</p>
+                )}
+              </div>
+            </div>
+          </>
+        )}
       </CardContent>
     </Card>
   );
