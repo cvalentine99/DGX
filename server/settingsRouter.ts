@@ -3,37 +3,10 @@ import { router, publicProcedure } from "./_core/trpc";
 import { getDb } from "./db";
 import { systemSettings } from "../drizzle/schema";
 import { eq } from "drizzle-orm";
+import { SettingsSchema } from "../shared/schemas";
 
-// Settings schema for validation
-const settingsSchema = z.object({
-  sshHost: z.string().optional(),
-  sshPort: z.number().min(1).max(65535).optional(),
-  sshUsername: z.string().optional(),
-  sshPassword: z.string().optional(),
-  vllmUrl: z.string().optional(),
-  vllmApiKey: z.string().optional(),
-  turnUrl: z.string().optional(),
-  turnUsername: z.string().optional(),
-  turnCredential: z.string().optional(),
-  tempWarning: z.number().min(30).max(100).optional(),
-  tempCritical: z.number().min(30).max(100).optional(),
-  powerWarning: z.number().min(10).max(100).optional(),
-  memoryWarning: z.number().min(10).max(100).optional(),
-  alertsEnabled: z.boolean().optional(),
-  // Splunk settings
-  splunkHost: z.string().optional(),
-  splunkPort: z.number().min(1).max(65535).optional(),
-  splunkToken: z.string().optional(),
-  splunkIndex: z.string().optional(),
-  splunkSourceType: z.string().optional(),
-  splunkSsl: z.boolean().optional(),
-  splunkEnabled: z.boolean().optional(),
-  splunkForwardMetrics: z.boolean().optional(),
-  splunkForwardAlerts: z.boolean().optional(),
-  splunkForwardContainers: z.boolean().optional(),
-  splunkForwardInference: z.boolean().optional(),
-  splunkInterval: z.number().min(10).max(300).optional(),
-});
+// Use shared schema for validation (ensures frontend/backend consistency)
+const settingsSchema = SettingsSchema;
 
 export const settingsRouter = router({
   // Get current settings

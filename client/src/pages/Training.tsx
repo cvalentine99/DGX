@@ -38,8 +38,8 @@ import { Textarea } from "@/components/ui/textarea";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { Loader2, Plus, Trash2, RefreshCw, CheckCircle, XCircle, AlertCircle } from "lucide-react";
 
-// Demo data imports - only used when DEMO_MODE is enabled
-import { DEMO_MODE } from "@/demo";
+// Shared validation schemas - ensures frontend/backend consistency
+import { CreateTrainingJobSchema, CreateTrainingTemplateSchema, getFirstError } from "../../../shared/schemas";
 
 // Training Recipes - static config, not demo data
 const TRAINING_RECIPES = [
@@ -57,38 +57,6 @@ const MOE_PARAMS = {
   sinkhornIterations: 10,
   loadBalancing: true,
 };
-
-// Demo Training Job - only shown in demo mode, production fetches from API
-const DEMO_TRAINING_JOB = {
-  id: "job-001",
-  status: "running",
-  recipe: "PEFT/LoRA",
-  dataset: "custom-instruct-v1",
-  startTime: "2024-12-20 14:30:00",
-  currentEpoch: 2,
-  totalEpochs: 5,
-  currentStep: 1247,
-  totalSteps: 5000,
-  loss: 0.342,
-  learningRate: 2e-5,
-  throughput: 1842,
-  eta: "2h 15m",
-};
-
-// Demo Loss History - only shown in demo mode
-const DEMO_LOSS_HISTORY = [
-  { step: 0, loss: 2.45 },
-  { step: 200, loss: 1.82 },
-  { step: 400, loss: 1.24 },
-  { step: 600, loss: 0.89 },
-  { step: 800, loss: 0.62 },
-  { step: 1000, loss: 0.48 },
-  { step: 1200, loss: 0.35 },
-];
-
-// Use demo data when DEMO_MODE is enabled
-const TRAINING_JOB = DEMO_MODE ? DEMO_TRAINING_JOB : null;
-const LOSS_HISTORY = DEMO_MODE ? DEMO_LOSS_HISTORY : [];
 
 const containerVariants = {
   hidden: { opacity: 0 },
@@ -385,98 +353,24 @@ function TrainingTelemetryCard() {
     }
   };
   
-  // No jobs state - show simulated data (only in demo mode)
+  // No jobs state - show empty state prompting user to create a job
   if (!isLoading && !recentJob) {
-    const simJob = TRAINING_JOB;
-    
-    // If not in demo mode and no job, show empty state
-    if (!simJob) {
-      return (
-        <Card className="cyber-panel">
-          <CardHeader>
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-lg bg-muted flex items-center justify-center">
-                <Activity className="w-5 h-5 text-muted-foreground" />
-              </div>
-              <div>
-                <CardTitle className="text-base font-display tracking-wide">Training Telemetry</CardTitle>
-                <p className="text-xs text-muted-foreground">No active training jobs</p>
-              </div>
-            </div>
-          </CardHeader>
-          <CardContent>
-            <div className="text-center py-8 text-muted-foreground">
-              <p>Start a new training job to see telemetry data here.</p>
-            </div>
-          </CardContent>
-        </Card>
-      );
-    }
-    
-    const simProgress = (simJob.currentStep / simJob.totalSteps) * 100;
     return (
       <Card className="cyber-panel">
         <CardHeader>
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-lg bg-muted flex items-center justify-center">
-                <Activity className="w-5 h-5 text-muted-foreground" />
-              </div>
-              <div>
-                <CardTitle className="text-base font-display tracking-wide">Training Telemetry</CardTitle>
-                <p className="text-xs text-muted-foreground">Demo Mode - No active jobs</p>
-              </div>
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-lg bg-muted flex items-center justify-center">
+              <Activity className="w-5 h-5 text-muted-foreground" />
             </div>
-            <Badge variant="outline" className="text-xs">Simulated</Badge>
+            <div>
+              <CardTitle className="text-base font-display tracking-wide">Training Telemetry</CardTitle>
+              <p className="text-xs text-muted-foreground">No active training jobs</p>
+            </div>
           </div>
         </CardHeader>
-        <CardContent className="space-y-6">
-          <div className="space-y-2">
-            <div className="flex items-center justify-between text-xs">
-              <span className="text-muted-foreground">Progress</span>
-              <span className="font-mono">Step {simJob.currentStep.toLocaleString()} / {simJob.totalSteps.toLocaleString()}</span>
-            </div>
-            <div className="progress-glow">
-              <div className="progress-glow-fill" style={{ width: `${simProgress}%` }} />
-            </div>
-            <div className="flex items-center justify-between text-xs text-muted-foreground">
-              <span>Epoch {simJob.currentEpoch}/{simJob.totalEpochs}</span>
-              <span className="flex items-center gap-1"><Clock className="w-3 h-3" />ETA: {simJob.eta}</span>
-            </div>
-          </div>
-          <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-            <div className="p-3 rounded-lg bg-muted/30">
-              <div className="flex items-center gap-2 mb-1"><TrendingDown className="w-3 h-3 text-nvidia-green" /><span className="text-xs text-muted-foreground">Loss</span></div>
-              <div className="text-lg font-mono font-bold text-nvidia-green">{simJob.loss}</div>
-            </div>
-            <div className="p-3 rounded-lg bg-muted/30">
-              <div className="flex items-center gap-2 mb-1"><Zap className="w-3 h-3 text-nvidia-teal" /><span className="text-xs text-muted-foreground">Learning Rate</span></div>
-              <div className="text-lg font-mono font-bold">{simJob.learningRate}</div>
-            </div>
-            <div className="p-3 rounded-lg bg-muted/30">
-              <div className="flex items-center gap-2 mb-1"><Activity className="w-3 h-3 text-nvidia-teal" /><span className="text-xs text-muted-foreground">Throughput</span></div>
-              <div className="text-lg font-mono font-bold">{simJob.throughput} <span className="text-xs text-muted-foreground">tok/s</span></div>
-            </div>
-            <div className="p-3 rounded-lg bg-muted/30">
-              <div className="flex items-center gap-2 mb-1"><FileText className="w-3 h-3 text-muted-foreground" /><span className="text-xs text-muted-foreground">Recipe</span></div>
-              <div className="text-sm font-semibold">{simJob.recipe}</div>
-            </div>
-          </div>
-          <div className="pt-4 border-t border-border/50">
-            <div className="flex items-center justify-between mb-3">
-              <span className="text-xs font-semibold text-muted-foreground">Loss Curve</span>
-              <BarChart2 className="w-4 h-4 text-muted-foreground" />
-            </div>
-            <div className="h-24 flex items-end gap-1">
-              {LOSS_HISTORY.map((point, index) => {
-                const height = ((2.5 - point.loss) / 2.5) * 100;
-                return (<div key={index} className="flex-1 bg-nvidia-green/30 rounded-t transition-all hover:bg-nvidia-green/50" style={{ height: `${height}%` }} title={`Step ${point.step}: ${point.loss}`} />);
-              })}
-            </div>
-            <div className="flex justify-between mt-1 text-[10px] text-muted-foreground font-mono">
-              <span>0</span>
-              <span>{LOSS_HISTORY[LOSS_HISTORY.length - 1].step}</span>
-            </div>
+        <CardContent>
+          <div className="text-center py-8 text-muted-foreground">
+            <p>Start a new training job to see telemetry data here.</p>
           </div>
         </CardContent>
       </Card>
@@ -692,7 +586,13 @@ function JobQueueCard() {
   };
 
   const handleCreateJob = () => {
-    createJobMutation.mutate(newJob);
+    // Validate with shared schema before submission
+    const result = CreateTrainingJobSchema.safeParse(newJob);
+    if (!result.success) {
+      toast.error("Validation failed", { description: getFirstError(result.error) });
+      return;
+    }
+    createJobMutation.mutate(result.data);
   };
 
   return (
@@ -1073,11 +973,17 @@ function TemplatesCard() {
   });
 
   const handleCreateTemplate = () => {
-    createTemplateMutation.mutate(newTemplate);
+    // Validate with shared schema before submission
+    const result = CreateTrainingTemplateSchema.safeParse(newTemplate);
+    if (!result.success) {
+      toast.error("Validation failed", { description: getFirstError(result.error) });
+      return;
+    }
+    createTemplateMutation.mutate(result.data);
   };
 
   const handleUseTemplate = (template: any) => {
-    createJobMutation.mutate({
+    const jobData = {
       name: `${template.name} - ${new Date().toLocaleDateString()}`,
       description: template.description || "",
       baseModel: template.baseModel,
@@ -1088,7 +994,14 @@ function TemplatesCard() {
       learningRate: template.learningRate,
       hostId: (template.preferredHost || "alpha") as "alpha" | "beta",
       gpuCount: template.gpuCount,
-    });
+    };
+    // Validate with shared schema before submission
+    const result = CreateTrainingJobSchema.safeParse(jobData);
+    if (!result.success) {
+      toast.error("Validation failed", { description: getFirstError(result.error) });
+      return;
+    }
+    createJobMutation.mutate(result.data);
   };
 
   const trainingTypeLabels: Record<string, string> = {

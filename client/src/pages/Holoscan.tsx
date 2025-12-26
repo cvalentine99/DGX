@@ -224,19 +224,6 @@ const getOperatorsForTemplate = (templateId: string) => {
   }));
 };
 
-// Simulated logs
-const generateLogs = (appName: string) => [
-  { time: new Date().toLocaleTimeString(), level: "INFO", message: `[Application] ${appName} pipeline initialized` },
-  { time: new Date().toLocaleTimeString(), level: "INFO", message: "[VideoStreamInput] Connected to /dev/video0 (Logitech BRIO)" },
-  { time: new Date().toLocaleTimeString(), level: "INFO", message: "[VideoStreamInput] Format: MJPEG 1920x1080 @ 60fps" },
-  { time: new Date().toLocaleTimeString(), level: "INFO", message: "[InferenceOp] Loading TensorRT engine..." },
-  { time: new Date().toLocaleTimeString(), level: "INFO", message: "[InferenceOp] Engine loaded on GPU 0 (GB10 Grace Blackwell)" },
-  { time: new Date().toLocaleTimeString(), level: "INFO", message: "[HoloViz] Display initialized: 1920x1080 @ 60Hz" },
-  { time: new Date().toLocaleTimeString(), level: "INFO", message: "[Scheduler] Pipeline started with GreedyScheduler" },
-  { time: new Date().toLocaleTimeString(), level: "DEBUG", message: "[DataFlowTracker] Tracking enabled for all operators" },
-  { time: new Date().toLocaleTimeString(), level: "INFO", message: "[Performance] Avg latency: 14.2ms, FPS: 58.5" },
-];
-
 export default function Holoscan() {
   const [apps, setApps] = useState<PipelineApp[]>([]);
   const [selectedApp, setSelectedApp] = useState<PipelineApp | null>(null);
@@ -244,7 +231,6 @@ export default function Holoscan() {
   const [autoRefresh, setAutoRefresh] = useState(true);
   const [cameraConnected, setCameraConnected] = useState(true);
   const [showDeployDialog, setShowDeployDialog] = useState(false);
-  const [logs, setLogs] = useState(generateLogs("Holoscan Pipeline"));
   const [selectedHost, setSelectedHost] = useState<"alpha" | "beta">("alpha");
 
   // Backend API queries
@@ -349,11 +335,34 @@ export default function Holoscan() {
       fromLine: logFromLine,
       level: logLevel,
     },
-    { 
+    {
       enabled: !!selectedPipelineLogs && showLogsDialog,
       refetchInterval: showLogsDialog && logAutoScroll ? 2000 : false,
     }
   );
+
+  // Live logs for main panel - fetches logs from currently selected running pipeline
+  const { data: liveLogs } = trpc.ssh.streamPipelineLogs.useQuery(
+    {
+      hostId: selectedHost,
+      pipelinePath: selectedApp?.id || "",
+      fromLine: 0,
+      maxLines: 50,
+    },
+    {
+      enabled: !!selectedApp && selectedApp.status === "running" && autoRefresh,
+      refetchInterval: autoRefresh ? 3000 : false,
+    }
+  );
+
+  // Format live logs for display
+  const displayLogs = liveLogs?.logs?.map(log => ({
+    time: new Date(log.timestamp).toLocaleTimeString(),
+    level: log.level?.toUpperCase() || "INFO",
+    message: log.message,
+  })) || [
+    { time: new Date().toLocaleTimeString(), level: "INFO", message: "Waiting for pipeline logs..." },
+  ];
 
   // Python syntax validation mutation
   const validateSyntaxMutation = trpc.ssh.validatePythonSyntax.useMutation({
@@ -1373,14 +1382,14 @@ export default function Holoscan() {
             <CardContent>
               <ScrollArea className="h-[200px] rounded-lg bg-background/50 p-3">
                 <div className="space-y-1 font-mono text-xs">
-                  {logs.map((log, idx) => (
+                  {displayLogs.map((log, idx) => (
                     <div key={idx} className="flex gap-2">
                       <span className="text-muted-foreground">{log.time}</span>
                       <span
                         className={
                           log.level === "ERROR"
                             ? "text-nvidia-critical"
-                            : log.level === "WARN"
+                            : log.level === "WARN" || log.level === "WARNING"
                             ? "text-nvidia-warning"
                             : log.level === "DEBUG"
                             ? "text-muted-foreground"

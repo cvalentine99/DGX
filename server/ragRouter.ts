@@ -2,6 +2,7 @@ import { z } from "zod";
 import { publicProcedure, router } from "./_core/trpc";
 import * as fs from "fs";
 import * as path from "path";
+import { AddDocumentSchema, DocumentCategorySchema } from "../shared/schemas";
 
 // Simple in-memory document store for RAG
 // In production, this would use a vector database like Pinecone, Weaviate, or pgvector
@@ -253,13 +254,9 @@ export const ragRouter = router({
     }),
 
   // Add a new document
+  // Use shared schema for validation (ensures frontend/backend consistency)
   addDocument: publicProcedure
-    .input(z.object({
-      title: z.string(),
-      content: z.string(),
-      source: z.string().optional(),
-      category: z.enum(["training_data", "user_guide", "api_docs", "playbook"]),
-    }))
+    .input(AddDocumentSchema)
     .mutation(({ input }) => {
       const docId = `doc_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
       const chunks = chunkText(input.content);

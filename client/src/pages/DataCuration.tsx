@@ -54,24 +54,29 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 
-// Demo data imports - only used when DEMO_MODE is enabled
-import {
-  DEMO_MODE,
-  DEMO_DATASETS,
-  DEMO_QUALITY_METRICS,
-  type DemoDataset,
-  type DemoQualityMetrics,
-} from "@/demo";
+// Shared validation schemas - ensures frontend/backend consistency
+import { CreateDatasetSchema, getFirstError } from "../../../shared/schemas";
 
-// Use demo data when DEMO_MODE is enabled, otherwise empty arrays (production fetches from API)
-const DATASETS: DemoDataset[] = DEMO_MODE ? DEMO_DATASETS : [];
-const QUALITY_METRICS: DemoQualityMetrics = DEMO_MODE ? DEMO_QUALITY_METRICS : {
-  totalSamples: 0,
-  validatedSamples: 0,
-  duplicateRate: 0,
-  avgTokenLength: 0,
-  languageDistribution: [],
-};
+// Type definitions for dataset data
+interface DatasetItem {
+  id: number;
+  name: string;
+  type: string;
+  format: string;
+  path: string;
+  size: string;
+  sampleCount: number | null;
+  status: string;
+  qualityScore: number | null;
+}
+
+interface QualityMetrics {
+  totalSamples: number;
+  validatedSamples: number;
+  duplicateRate: number;
+  avgTokenLength: number;
+  languageDistribution: { language: string; percentage: number }[];
+}
 
 const containerVariants = {
   hidden: { opacity: 0 },
@@ -88,6 +93,8 @@ function DatasetCatalogCard() {
   const [isScanning, setIsScanning] = useState(false);
   const [showUploadDialog, setShowUploadDialog] = useState(false);
   const [showNewDatasetDialog, setShowNewDatasetDialog] = useState(false);
+  const [showPreviewDialog, setShowPreviewDialog] = useState(false);
+  const [previewDataset, setPreviewDataset] = useState<DatasetItem | null>(null);
   const [uploadHostId, setUploadHostId] = useState<"alpha" | "beta">("alpha");
   const [uploadPath, setUploadPath] = useState("/data");
   const [uploadProgress, setUploadProgress] = useState(0);
@@ -104,10 +111,8 @@ function DatasetCatalogCard() {
     path: "/data/",
   });
 
-  // Fetch datasets from API when not in demo mode
-  const { data: apiData, refetch } = trpc.dataset.list.useQuery(undefined, {
-    enabled: !DEMO_MODE,
-  });
+  // Fetch datasets from API - always enabled for live backend connectivity
+  const { data: apiData, refetch, isLoading: isLoadingDatasets } = trpc.dataset.list.useQuery();
   const scanMutation = trpc.dataset.scan.useMutation({
     onSuccess: (data) => {
       if (data.success) {
@@ -170,13 +175,62 @@ function DatasetCatalogCard() {
     },
   });
 
-  // Use demo data or API data
-  const datasets = DEMO_MODE ? DATASETS : (apiData?.datasets || []);
+  // Always use API data for live backend connectivity
+  const datasets = apiData?.datasets || [];
+
+  // Preview file query - enabled when previewDataset is set
+  const { data: previewData, isLoading: isLoadingPreview } = trpc.ssh.readFile.useQuery(
+    {
+      hostId: (previewDataset?.hostId as "alpha" | "beta") || "alpha",
+      filePath: previewDataset?.path || "",
+      maxLines: 100,
+    },
+    {
+      enabled: !!previewDataset && showPreviewDialog,
+    }
+  );
 
   const filteredDatasets = datasets.filter((ds: any) =>
     ds.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
     ds.type.toLowerCase().includes(searchQuery.toLowerCase())
   );
+
+  // Handle preview button click
+  const handlePreview = (dataset: DatasetItem) => {
+    setPreviewDataset(dataset);
+    setShowPreviewDialog(true);
+  };
+
+  // Handle download button click
+  const handleDownload = async (dataset: DatasetItem) => {
+    try {
+      toast.info("Preparing download...");
+      // For now, we'll fetch the file content and create a download
+      // In a full implementation, this would use a streaming download endpoint
+      const response = await fetch(`/api/trpc/ssh.downloadFile?input=${encodeURIComponent(JSON.stringify({
+        hostId: dataset.hostId || "alpha",
+        filePath: dataset.path,
+      }))}`);
+
+      if (!response.ok) {
+        throw new Error("Download failed");
+      }
+
+      // Create a blob and download
+      const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = dataset.path.split("/").pop() || dataset.name;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      window.URL.revokeObjectURL(url);
+      toast.success("Download started");
+    } catch (error) {
+      toast.error("Download failed", { description: String(error) });
+    }
+  };
 
   const handleScan = (hostId: "alpha" | "beta") => {
     setIsScanning(true);
@@ -232,15 +286,13 @@ function DatasetCatalogCard() {
   };
 
   const handleCreateDataset = () => {
-    if (!newDataset.name.trim()) {
-      toast.error("Dataset name is required");
+    // Validate with shared schema before submission
+    const result = CreateDatasetSchema.safeParse(newDataset);
+    if (!result.success) {
+      toast.error("Validation failed", { description: getFirstError(result.error) });
       return;
     }
-    if (!newDataset.path.trim()) {
-      toast.error("Dataset path is required");
-      return;
-    }
-    createDatasetMutation.mutate(newDataset);
+    createDatasetMutation.mutate(result.data);
   };
 
   return (
@@ -468,7 +520,48 @@ function DatasetCatalogCard() {
           </div>
         </DialogContent>
       </Dialog>
-      
+
+      {/* Preview Dialog */}
+      <Dialog open={showPreviewDialog} onOpenChange={setShowPreviewDialog}>
+        <DialogContent className="max-w-3xl max-h-[80vh]">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Eye className="w-5 h-5" />
+              Preview: {previewDataset?.name}
+            </DialogTitle>
+            <DialogDescription>
+              {previewDataset?.path} • {previewDataset?.format?.toUpperCase()} • {previewDataset?.size}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="mt-4">
+            {isLoadingPreview ? (
+              <div className="flex items-center justify-center py-12">
+                <RefreshCw className="w-6 h-6 animate-spin text-muted-foreground" />
+              </div>
+            ) : previewData?.content ? (
+              <div className="rounded-lg bg-muted/50 p-4 overflow-auto max-h-[50vh]">
+                <pre className="text-xs font-mono whitespace-pre-wrap">{previewData.content}</pre>
+              </div>
+            ) : (
+              <div className="flex flex-col items-center justify-center py-12 text-muted-foreground">
+                <AlertTriangle className="w-8 h-8 mb-2" />
+                <p>Unable to preview this file</p>
+                {previewData?.error && <p className="text-xs mt-1">{previewData.error}</p>}
+              </div>
+            )}
+          </div>
+          <div className="flex justify-end gap-2 mt-4">
+            <Button variant="outline" onClick={() => setShowPreviewDialog(false)}>
+              Close
+            </Button>
+            <Button onClick={() => previewDataset && handleDownload(previewDataset)}>
+              <Download className="w-4 h-4 mr-2" />
+              Download
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
       <CardContent className="space-y-4">
         {/* Search */}
         <div className="relative">
@@ -532,10 +625,22 @@ function DatasetCatalogCard() {
                 </div>
                 
                 <div className="flex items-center gap-1">
-                  <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => toast.info("Feature coming soon")}>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-8 w-8"
+                    onClick={() => handlePreview(dataset as DatasetItem)}
+                    title="Preview dataset"
+                  >
                     <Eye className="w-4 h-4" />
                   </Button>
-                  <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => toast.info("Feature coming soon")}>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-8 w-8"
+                    onClick={() => handleDownload(dataset as DatasetItem)}
+                    title="Download dataset"
+                  >
                     <Download className="w-4 h-4" />
                   </Button>
                 </div>
@@ -549,25 +654,33 @@ function DatasetCatalogCard() {
 }
 
 function QualityMetricsCard() {
-  // Fetch quality metrics from API when not in demo mode
+  // Fetch quality metrics from API - always enabled for live backend connectivity
   const { data: apiMetrics, isLoading, error } = trpc.dataset.getQualityMetrics.useQuery(undefined, {
-    enabled: !DEMO_MODE,
     refetchInterval: 30000, // Refresh every 30 seconds
   });
 
-  // Use demo data or API data
-  const metrics = DEMO_MODE ? QUALITY_METRICS : (apiMetrics?.success && apiMetrics.metrics ? {
+  // Default empty metrics when API hasn't responded yet
+  const defaultMetrics: QualityMetrics = {
+    totalSamples: 0,
+    validatedSamples: 0,
+    duplicateRate: 0,
+    avgTokenLength: 0,
+    languageDistribution: [],
+  };
+
+  // Always use API data for live backend connectivity
+  const metrics: QualityMetrics = apiMetrics?.success && apiMetrics.metrics ? {
     totalSamples: apiMetrics.metrics.totalSamples ?? 0,
     validatedSamples: Math.round((apiMetrics.metrics.totalSamples ?? 0) * ((apiMetrics.metrics.validationRate ?? 0) / 100)),
     duplicateRate: apiMetrics.metrics.duplicateRate ?? 0,
     avgTokenLength: apiMetrics.metrics.avgTokenLength ?? 0,
     languageDistribution: Object.entries(apiMetrics.metrics.typeDistribution ?? {}).map(([type, count]) => ({
-      lang: type.charAt(0).toUpperCase() + type.slice(1),
-      percent: (apiMetrics.metrics?.totalSamples ?? 0) > 0
+      language: type.charAt(0).toUpperCase() + type.slice(1),
+      percentage: (apiMetrics.metrics?.totalSamples ?? 0) > 0
         ? Math.round((count as number / (apiMetrics.metrics?.totalSamples ?? 1)) * 100)
         : 0,
     })),
-  } : QUALITY_METRICS);
+  } : defaultMetrics;
 
   const validationRate = metrics.totalSamples > 0
     ? (metrics.validatedSamples / metrics.totalSamples) * 100
@@ -583,18 +696,18 @@ function QualityMetricsCard() {
           <div>
             <CardTitle className="text-base font-display tracking-wide">Quality Metrics</CardTitle>
             <p className="text-xs text-muted-foreground">
-              {DEMO_MODE ? "Demo statistics" : (apiMetrics?.success ? "Live statistics" : "Aggregate statistics")}
+              {apiMetrics?.success ? "Live statistics" : "Aggregate statistics"}
             </p>
           </div>
         </div>
       </CardHeader>
 
       <CardContent className="space-y-4">
-        {!DEMO_MODE && isLoading ? (
+        {isLoading ? (
           <div className="flex items-center justify-center py-8">
             <RefreshCw className="w-6 h-6 animate-spin text-muted-foreground" />
           </div>
-        ) : !DEMO_MODE && error ? (
+        ) : error ? (
           <div className="flex flex-col items-center justify-center py-8 text-muted-foreground">
             <AlertTriangle className="w-8 h-8 mb-2 text-yellow-400" />
             <p className="text-sm">Failed to load metrics</p>
@@ -633,23 +746,21 @@ function QualityMetricsCard() {
               </div>
             </div>
 
-            {/* Type/Language Distribution */}
+            {/* Type Distribution */}
             <div className="pt-3 border-t border-border/50">
-              <span className="text-xs text-muted-foreground">
-                {DEMO_MODE ? "Language Distribution" : "Type Distribution"}
-              </span>
+              <span className="text-xs text-muted-foreground">Type Distribution</span>
               <div className="mt-2 space-y-2">
                 {metrics.languageDistribution.length > 0 ? (
                   metrics.languageDistribution.map((item) => (
-                    <div key={item.lang} className="flex items-center gap-2">
-                      <span className="text-xs w-16">{item.lang}</span>
+                    <div key={item.language} className="flex items-center gap-2">
+                      <span className="text-xs w-16">{item.language}</span>
                       <div className="flex-1 h-2 rounded-full bg-muted/50 overflow-hidden">
                         <div
                           className="h-full rounded-full bg-cyan-400"
-                          style={{ width: `${item.percent}%` }}
+                          style={{ width: `${item.percentage}%` }}
                         />
                       </div>
-                      <span className="text-xs font-mono w-10 text-right">{item.percent}%</span>
+                      <span className="text-xs font-mono w-10 text-right">{item.percentage}%</span>
                     </div>
                   ))
                 ) : (
