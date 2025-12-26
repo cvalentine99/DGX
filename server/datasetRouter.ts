@@ -386,4 +386,90 @@ export const datasetRouter = router({
         return { success: false, error: String(error) };
       }
     }),
+
+  // Get preprocessing jobs - returns current and recent preprocessing operations
+  getPreprocessingJobs: publicProcedure
+    .input(z.object({
+      datasetId: z.number().optional(),
+    }).optional())
+    .query(async ({ input }) => {
+      try {
+        const db = await getDb();
+        if (!db) {
+          return { success: false, error: "Database not available", jobs: [] };
+        }
+
+        // Get all datasets and compute preprocessing status based on their status
+        const allDatasets = await db.select().from(datasets).orderBy(desc(datasets.updatedAt));
+
+        // Define preprocessing stages
+        const stages = [
+          { name: "Text Normalization", order: 1 },
+          { name: "Deduplication", order: 2 },
+          { name: "Quality Filtering", order: 3 },
+          { name: "Tokenization", order: 4 },
+        ];
+
+        // Compute overall preprocessing progress
+        const preprocessingJobs = stages.map((stage, idx) => {
+          // Determine stage status based on dataset statuses
+          const datasetsInStage = allDatasets.filter(d => {
+            if (stage.name === "Text Normalization") return d.status === "scanning" || d.status === "validated" || d.status === "ready";
+            if (stage.name === "Deduplication") return d.status === "validated" || d.status === "ready";
+            if (stage.name === "Quality Filtering") return d.status === "processing" || d.status === "validated" || d.status === "ready";
+            if (stage.name === "Tokenization") return d.status === "ready";
+            return false;
+          });
+
+          const completedInStage = allDatasets.filter(d => {
+            if (stage.name === "Text Normalization") return d.status === "validated" || d.status === "ready";
+            if (stage.name === "Deduplication") return d.status === "validated" || d.status === "ready";
+            if (stage.name === "Quality Filtering") return d.status === "validated" || d.status === "ready";
+            if (stage.name === "Tokenization") return d.status === "ready";
+            return false;
+          });
+
+          const progress = datasetsInStage.length > 0
+            ? Math.round((completedInStage.length / datasetsInStage.length) * 100)
+            : 0;
+
+          // Determine status
+          let status: "pending" | "running" | "completed" = "pending";
+          if (progress === 100) {
+            status = "completed";
+          } else if (progress > 0) {
+            status = "running";
+          } else if (idx > 0 && stages[idx - 1]) {
+            // Check if previous stage is complete
+            const prevStageCompleted = allDatasets.some(d =>
+              d.status === "validated" || d.status === "ready"
+            );
+            if (prevStageCompleted) status = "pending";
+          }
+
+          return {
+            id: `stage-${idx + 1}`,
+            name: stage.name,
+            status,
+            progress,
+            datasetsProcessed: completedInStage.length,
+            totalDatasets: datasetsInStage.length,
+          };
+        });
+
+        return {
+          success: true,
+          jobs: preprocessingJobs,
+          summary: {
+            total: stages.length,
+            completed: preprocessingJobs.filter(j => j.status === "completed").length,
+            running: preprocessingJobs.filter(j => j.status === "running").length,
+            pending: preprocessingJobs.filter(j => j.status === "pending").length,
+          },
+        };
+      } catch (error) {
+        console.error("[Dataset] GetPreprocessingJobs error:", error);
+        return { success: false, error: String(error), jobs: [] };
+      }
+    }),
 });

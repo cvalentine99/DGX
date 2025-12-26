@@ -1525,6 +1525,105 @@ export const sshRouter = router({
       }
     }),
 
+  // Get camera configuration (v4l2 controls)
+  getCameraConfig: publicProcedure
+    .input(z.object({
+      hostId: z.enum(["alpha", "beta"]),
+      device: z.string().default("/dev/video0"),
+    }))
+    .query(async ({ input }) => {
+      try {
+        const conn = await createSSHConnection(input.hostId);
+
+        // Get current v4l2 control values
+        const result = await executeSSHCommand(
+          conn,
+          `v4l2-ctl -d ${input.device} --list-ctrls-menus 2>/dev/null || echo 'No controls'`
+        );
+
+        conn.end();
+
+        // Parse controls
+        const controls: Record<string, { value: number; min: number; max: number; default: number }> = {};
+        const lines = result.stdout.split('\n');
+
+        for (const line of lines) {
+          // Parse lines like: brightness 0x00980900 (int)    : min=0 max=255 step=1 default=128 value=128
+          const match = line.match(/^\s*(\w+)\s+.*min=(-?\d+)\s+max=(-?\d+).*default=(-?\d+)\s+value=(-?\d+)/);
+          if (match) {
+            const [, name, min, max, def, value] = match;
+            controls[name] = {
+              value: parseInt(value),
+              min: parseInt(min),
+              max: parseInt(max),
+              default: parseInt(def),
+            };
+          }
+        }
+
+        return {
+          success: true,
+          device: input.device,
+          controls,
+          host: DGX_HOSTS[input.hostId],
+        };
+      } catch (error) {
+        console.error("[SSH] getCameraConfig error:", error);
+        return {
+          success: false,
+          error: String(error),
+          device: input.device,
+          controls: {},
+        };
+      }
+    }),
+
+  // Set camera configuration (v4l2 controls)
+  setCameraConfig: publicProcedure
+    .input(z.object({
+      hostId: z.enum(["alpha", "beta"]),
+      device: z.string().default("/dev/video0"),
+      settings: z.record(z.string(), z.number()),
+    }))
+    .mutation(async ({ input }) => {
+      try {
+        const conn = await createSSHConnection(input.hostId);
+
+        // Set each control value
+        const results: Array<{ control: string; success: boolean; error?: string }> = [];
+
+        for (const [control, value] of Object.entries(input.settings)) {
+          const result = await executeSSHCommand(
+            conn,
+            `v4l2-ctl -d ${input.device} --set-ctrl=${control}=${value} 2>&1`
+          );
+
+          if (result.exitCode === 0) {
+            results.push({ control, success: true });
+          } else {
+            results.push({ control, success: false, error: result.stderr || result.stdout });
+          }
+        }
+
+        conn.end();
+
+        const allSuccess = results.every(r => r.success);
+        return {
+          success: allSuccess,
+          results,
+          device: input.device,
+          host: DGX_HOSTS[input.hostId],
+        };
+      } catch (error) {
+        console.error("[SSH] setCameraConfig error:", error);
+        return {
+          success: false,
+          error: String(error),
+          results: [],
+        };
+      }
+    }),
+
   // List running Holoscan pipelines
   getHoloscanPipelines: publicProcedure
     .input(z.object({

@@ -776,11 +776,29 @@ function QualityMetricsCard() {
 }
 
 function PreprocessingPipelineCard() {
-  const pipelines = [
-    { name: "Text Normalization", status: "active", progress: 100 },
-    { name: "Deduplication", status: "active", progress: 100 },
-    { name: "Quality Filtering", status: "running", progress: 67 },
-    { name: "Tokenization", status: "pending", progress: 0 },
+  const { data: preprocessingData, isLoading } = trpc.dataset.getPreprocessingJobs.useQuery(undefined, {
+    refetchInterval: 10000, // Refresh every 10 seconds
+  });
+
+  // Map backend status to display status
+  const mapStatus = (status: string): "active" | "running" | "pending" => {
+    switch (status) {
+      case "completed": return "active";
+      case "running": return "running";
+      default: return "pending";
+    }
+  };
+
+  // Use live data or fallback to default stages if loading
+  const pipelines = preprocessingData?.stages?.map(stage => ({
+    name: stage.name,
+    status: mapStatus(stage.status),
+    progress: stage.progress,
+  })) || [
+    { name: "Text Normalization", status: "pending" as const, progress: 0 },
+    { name: "Deduplication", status: "pending" as const, progress: 0 },
+    { name: "Quality Filtering", status: "pending" as const, progress: 0 },
+    { name: "Tokenization", status: "pending" as const, progress: 0 },
   ];
 
   return (
@@ -792,11 +810,13 @@ function PreprocessingPipelineCard() {
           </div>
           <div>
             <CardTitle className="text-base font-display tracking-wide">Preprocessing Pipeline</CardTitle>
-            <p className="text-xs text-muted-foreground">Data transformation stages</p>
+            <p className="text-xs text-muted-foreground">
+              {isLoading ? "Loading..." : `Data transformation stages (${preprocessingData?.totalDatasets || 0} datasets)`}
+            </p>
           </div>
         </div>
       </CardHeader>
-      
+
       <CardContent className="space-y-3">
         {pipelines.map((pipeline, index) => (
           <div key={index} className="flex items-center gap-3 p-3 rounded-lg bg-muted/30">
@@ -817,7 +837,7 @@ function PreprocessingPipelineCard() {
                   pipeline.status === "running" ? "bg-cyan-500/20 text-cyan-400" :
                   "bg-muted text-muted-foreground"
                 )}>
-                  {pipeline.status.toUpperCase()}
+                  {pipeline.status === "active" ? "COMPLETE" : pipeline.status.toUpperCase()}
                 </span>
               </div>
               {pipeline.status === "running" && (
