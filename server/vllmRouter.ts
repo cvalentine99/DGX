@@ -350,15 +350,10 @@ export const vllmRouter = router({
             simulated: false,
           };
         }
-      } catch {
-        // Fall through to simulated response
+      } catch (error: any) {
+        // Throw error instead of falling back to simulated response
+        throw new Error(`vLLM connection failed: ${error.message || 'Unable to connect to vLLM server at ' + config.apiUrl}`);
       }
-      
-      // Return simulated response
-      return {
-        ...getSimulatedResponse(input.messages, input.enableThinking ?? true),
-        simulated: true,
-      };
     }),
 
   // RAG-augmented chat completion
