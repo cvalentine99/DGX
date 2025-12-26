@@ -74,8 +74,8 @@ export default function PullProgressModal({
   const [error, setError] = useState<string | null>(null);
 
   const hostNames = {
-    alpha: "DGX Spark Alpha (192.168.50.139)",
-    beta: "DGX Spark Beta (192.168.50.110)",
+    alpha: "DGX Spark Alpha (192.168.50.110)",
+    beta: "DGX Spark Beta (192.168.50.139)",
   };
 
   // Start pull mutation

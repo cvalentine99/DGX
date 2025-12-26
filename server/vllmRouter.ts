@@ -14,7 +14,7 @@ interface VLLMConfig {
 
 // Default configuration - will be overridden by environment variables
 const getConfig = (): VLLMConfig => ({
-  apiUrl: process.env.VLLM_API_URL || "http://192.168.50.139:8000/v1",
+  apiUrl: process.env.VLLM_API_URL || "http://localhost:30000/v1",
   apiKey: process.env.VLLM_API_KEY || "",
   model: process.env.VLLM_MODEL || "/models/NVIDIA-Nemotron-3-Nano-30B-A3B-FP8",
   defaultTemperature: 1.0,
@@ -167,88 +167,6 @@ async function callVLLM(
   }
 }
 
-// Simulated response for when vLLM is not available
-function getSimulatedResponse(
-  messages: Array<{ role: string; content: string }>,
-  enableThinking: boolean
-): ChatCompletionResponse {
-  const lastMessage = messages[messages.length - 1];
-  const query = lastMessage?.content || "";
-  
-  let content: string;
-  let reasoningContent: string | undefined;
-  
-  if (enableThinking) {
-    reasoningContent = `<think>
-Analyzing the user's query: "${query.slice(0, 100)}..."
-
-Step 1: Identify the intent
-The user is asking about ${query.includes("API") ? "API usage" : query.includes("train") ? "training" : "general information"}.
-
-Step 2: Gather relevant context
-Based on the available documentation and training data...
-
-Step 3: Formulate response
-I should provide a clear, helpful answer based on the Nemotron-3-Nano documentation.
-</think>`;
-    
-    content = `${reasoningContent}
-
-I understand you're asking about "${query.slice(0, 50)}...". 
-
-**Note:** This is a simulated response. The vLLM server is not currently connected. To enable live inference:
-
-1. Pull the recommended NVIDIA vLLM container with DGX Spark support:
-   \`\`\`bash
-   docker pull nvcr.io/nvidia/vllm:25.11
-   \`\`\`
-
-2. Start vLLM server on your DGX Spark:
-   \`\`\`bash
-   docker run --gpus all -p 8001:8000 \\
-     -v /path/to/models:/models \\
-     nvcr.io/nvidia/vllm:25.11 \\
-     --model /models/NVIDIA-Nemotron-3-Nano-30B-A3B-FP8 \\
-     --host 0.0.0.0
-   \`\`\`
-
-3. Expose via ngrok and configure VLLM_API_URL in Settings → Secrets
-
-**Recommended Container:** nvcr.io/nvidia/vllm:25.11
-- Native DGX Spark/Blackwell GB10 support
-- CUDA 13.0 compatibility
-- NVFP4 4-bit and FP8 precision
-
-Once connected, I'll provide real responses from your Nemotron-3-Nano model!`;
-  } else {
-    content = `This is a simulated response. Configure VLLM_API_URL to connect to your DGX Spark vLLM server for live inference.`;
-  }
-  
-  const { reasoning, answer } = parseReasoningContent(content);
-  
-  return {
-    id: `chatcmpl-${Date.now()}`,
-    object: "chat.completion",
-    created: Math.floor(Date.now() / 1000),
-    model: "simulated-nemotron-3-nano",
-    choices: [{
-      index: 0,
-      message: {
-        role: "assistant",
-        content: answer,
-        reasoning_content: reasoning || undefined,
-      },
-      finish_reason: "stop",
-    }],
-    usage: {
-      prompt_tokens: query.length / 4,
-      completion_tokens: content.length / 4,
-      total_tokens: (query.length + content.length) / 4,
-      reasoning_tokens: reasoning ? reasoning.length / 4 : 0,
-    },
-  };
-}
-
 export const vllmRouter = router({
   // Get current configuration (without sensitive data)
   getConfig: publicProcedure.query(() => {
@@ -350,15 +268,10 @@ export const vllmRouter = router({
             simulated: false,
           };
         }
-      } catch {
-        // Fall through to simulated response
+      } catch (error: any) {
+        // Throw error instead of falling back to simulated response
+        throw new Error(`vLLM connection failed: ${error.message || 'Unable to connect to vLLM server at ' + config.apiUrl}`);
       }
-      
-      // Return simulated response
-      return {
-        ...getSimulatedResponse(input.messages, input.enableThinking ?? true),
-        simulated: true,
-      };
     }),
 
   // RAG-augmented chat completion
@@ -429,15 +342,9 @@ When answering:
             ragEnabled: !!input.ragContext,
           };
         }
-      } catch {
-        // Fall through to simulated response
+      } catch (error: any) {
+        throw new Error(`vLLM RAG connection failed: ${error.message || 'Unable to connect to vLLM server'}`);
       }
-      
-      return {
-        ...getSimulatedResponse(messagesWithContext, input.enableThinking ?? true),
-        simulated: true,
-        ragEnabled: !!input.ragContext,
-      };
     }),
 
   // Get available models from vLLM server

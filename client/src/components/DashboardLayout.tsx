@@ -41,8 +41,8 @@ interface DashboardLayoutProps {
 
 // DGX Spark Host Configuration
 const DGX_HOSTS = [
-  { id: "alpha", ip: "192.168.50.139", name: "DGX Spark Alpha", status: "online" as const },
-  { id: "beta", ip: "192.168.50.110", name: "DGX Spark Beta", status: "online" as const },
+  { id: "alpha", ip: "192.168.50.110", name: "DGX Spark Alpha", status: "online" as const },
+  { id: "beta", ip: "192.168.50.139", name: "DGX Spark Beta", status: "online" as const },
 ];
 
 // Navigation Items

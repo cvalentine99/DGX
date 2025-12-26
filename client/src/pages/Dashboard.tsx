@@ -631,10 +631,10 @@ export default function Dashboard() {
     {
       hostId: "alpha",
       hostName: "DGX Spark Alpha",
-      hostIp: "192.168.50.139",
+      hostIp: "192.168.50.110",
       timestamp: Date.now(),
       connected: true,
-      isLocal: false, // Alpha is REMOTE
+      isLocal: true, // Alpha is LOCAL - app runs here
       gpus: [{
         index: 0,
         name: "NVIDIA GB10 Grace Blackwell",
@@ -662,10 +662,10 @@ export default function Dashboard() {
     {
       hostId: "beta",
       hostName: "DGX Spark Beta",
-      hostIp: "192.168.50.110",
+      hostIp: "192.168.50.139",
       timestamp: Date.now(),
       connected: true,
-      isLocal: true, // Beta is LOCAL
+      isLocal: false, // Beta is REMOTE - accessed via SSH
       gpus: [{
         index: 0,
         name: "NVIDIA GB10 Grace Blackwell",

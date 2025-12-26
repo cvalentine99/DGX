@@ -78,7 +78,7 @@ import {
 import { toast } from "sonner";
 import { trpc } from "@/lib/trpc";
 import { cn } from "@/lib/utils";
-import { WebRTCPreviewV2 } from "@/components/WebRTCPreviewV2";
+import { WebRTCPreview } from "@/components/WebRTCPreview";
 import { InferenceOverlay, useSimulatedDetections } from "@/components/InferenceOverlay";
 import { Loader2 } from "lucide-react";
 
@@ -462,14 +462,53 @@ export default function Holoscan() {
     }
   };
 
-  // Pipeline metrics query
+  // Pipeline metrics query - enabled when any pipeline is running for live metrics
+  const hasRunningPipelines = apps.some(app => app.status === "running");
   const { data: pipelineMetrics, refetch: refetchMetrics } = trpc.ssh.getAllPipelineMetrics.useQuery(
-    undefined,
-    { 
-      enabled: showMetricsDashboard,
-      refetchInterval: showMetricsDashboard ? 5000 : false,
+    { hostId: selectedHost },
+    {
+      enabled: hasRunningPipelines || showMetricsDashboard,
+      refetchInterval: (hasRunningPipelines || showMetricsDashboard) ? 3000 : false,
     }
   );
+
+  // Update apps with live metrics from backend
+  useEffect(() => {
+    if (pipelineMetrics?.success && pipelineMetrics.metrics) {
+      setApps(prevApps => prevApps.map(app => {
+        // Find matching metrics for this pipeline
+        const metrics = pipelineMetrics.metrics?.find(
+          (m: any) => m.pipelineId === app.id || m.containerId === app.id
+        );
+        if (metrics && app.status === "running") {
+          return {
+            ...app,
+            actualFps: metrics.fps ?? app.actualFps,
+            latency: metrics.latency ?? app.latency,
+            gpuUtil: metrics.gpuUtilization ?? app.gpuUtil,
+            memUsed: metrics.gpuMemoryUsed ? metrics.gpuMemoryUsed / 1024 : app.memUsed, // Convert MB to GB
+          };
+        }
+        return app;
+      }));
+
+      // Also update selectedApp if it's currently selected and running
+      if (selectedApp?.status === "running") {
+        const metrics = pipelineMetrics.metrics?.find(
+          (m: any) => m.pipelineId === selectedApp.id || m.containerId === selectedApp.id
+        );
+        if (metrics) {
+          setSelectedApp(prev => prev ? {
+            ...prev,
+            actualFps: metrics.fps ?? prev.actualFps,
+            latency: metrics.latency ?? prev.latency,
+            gpuUtil: metrics.gpuUtilization ?? prev.gpuUtil,
+            memUsed: metrics.gpuMemoryUsed ? metrics.gpuMemoryUsed / 1024 : prev.memUsed,
+          } : null);
+        }
+      }
+    }
+  }, [pipelineMetrics, selectedApp?.id, selectedApp?.status]);
 
   // Update camera connection status based on API response
   useEffect(() => {
@@ -498,6 +537,53 @@ export default function Holoscan() {
     audioEnabled: false,
     sampleRate: 48000,
   });
+
+  // Fetch camera config from backend
+  const { data: backendCameraConfig } = trpc.ssh.getCameraConfig.useQuery(
+    { hostId: selectedHost, device: cameraConfig.device },
+    { enabled: cameraConnected }
+  );
+
+  // Mutation to save camera config to backend
+  const saveCameraConfigMutation = trpc.ssh.setCameraConfig.useMutation({
+    onSuccess: (data) => {
+      if (data.success) {
+        toast.success("Camera settings applied");
+      } else {
+        toast.error("Some settings failed to apply");
+      }
+    },
+    onError: (error) => {
+      toast.error("Failed to apply camera settings", { description: error.message });
+    },
+  });
+
+  // Update local state when backend config is fetched
+  useEffect(() => {
+    if (backendCameraConfig?.success && backendCameraConfig.controls) {
+      const controls = backendCameraConfig.controls;
+      setCameraConfig(prev => ({
+        ...prev,
+        brightness: controls.brightness?.value ?? prev.brightness,
+        contrast: controls.contrast?.value ?? prev.contrast,
+        saturation: controls.saturation?.value ?? prev.saturation,
+        sharpness: controls.sharpness?.value ?? prev.sharpness,
+      }));
+    }
+  }, [backendCameraConfig]);
+
+  // Save camera config changes to backend (debounced via onChange)
+  const handleCameraConfigChange = (key: string, value: number) => {
+    setCameraConfig(prev => ({ ...prev, [key]: value }));
+
+    // Map frontend config names to v4l2 control names and save
+    const v4l2Name = key; // In most cases they match
+    saveCameraConfigMutation.mutate({
+      hostId: selectedHost,
+      device: cameraConfig.device,
+      settings: { [v4l2Name]: value },
+    });
+  };
 
   // New pipeline deployment state
   const [newPipeline, setNewPipeline] = useState({
@@ -1304,9 +1390,10 @@ export default function Holoscan() {
                 </div>
                 <Slider
                   value={[cameraConfig.brightness]}
-                  onValueChange={([v]) => setCameraConfig({ ...cameraConfig, brightness: v })}
+                  onValueChange={([v]) => handleCameraConfigChange("brightness", v)}
                   max={100}
                   step={1}
+                  disabled={saveCameraConfigMutation.isPending}
                 />
               </div>
 
@@ -1317,9 +1404,10 @@ export default function Holoscan() {
                 </div>
                 <Slider
                   value={[cameraConfig.contrast]}
-                  onValueChange={([v]) => setCameraConfig({ ...cameraConfig, contrast: v })}
+                  onValueChange={([v]) => handleCameraConfigChange("contrast", v)}
                   max={100}
                   step={1}
+                  disabled={saveCameraConfigMutation.isPending}
                 />
               </div>
 
@@ -1491,14 +1579,15 @@ export default function Holoscan() {
             </CardContent>
           </Card>
 
-          {/* WebRTC Live Camera Preview */}
+          {/* Local Camera Preview */}
           <div className="mt-4">
-            <WebRTCPreviewV2
+            <WebRTCPreview
               hostId="alpha"
               camera={cameraConfig.device}
               resolution={cameraConfig.resolution}
               fps={cameraConfig.fps}
               format={cameraConfig.format}
+              useLocalCamera={true}
               onStreamStart={() => toast.success("Camera stream started")}
               onStreamStop={() => toast.info("Camera stream stopped")}
             />

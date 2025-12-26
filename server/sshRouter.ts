@@ -1339,23 +1339,7 @@ export const sshRouter = router({
           host: DGX_HOSTS[input.hostId],
         };
       } catch (error: any) {
-        // Return fallback data based on known specs
-        return {
-          success: false,
-          error: error.message,
-          total: 1000, // 1TB NVMe
-          used: 474,
-          available: 526,
-          usagePercent: 47.4,
-          breakdown: [
-            { name: "Nemotron-3-Nano-30B", size: 31.6, path: "/models/NVIDIA-Nemotron-3-Nano-30B-A3B-FP8", type: "model" as const },
-            { name: "NGC Containers", size: 377, path: "/var/lib/docker", type: "container" as const },
-            { name: "System & OS", size: 45, path: "/", type: "system" as const },
-            { name: "Holoscan Pipelines", size: 12, path: "/opt/holoscan", type: "other" as const },
-            { name: "Training Data", size: 8, path: "/data/training", type: "other" as const },
-          ],
-          host: DGX_HOSTS[input.hostId],
-        };
+        throw new Error(`Failed to get storage info from ${DGX_HOSTS[input.hostId].name}: ${error.message}`);
       }
     }),
 
@@ -1472,55 +1456,111 @@ export const sshRouter = router({
           }
         }
         
-        // If no devices found, return BRIO as default (based on forensic report)
-        if (devices.length === 0 || devices[0].path === 'No video devices') {
-          return {
-            success: true,
-            devices: [{
-              name: 'Logitech BRIO',
-              path: '/dev/video0',
-              type: 'camera',
-              vendorId: '046d',
-              productId: '085e',
-              serial: '409CBA2F',
-              capabilities: ['4K UHD', 'H.264', 'MJPEG', 'YUY2', '90fps'],
-            }, {
-              name: 'Logitech BRIO (IR)',
-              path: '/dev/video2',
-              type: 'camera',
-              vendorId: '046d',
-              productId: '085e',
-            }],
-            host: DGX_HOSTS[input.hostId],
-          };
-        }
-        
         return {
           success: true,
           devices,
           host: DGX_HOSTS[input.hostId],
         };
       } catch (error: any) {
-        // Return BRIO as fallback based on forensic report
+        throw new Error(`Failed to get camera devices from ${DGX_HOSTS[input.hostId].name}: ${error.message}`);
+      }
+    }),
+
+  // Get camera configuration (v4l2 controls)
+  getCameraConfig: publicProcedure
+    .input(z.object({
+      hostId: z.enum(["alpha", "beta"]),
+      device: z.string().default("/dev/video0"),
+    }))
+    .query(async ({ input }) => {
+      try {
+        const conn = await createSSHConnection(input.hostId);
+
+        // Get current v4l2 control values
+        const result = await executeSSHCommand(
+          conn,
+          `v4l2-ctl -d ${input.device} --list-ctrls-menus 2>/dev/null || echo 'No controls'`
+        );
+
+        conn.end();
+
+        // Parse controls
+        const controls: Record<string, { value: number; min: number; max: number; default: number }> = {};
+        const lines = result.stdout.split('\n');
+
+        for (const line of lines) {
+          // Parse lines like: brightness 0x00980900 (int)    : min=0 max=255 step=1 default=128 value=128
+          const match = line.match(/^\s*(\w+)\s+.*min=(-?\d+)\s+max=(-?\d+).*default=(-?\d+)\s+value=(-?\d+)/);
+          if (match) {
+            const [, name, min, max, def, value] = match;
+            controls[name] = {
+              value: parseInt(value),
+              min: parseInt(min),
+              max: parseInt(max),
+              default: parseInt(def),
+            };
+          }
+        }
+
         return {
           success: true,
-          devices: [{
-            name: 'Logitech BRIO',
-            path: '/dev/video0',
-            type: 'camera',
-            vendorId: '046d',
-            productId: '085e',
-            serial: '409CBA2F',
-            capabilities: ['4K UHD', 'H.264', 'MJPEG', 'YUY2', '90fps'],
-          }, {
-            name: 'Logitech BRIO (IR)',
-            path: '/dev/video2',
-            type: 'camera',
-            vendorId: '046d',
-            productId: '085e',
-          }],
+          device: input.device,
+          controls,
           host: DGX_HOSTS[input.hostId],
-          fallback: true,
+        };
+      } catch (error) {
+        console.error("[SSH] getCameraConfig error:", error);
+        return {
+          success: false,
+          error: String(error),
+          device: input.device,
+          controls: {},
+        };
+      }
+    }),
+
+  // Set camera configuration (v4l2 controls)
+  setCameraConfig: publicProcedure
+    .input(z.object({
+      hostId: z.enum(["alpha", "beta"]),
+      device: z.string().default("/dev/video0"),
+      settings: z.record(z.string(), z.number()),
+    }))
+    .mutation(async ({ input }) => {
+      try {
+        const conn = await createSSHConnection(input.hostId);
+
+        // Set each control value
+        const results: Array<{ control: string; success: boolean; error?: string }> = [];
+
+        for (const [control, value] of Object.entries(input.settings)) {
+          const result = await executeSSHCommand(
+            conn,
+            `v4l2-ctl -d ${input.device} --set-ctrl=${control}=${value} 2>&1`
+          );
+
+          if (result.exitCode === 0) {
+            results.push({ control, success: true });
+          } else {
+            results.push({ control, success: false, error: result.stderr || result.stdout });
+          }
+        }
+
+        conn.end();
+
+        const allSuccess = results.every(r => r.success);
+        return {
+          success: allSuccess,
+          results,
+          device: input.device,
+          host: DGX_HOSTS[input.hostId],
+        };
+      } catch (error) {
+        console.error("[SSH] setCameraConfig error:", error);
+        return {
+          success: false,
+          error: String(error),
+          results: [],
         };
       }
     }),
@@ -1595,31 +1635,8 @@ export const sshRouter = router({
       }),
     }))
     .mutation(async ({ input }) => {
-      try {
-        const conn = await createSSHConnection(input.hostId);
-        
-        // Build Holoscan run command based on pipeline type
-        const containerName = `holoscan-${input.pipelineType}-${Date.now()}`;
-        const [width, height] = input.config.resolution.split('x').map(Number);
-        
-        // This would run the actual Holoscan container
-        // For now, return success with simulated data
-        conn.end();
-        
-        return {
-          success: true,
-          pipelineId: containerName,
-          message: `Started ${input.pipelineType} pipeline on ${DGX_HOSTS[input.hostId].name}`,
-          config: input.config,
-          host: DGX_HOSTS[input.hostId],
-        };
-      } catch (error: any) {
-        return {
-          success: false,
-          error: error.message,
-          host: DGX_HOSTS[input.hostId],
-        };
-      }
+      // TODO: Implement actual Holoscan container start via docker run
+      throw new Error(`startHoloscanPipeline not implemented: would start ${input.pipelineType} on ${DGX_HOSTS[input.hostId].name}`);
     }),
 
   // Stop a Holoscan pipeline
@@ -5528,9 +5545,9 @@ PIPELINE_EOF`);
               cpuPercent,
               memoryMB,
               uptime,
-              // Simulated throughput and latency (would come from actual pipeline metrics)
-              throughput: running ? Math.floor(Math.random() * 100) + 50 : 0,
-              latency: running ? Math.floor(Math.random() * 20) + 5 : 0,
+              // Real throughput/latency would come from pipeline metrics endpoint
+              throughput: undefined,
+              latency: undefined,
             });
           }
         } catch (error) {

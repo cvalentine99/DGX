@@ -210,8 +210,8 @@ const CATEGORIES = [
 
 // DGX Spark hosts
 const DGX_HOSTS = [
-  { id: "alpha", name: "DGX Spark Alpha", ip: "192.168.50.139" },
-  { id: "beta", name: "DGX Spark Beta", ip: "192.168.50.110" },
+  { id: "alpha", name: "DGX Spark Alpha", ip: "192.168.50.110" },
+  { id: "beta", name: "DGX Spark Beta", ip: "192.168.50.139" },
 ];
 
 interface DownloadProgress {

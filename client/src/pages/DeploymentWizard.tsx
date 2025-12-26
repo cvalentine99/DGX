@@ -79,7 +79,7 @@ interface WizardConfig {
 
 const defaultConfig: WizardConfig = {
   deploymentMethod: "ai-workbench",
-  hostname: "192.168.50.139",
+  hostname: "192.168.50.139", // Beta (remote) for SSH deployment
   sshPort: 22,
   sshUsername: "ubuntu",
   gpuCount: 1,

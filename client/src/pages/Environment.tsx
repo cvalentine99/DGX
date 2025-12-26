@@ -44,7 +44,7 @@ const TOPOLOGY_DATA = {
   hosts: [
     {
       id: "alpha",
-      ip: "192.168.50.139",
+      ip: "192.168.50.110",
       name: "DGX Spark Alpha",
       gpus: [
         { id: "gpu-0", name: "NVIDIA GB10 Grace Blackwell", memory: 128, nvlink: true, pcie: "NVLink-C2C" }
@@ -56,7 +56,7 @@ const TOPOLOGY_DATA = {
     },
     {
       id: "beta",
-      ip: "192.168.50.110",
+      ip: "192.168.50.139",
       name: "DGX Spark Beta",
       gpus: [
         { id: "gpu-0", name: "NVIDIA GB10 Grace Blackwell", memory: 128, nvlink: true, pcie: "NVLink-C2C" }
