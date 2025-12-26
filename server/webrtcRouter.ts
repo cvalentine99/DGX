@@ -166,26 +166,13 @@ export const webrtcRouter = router({
       if (!session) {
         return { success: false, error: "Session not found" };
       }
-      
+
       session.offer = input.offer as RTCSessionDescriptionInit;
       session.lastActivity = Date.now();
-      
-      // Simulate processing delay
-      await new Promise(resolve => setTimeout(resolve, 100));
-      
-      // Generate a simulated SDP answer
-      const mockAnswer: RTCSessionDescriptionInit = {
-        type: "answer",
-        sdp: generateMockSdpAnswer(input.offer.sdp, session),
-      };
-      
-      session.answer = mockAnswer;
-      session.status = "streaming";
-      
-      return {
-        success: true,
-        answer: mockAnswer,
-      };
+
+      // TODO: Implement real WebRTC signaling with GStreamer pipeline
+      // This requires a running GStreamer WebRTC pipeline to generate real SDP answer
+      throw new Error("WebRTC signaling not implemented: requires GStreamer WebRTC pipeline on DGX host");
     }),
 
   // Get the SDP answer for the client
@@ -240,14 +227,10 @@ export const webrtcRouter = router({
       if (!session) {
         return { success: false, error: "Session not found", candidates: [] };
       }
-      
+
       session.lastActivity = Date.now();
-      
-      // Generate mock ICE candidates if streaming
-      if (session.iceCandidates.length === 0 && session.status === "streaming") {
-        session.iceCandidates = generateMockIceCandidates();
-      }
-      
+
+      // Real ICE candidates would come from GStreamer WebRTC pipeline
       return {
         success: true,
         candidates: session.iceCandidates,
@@ -267,17 +250,8 @@ export const webrtcRouter = router({
       }
       
       session.lastActivity = Date.now();
-      
-      // Update simulated stats
-      if (session.status === "streaming") {
-        session.stats = {
-          bitrate: 3500000 + Math.random() * 1000000,
-          framesReceived: Math.floor((Date.now() - session.createdAt) / 1000 * session.fps),
-          framesDropped: Math.floor(Math.random() * 5),
-          latency: 15 + Math.random() * 10,
-        };
-      }
-      
+
+      // Real stats would come from WebRTC connection or GStreamer pipeline
       return {
         success: true,
         session: {
@@ -433,55 +407,3 @@ export const webrtcRouter = router({
       }
     }),
 });
-
-// Generate a mock SDP answer for simulation
-function generateMockSdpAnswer(offerSdp: string, session: WebRTCSession): string {
-  return `v=0
-o=- ${Date.now()} 2 IN IP4 127.0.0.1
-s=-
-t=0 0
-a=group:BUNDLE 0
-a=msid-semantic: WMS stream
-m=video 9 UDP/TLS/RTP/SAVPF 96
-c=IN IP4 0.0.0.0
-a=rtcp:9 IN IP4 0.0.0.0
-a=ice-ufrag:${Math.random().toString(36).substr(2, 8)}
-a=ice-pwd:${Math.random().toString(36).substr(2, 24)}
-a=ice-options:trickle
-a=fingerprint:sha-256 ${generateMockFingerprint()}
-a=setup:active
-a=mid:0
-a=sendonly
-a=rtcp-mux
-a=rtcp-rsize
-a=rtpmap:96 H264/90000
-a=fmtp:96 level-asymmetry-allowed=1;packetization-mode=1;profile-level-id=42e01f
-a=ssrc:${Math.floor(Math.random() * 4294967295)} cname:dgx-spark-camera
-a=ssrc:${Math.floor(Math.random() * 4294967295)} msid:stream video
-`;
-}
-
-// Generate mock fingerprint
-function generateMockFingerprint(): string {
-  const bytes: string[] = [];
-  for (let i = 0; i < 32; i++) {
-    bytes.push(Math.floor(Math.random() * 256).toString(16).padStart(2, '0').toUpperCase());
-  }
-  return bytes.join(':');
-}
-
-// Generate mock ICE candidates
-function generateMockIceCandidates(): RTCIceCandidateInit[] {
-  return [
-    {
-      candidate: `candidate:1 1 UDP 2130706431 192.168.50.110 ${50000 + Math.floor(Math.random() * 1000)} typ host`,
-      sdpMid: "0",
-      sdpMLineIndex: 0,
-    },
-    {
-      candidate: `candidate:2 1 UDP 1694498815 ${Math.floor(Math.random() * 256)}.${Math.floor(Math.random() * 256)}.${Math.floor(Math.random() * 256)}.${Math.floor(Math.random() * 256)} ${50000 + Math.floor(Math.random() * 1000)} typ srflx raddr 192.168.50.110 rport ${50000 + Math.floor(Math.random() * 1000)}`,
-      sdpMid: "0",
-      sdpMLineIndex: 0,
-    },
-  ];
-}

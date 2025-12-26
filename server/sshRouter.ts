@@ -1339,23 +1339,7 @@ export const sshRouter = router({
           host: DGX_HOSTS[input.hostId],
         };
       } catch (error: any) {
-        // Return fallback data based on known specs
-        return {
-          success: false,
-          error: error.message,
-          total: 1000, // 1TB NVMe
-          used: 474,
-          available: 526,
-          usagePercent: 47.4,
-          breakdown: [
-            { name: "Nemotron-3-Nano-30B", size: 31.6, path: "/models/NVIDIA-Nemotron-3-Nano-30B-A3B-FP8", type: "model" as const },
-            { name: "NGC Containers", size: 377, path: "/var/lib/docker", type: "container" as const },
-            { name: "System & OS", size: 45, path: "/", type: "system" as const },
-            { name: "Holoscan Pipelines", size: 12, path: "/opt/holoscan", type: "other" as const },
-            { name: "Training Data", size: 8, path: "/data/training", type: "other" as const },
-          ],
-          host: DGX_HOSTS[input.hostId],
-        };
+        throw new Error(`Failed to get storage info from ${DGX_HOSTS[input.hostId].name}: ${error.message}`);
       }
     }),
 
@@ -1472,56 +1456,13 @@ export const sshRouter = router({
           }
         }
         
-        // If no devices found, return BRIO as default (based on forensic report)
-        if (devices.length === 0 || devices[0].path === 'No video devices') {
-          return {
-            success: true,
-            devices: [{
-              name: 'Logitech BRIO',
-              path: '/dev/video0',
-              type: 'camera',
-              vendorId: '046d',
-              productId: '085e',
-              serial: '409CBA2F',
-              capabilities: ['4K UHD', 'H.264', 'MJPEG', 'YUY2', '90fps'],
-            }, {
-              name: 'Logitech BRIO (IR)',
-              path: '/dev/video2',
-              type: 'camera',
-              vendorId: '046d',
-              productId: '085e',
-            }],
-            host: DGX_HOSTS[input.hostId],
-          };
-        }
-        
         return {
           success: true,
           devices,
           host: DGX_HOSTS[input.hostId],
         };
       } catch (error: any) {
-        // Return BRIO as fallback based on forensic report
-        return {
-          success: true,
-          devices: [{
-            name: 'Logitech BRIO',
-            path: '/dev/video0',
-            type: 'camera',
-            vendorId: '046d',
-            productId: '085e',
-            serial: '409CBA2F',
-            capabilities: ['4K UHD', 'H.264', 'MJPEG', 'YUY2', '90fps'],
-          }, {
-            name: 'Logitech BRIO (IR)',
-            path: '/dev/video2',
-            type: 'camera',
-            vendorId: '046d',
-            productId: '085e',
-          }],
-          host: DGX_HOSTS[input.hostId],
-          fallback: true,
-        };
+        throw new Error(`Failed to get camera devices from ${DGX_HOSTS[input.hostId].name}: ${error.message}`);
       }
     }),
 
@@ -1694,31 +1635,8 @@ export const sshRouter = router({
       }),
     }))
     .mutation(async ({ input }) => {
-      try {
-        const conn = await createSSHConnection(input.hostId);
-        
-        // Build Holoscan run command based on pipeline type
-        const containerName = `holoscan-${input.pipelineType}-${Date.now()}`;
-        const [width, height] = input.config.resolution.split('x').map(Number);
-        
-        // This would run the actual Holoscan container
-        // For now, return success with simulated data
-        conn.end();
-        
-        return {
-          success: true,
-          pipelineId: containerName,
-          message: `Started ${input.pipelineType} pipeline on ${DGX_HOSTS[input.hostId].name}`,
-          config: input.config,
-          host: DGX_HOSTS[input.hostId],
-        };
-      } catch (error: any) {
-        return {
-          success: false,
-          error: error.message,
-          host: DGX_HOSTS[input.hostId],
-        };
-      }
+      // TODO: Implement actual Holoscan container start via docker run
+      throw new Error(`startHoloscanPipeline not implemented: would start ${input.pipelineType} on ${DGX_HOSTS[input.hostId].name}`);
     }),
 
   // Stop a Holoscan pipeline
@@ -5627,9 +5545,9 @@ PIPELINE_EOF`);
               cpuPercent,
               memoryMB,
               uptime,
-              // Simulated throughput and latency (would come from actual pipeline metrics)
-              throughput: running ? Math.floor(Math.random() * 100) + 50 : 0,
-              latency: running ? Math.floor(Math.random() * 20) + 5 : 0,
+              // Real throughput/latency would come from pipeline metrics endpoint
+              throughput: undefined,
+              latency: undefined,
             });
           }
         } catch (error) {
