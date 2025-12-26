@@ -591,22 +591,22 @@ export default function Settings() {
               <CardContent className="space-y-6">
                 <div className="grid gap-4 md:grid-cols-2">
                   <div className="space-y-2">
-                    <Label htmlFor="ssh-host">Host / ngrok Endpoint</Label>
+                    <Label htmlFor="ssh-host">SSH Host</Label>
                     <Input
                       id="ssh-host"
-                      placeholder="4.tcp.ngrok.io or 192.168.50.139"
+                      placeholder="192.168.50.139"
                       value={sshHost}
                       onChange={(e) => setSshHost(e.target.value)}
                     />
                     <p className="text-xs text-muted-foreground">
-                      Use ngrok TCP endpoint for remote access
+                      IP address of remote DGX Spark (Beta)
                     </p>
                   </div>
                   <div className="space-y-2">
                     <Label htmlFor="ssh-port">Port</Label>
                     <Input
                       id="ssh-port"
-                      placeholder="22 or ngrok port"
+                      placeholder="22"
                       value={sshPort}
                       onChange={(e) => setSshPort(e.target.value)}
                     />
