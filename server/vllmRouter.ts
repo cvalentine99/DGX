@@ -14,7 +14,7 @@ interface VLLMConfig {
 
 // Default configuration - will be overridden by environment variables
 const getConfig = (): VLLMConfig => ({
-  apiUrl: process.env.VLLM_API_URL || "http://192.168.50.139:8000/v1",
+  apiUrl: process.env.VLLM_API_URL || "http://localhost:30000/v1",
   apiKey: process.env.VLLM_API_KEY || "",
   model: process.env.VLLM_MODEL || "/models/NVIDIA-Nemotron-3-Nano-30B-A3B-FP8",
   defaultTemperature: 1.0,

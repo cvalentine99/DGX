@@ -41,29 +41,6 @@ interface ContainerLogsModalProps {
   containerImage: string;
 }
 
-// Simulated logs for demo mode
-const SIMULATED_LOGS = `2024-12-20T08:15:23.456Z INFO  [vllm.entrypoints.api_server] Starting vLLM API server...
-2024-12-20T08:15:24.123Z INFO  [vllm.engine.llm_engine] Initializing LLM engine with model: Nemotron-3-Nano-30B-A3B-FP8
-2024-12-20T08:15:25.789Z INFO  [vllm.engine.llm_engine] Loading model weights...
-2024-12-20T08:15:45.234Z INFO  [vllm.engine.llm_engine] Model loaded successfully
-2024-12-20T08:15:45.567Z INFO  [vllm.engine.llm_engine] GPU memory allocated: 45.2 GB / 128 GB
-2024-12-20T08:15:46.012Z INFO  [vllm.entrypoints.api_server] Server ready at http://0.0.0.0:8000
-2024-12-20T08:16:01.234Z INFO  [vllm.engine.async_llm_engine] Received request: req-001
-2024-12-20T08:16:01.456Z DEBUG [vllm.engine.async_llm_engine] Processing prompt with 128 tokens
-2024-12-20T08:16:02.789Z INFO  [vllm.engine.async_llm_engine] Generated 256 tokens in 1.33s (192.5 tok/s)
-2024-12-20T08:16:02.890Z INFO  [vllm.engine.async_llm_engine] Request req-001 completed
-2024-12-20T08:17:15.123Z INFO  [vllm.engine.async_llm_engine] Received request: req-002
-2024-12-20T08:17:15.234Z DEBUG [vllm.engine.async_llm_engine] Processing prompt with 512 tokens
-2024-12-20T08:17:18.567Z INFO  [vllm.engine.async_llm_engine] Generated 1024 tokens in 3.33s (307.2 tok/s)
-2024-12-20T08:17:18.678Z INFO  [vllm.engine.async_llm_engine] Request req-002 completed
-2024-12-20T08:18:30.456Z WARN  [vllm.engine.llm_engine] GPU memory usage high: 78.5%
-2024-12-20T08:18:30.567Z INFO  [vllm.engine.llm_engine] Running garbage collection...
-2024-12-20T08:18:31.234Z INFO  [vllm.engine.llm_engine] GPU memory after GC: 62.3%
-2024-12-20T08:19:45.789Z INFO  [vllm.engine.async_llm_engine] Received batch request: batch-001 (5 prompts)
-2024-12-20T08:19:46.012Z DEBUG [vllm.engine.async_llm_engine] Batch processing with continuous batching
-2024-12-20T08:19:52.345Z INFO  [vllm.engine.async_llm_engine] Batch completed: 5 requests, avg 285.6 tok/s
-2024-12-20T08:20:00.000Z INFO  [vllm.metrics] Metrics snapshot: requests=8, avg_latency=2.1s, throughput=267.3 tok/s`;
-
 export function ContainerLogsModal({
   isOpen,
   onClose,
@@ -75,7 +52,6 @@ export function ContainerLogsModal({
   const [tailLines, setTailLines] = useState<string>("100");
   const [autoRefresh, setAutoRefresh] = useState(false);
   const [copied, setCopied] = useState(false);
-  const [useSimulated, setUseSimulated] = useState(false);
   const logsEndRef = useRef<HTMLDivElement>(null);
   const logsContainerRef = useRef<HTMLPreElement>(null);
 
@@ -86,17 +62,11 @@ export function ContainerLogsModal({
       tail: parseInt(tailLines),
     },
     {
-      enabled: isOpen && !useSimulated,
+      enabled: isOpen,
       refetchInterval: autoRefresh ? 5000 : false,
+      retry: 2,
     }
   );
-
-  // Check for SSH errors and switch to simulated mode
-  useEffect(() => {
-    if (error || (data && !data.success)) {
-      setUseSimulated(true);
-    }
-  }, [error, data]);
 
   // Auto-scroll to bottom when new logs arrive
   useEffect(() => {
@@ -105,7 +75,7 @@ export function ContainerLogsModal({
     }
   }, [data?.logs, autoRefresh]);
 
-  const logs = useSimulated ? SIMULATED_LOGS : (data?.logs || "");
+  const logs = data?.logs || "";
 
   const handleCopy = async () => {
     try {
@@ -174,11 +144,6 @@ export function ContainerLogsModal({
                 </div>
               </div>
             </div>
-            {useSimulated && (
-              <Badge variant="outline" className="bg-yellow-500/10 text-yellow-400 border-yellow-500/30">
-                SIMULATED
-              </Badge>
-            )}
           </div>
         </DialogHeader>
 
@@ -259,12 +224,12 @@ export function ContainerLogsModal({
 
         {/* Logs content */}
         <div className="flex-1 overflow-hidden rounded-lg bg-black/50 border border-gray-800">
-          {isLoading && !useSimulated ? (
+          {isLoading ? (
             <div className="flex items-center justify-center h-full">
               <Loader2 className="w-6 h-6 animate-spin text-[#3b82f6]" />
               <span className="ml-2 text-gray-400">Fetching logs...</span>
             </div>
-          ) : error && !useSimulated ? (
+          ) : error ? (
             <div className="flex items-center justify-center h-full">
               <AlertCircle className="w-6 h-6 text-red-400" />
               <span className="ml-2 text-red-400">{error.message}</span>

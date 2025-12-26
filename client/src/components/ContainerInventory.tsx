@@ -64,33 +64,6 @@ function getCategoryStyle(repository: string): { color: string; label: string } 
   return { color: "bg-gray-500/20 text-gray-400 border-gray-500/30", label: "Other" };
 }
 
-// Simulated container data for demo when SSH is unavailable
-const SIMULATED_CONTAINERS: Record<string, ContainerImage[]> = {
-  alpha: [
-    { repository: "nvcr.io/nvidia/vllm", tag: "25.11", size: "15.2GB", createdAt: "2024-12-15 10:30:00", fullTag: "nvcr.io/nvidia/vllm:25.11" },
-    { repository: "nvcr.io/nvidia/nemo", tag: "24.09", size: "18.7GB", createdAt: "2024-12-10 14:22:00", fullTag: "nvcr.io/nvidia/nemo:24.09" },
-    { repository: "nvcr.io/nvidia/pytorch", tag: "24.11-py3", size: "12.4GB", createdAt: "2024-12-08 09:15:00", fullTag: "nvcr.io/nvidia/pytorch:24.11-py3" },
-    { repository: "nvcr.io/nvidia/tensorrt", tag: "24.11-py3", size: "8.9GB", createdAt: "2024-12-05 16:45:00", fullTag: "nvcr.io/nvidia/tensorrt:24.11-py3" },
-    { repository: "nvcr.io/nvidia/cuda", tag: "12.4.0-devel-ubuntu22.04", size: "4.2GB", createdAt: "2024-11-28 11:00:00", fullTag: "nvcr.io/nvidia/cuda:12.4.0-devel-ubuntu22.04" },
-    { repository: "nvcr.io/nvidia/dcgm-exporter", tag: "3.3.6-3.4.2-ubuntu22.04", size: "1.1GB", createdAt: "2024-11-20 08:30:00", fullTag: "nvcr.io/nvidia/dcgm-exporter:3.3.6-3.4.2-ubuntu22.04" },
-  ],
-  beta: [
-    { repository: "nvcr.io/nvidia/vllm", tag: "25.11", size: "15.2GB", createdAt: "2024-12-16 11:45:00", fullTag: "nvcr.io/nvidia/vllm:25.11" },
-    { repository: "nvcr.io/nvidia/nemo", tag: "24.09", size: "18.7GB", createdAt: "2024-12-12 13:10:00", fullTag: "nvcr.io/nvidia/nemo:24.09" },
-    { repository: "nvcr.io/nvidia/tritonserver", tag: "24.11-py3", size: "14.8GB", createdAt: "2024-12-09 15:30:00", fullTag: "nvcr.io/nvidia/tritonserver:24.11-py3" },
-    { repository: "nvcr.io/nvidia/pytorch", tag: "24.11-py3", size: "12.4GB", createdAt: "2024-12-07 10:20:00", fullTag: "nvcr.io/nvidia/pytorch:24.11-py3" },
-    { repository: "nvcr.io/nvidia/cuda", tag: "12.4.0-runtime-ubuntu22.04", size: "2.8GB", createdAt: "2024-11-25 09:00:00", fullTag: "nvcr.io/nvidia/cuda:12.4.0-runtime-ubuntu22.04" },
-  ],
-};
-
-// Simulated pull history for demo
-const SIMULATED_HISTORY = [
-  { id: 1, hostId: "alpha", hostName: "DGX Spark Alpha", imageTag: "nvcr.io/nvidia/vllm:25.11", action: "pull" as const, status: "completed" as const, userName: "Admin", startedAt: new Date(Date.now() - 3600000), completedAt: new Date(Date.now() - 3500000) },
-  { id: 2, hostId: "beta", hostName: "DGX Spark Beta", imageTag: "nvcr.io/nvidia/nemo:24.09", action: "update" as const, status: "completed" as const, userName: "Admin", startedAt: new Date(Date.now() - 86400000), completedAt: new Date(Date.now() - 86300000) },
-  { id: 3, hostId: "alpha", hostName: "DGX Spark Alpha", imageTag: "nvcr.io/nvidia/pytorch:24.10-py3", action: "remove" as const, status: "completed" as const, userName: "System", startedAt: new Date(Date.now() - 172800000), completedAt: new Date(Date.now() - 172800000) },
-  { id: 4, hostId: "beta", hostName: "DGX Spark Beta", imageTag: "nvcr.io/nvidia/tensorrt:24.11-py3", action: "pull" as const, status: "failed" as const, userName: "Admin", startedAt: new Date(Date.now() - 259200000), errorMessage: "Connection timeout" },
-];
-
 interface HostContainersProps {
   hostId: "alpha" | "beta";
   hostName: string;
@@ -99,16 +72,15 @@ interface HostContainersProps {
 }
 
 function HostContainers({ hostId, hostName, hostIp, onActionComplete }: HostContainersProps) {
-  const [useSimulated, setUseSimulated] = useState(false);
   const [confirmDialog, setConfirmDialog] = useState<{ type: "remove" | "update"; container: ContainerImage } | null>(null);
   const [actionInProgress, setActionInProgress] = useState<string | null>(null);
   const [logsModal, setLogsModal] = useState<{ container: ContainerImage } | null>(null);
-  
+
   const utils = trpc.useUtils();
-  
+
   const { data, isLoading, error, refetch, isRefetching } = trpc.ssh.listImages.useQuery(
     { hostId },
-    { refetchInterval: false, retry: 1 }
+    { refetchInterval: 30000, retry: 2 }
   );
 
   const removeImageMutation = trpc.ssh.removeImage.useMutation({
@@ -146,15 +118,7 @@ function HostContainers({ hostId, hostName, hostIp, onActionComplete }: HostCont
 
   const recordActionMutation = trpc.containerHistory.recordAction.useMutation();
 
-  useEffect(() => {
-    if (error) setUseSimulated(true);
-  }, [error]);
-
-  useEffect(() => {
-    if (data && !data.success) setUseSimulated(true);
-  }, [data]);
-
-  const containers = useSimulated ? SIMULATED_CONTAINERS[hostId] : (data?.images || []);
+  const containers = data?.images || [];
   const ngcContainers = containers.filter(c => c.repository.startsWith("nvcr.io"));
   const otherContainers = containers.filter(c => !c.repository.startsWith("nvcr.io"));
 
@@ -172,47 +136,29 @@ function HostContainers({ hostId, hostName, hostIp, onActionComplete }: HostCont
   const handleRemove = async () => {
     if (!confirmDialog || confirmDialog.type !== "remove") return;
     setActionInProgress(confirmDialog.container.fullTag);
-    
+
     // Record the action
     await recordActionMutation.mutateAsync({
       hostId,
       imageTag: confirmDialog.container.fullTag,
       action: "remove",
     });
-    
-    if (useSimulated) {
-      // Simulate removal for demo
-      setTimeout(() => {
-        toast.success(`Simulated: Removed ${confirmDialog.container.fullTag}`);
-        setActionInProgress(null);
-        setConfirmDialog(null);
-      }, 1000);
-    } else {
-      removeImageMutation.mutate({ hostId, imageTag: confirmDialog.container.fullTag });
-    }
+
+    removeImageMutation.mutate({ hostId, imageTag: confirmDialog.container.fullTag });
   };
 
   const handleUpdate = async () => {
     if (!confirmDialog || confirmDialog.type !== "update") return;
     setActionInProgress(confirmDialog.container.fullTag);
-    
+
     // Record the action
     await recordActionMutation.mutateAsync({
       hostId,
       imageTag: confirmDialog.container.fullTag,
       action: "update",
     });
-    
-    if (useSimulated) {
-      // Simulate update for demo
-      setTimeout(() => {
-        toast.success(`Simulated: Update started for ${confirmDialog.container.fullTag}`);
-        setActionInProgress(null);
-        setConfirmDialog(null);
-      }, 1000);
-    } else {
-      updateImageMutation.mutate({ hostId, imageTag: confirmDialog.container.fullTag });
-    }
+
+    updateImageMutation.mutate({ hostId, imageTag: confirmDialog.container.fullTag });
   };
 
   const renderContainerRow = (container: ContainerImage, idx: number) => {
@@ -303,11 +249,6 @@ function HostContainers({ hostId, hostName, hostIp, onActionComplete }: HostCont
             <Server className="w-4 h-4 text-[#3b82f6]" />
             <span className="text-sm text-gray-400">{hostIp}</span>
           </div>
-          {useSimulated && (
-            <Badge variant="outline" className="bg-yellow-500/10 text-yellow-400 border-yellow-500/30 text-xs">
-              SIMULATED
-            </Badge>
-          )}
         </div>
         <div className="flex items-center gap-4">
           <div className="flex items-center gap-2 text-sm">
@@ -331,7 +272,7 @@ function HostContainers({ hostId, hostName, hostIp, onActionComplete }: HostCont
       </div>
 
       {/* Loading state */}
-      {isLoading && !useSimulated && (
+      {isLoading && (
         <div className="flex items-center justify-center py-8">
           <Loader2 className="w-6 h-6 animate-spin text-[#3b82f6]" />
           <span className="ml-2 text-gray-400">Connecting to {hostName}...</span>
@@ -339,7 +280,7 @@ function HostContainers({ hostId, hostName, hostIp, onActionComplete }: HostCont
       )}
 
       {/* Error state */}
-      {error && !useSimulated && (
+      {error && !isLoading && (
         <div className="flex items-center gap-2 p-3 bg-red-500/10 border border-red-500/30 rounded-lg">
           <AlertCircle className="w-4 h-4 text-red-400" />
           <span className="text-sm text-red-400">Failed to connect: {error.message}</span>
@@ -347,7 +288,7 @@ function HostContainers({ hostId, hostName, hostIp, onActionComplete }: HostCont
       )}
 
       {/* Container list */}
-      {(!isLoading || useSimulated) && containers.length > 0 && (
+      {!isLoading && !error && containers.length > 0 && (
         <div className="space-y-3">
           {ngcContainers.length > 0 && (
             <div className="space-y-2">
@@ -376,7 +317,7 @@ function HostContainers({ hostId, hostName, hostIp, onActionComplete }: HostCont
       )}
 
       {/* Empty state */}
-      {(!isLoading || useSimulated) && containers.length === 0 && (
+      {!isLoading && !error && containers.length === 0 && (
         <div className="flex flex-col items-center justify-center py-8 text-gray-500">
           <Container className="w-8 h-8 mb-2" />
           <span className="text-sm">No containers found</span>
@@ -452,9 +393,7 @@ function PullHistory() {
     { refetchInterval: 30000 }
   );
 
-  // Use simulated data if no real data
-  const history = data?.history?.length ? data.history : SIMULATED_HISTORY;
-  const isSimulated = !data?.history?.length;
+  const history = data?.history || [];
 
   const getActionIcon = (action: string) => {
     switch (action) {
@@ -497,11 +436,6 @@ function PullHistory() {
           <History className="w-4 h-4 text-[#3b82f6]" />
           <span className="text-sm text-gray-400">Recent Activity</span>
         </div>
-        {isSimulated && (
-          <Badge variant="outline" className="bg-yellow-500/10 text-yellow-400 border-yellow-500/30 text-xs">
-            SIMULATED
-          </Badge>
-        )}
       </div>
 
       {isLoading && (
