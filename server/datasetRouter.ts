@@ -11,11 +11,18 @@ import { getDb } from "./db";
 import { datasets, type Dataset } from "../drizzle/schema";
 import { eq, and, desc } from "drizzle-orm";
 import { executeOnHost, type HostId } from "./hostConfig";
+import {
+  DatasetTypeSchema,
+  DatasetFormatSchema,
+  DatasetStatusSchema,
+  CreateDatasetSchema,
+  UpdateDatasetSchema,
+} from "../shared/schemas";
 
-// Dataset type enum
-const DatasetType = z.enum(["instruction", "code", "preference", "conversation", "raw"]);
-const DatasetFormat = z.enum(["jsonl", "parquet", "csv", "json", "txt"]);
-const DatasetStatus = z.enum(["pending", "scanning", "validated", "processing", "ready", "error"]);
+// Use shared schemas for validation (ensures frontend/backend consistency)
+const DatasetType = DatasetTypeSchema;
+const DatasetFormat = DatasetFormatSchema;
+const DatasetStatus = DatasetStatusSchema;
 
 // Helper functions
 function formatBytes(bytes: number): string {

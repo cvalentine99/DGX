@@ -9,6 +9,9 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { toast } from "sonner";
+
+// Shared validation schemas - ensures frontend/backend consistency
+import { AddDocumentSchema, getFirstError } from "../../../shared/schemas";
 import {
   Database,
   FileText,
@@ -78,18 +81,22 @@ export default function KnowledgeBase() {
   });
 
   const handleAddDocument = async () => {
-    if (!newDocTitle || !newDocContent) {
-      toast.error("Please provide title and content");
+    const docData = {
+      title: newDocTitle,
+      content: newDocContent,
+      category: newDocCategory,
+    };
+
+    // Validate with shared schema before submission
+    const result = AddDocumentSchema.safeParse(docData);
+    if (!result.success) {
+      toast.error("Validation failed", { description: getFirstError(result.error) });
       return;
     }
 
     setIsUploading(true);
     try {
-      await addDocMutation.mutateAsync({
-        title: newDocTitle,
-        content: newDocContent,
-        category: newDocCategory,
-      });
+      await addDocMutation.mutateAsync(result.data);
     } finally {
       setIsUploading(false);
     }

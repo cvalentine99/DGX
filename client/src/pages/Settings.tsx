@@ -10,6 +10,9 @@ import { Slider } from "@/components/ui/slider";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { toast } from "sonner";
+
+// Shared validation schemas - ensures frontend/backend consistency
+import { SettingsSchema, getFirstError } from "../../../shared/schemas";
 import {
   Settings as SettingsIcon,
   Server,
@@ -254,8 +257,7 @@ export default function Settings() {
   };
 
   const handleSaveSettings = () => {
-    setSaving(true);
-    saveSettingsMutation.mutate({
+    const settingsData = {
       sshHost,
       sshPort: parseInt(sshPort),
       sshUsername,
@@ -283,7 +285,17 @@ export default function Settings() {
       splunkForwardContainers,
       splunkForwardInference,
       splunkInterval,
-    });
+    };
+
+    // Validate with shared schema before submission
+    const result = SettingsSchema.safeParse(settingsData);
+    if (!result.success) {
+      toast.error("Validation failed", { description: getFirstError(result.error) });
+      return;
+    }
+
+    setSaving(true);
+    saveSettingsMutation.mutate(result.data);
   };
 
   // Test Splunk connection

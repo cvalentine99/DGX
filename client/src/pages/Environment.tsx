@@ -39,9 +39,6 @@ import { Progress } from "@/components/ui/progress";
 import { toast } from "sonner";
 import { trpc } from "@/lib/trpc";
 
-// Demo data imports - only used when DEMO_MODE is enabled
-import { DEMO_MODE } from "@/demo";
-
 // Hardware Topology Data - actual data comes from dcgm.getHosts in production
 const TOPOLOGY_DATA = {
   hosts: [

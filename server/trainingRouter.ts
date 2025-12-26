@@ -5,6 +5,7 @@ import { trainingJobs } from "../drizzle/schema";
 import { eq, desc } from "drizzle-orm";
 import type { TrainingJob } from "../drizzle/schema";
 import { executeOnHost, executeOnHostFull, type HostId } from "./hostConfig";
+import { CreateTrainingJobSchema, UpdateTrainingJobSchema, JobStatusSchema } from "../shared/schemas";
 
 // NeMo training script generator
 function generateNeMoTrainingScript(job: TrainingJob): string {
@@ -124,39 +125,9 @@ function parseTrainingProgress(logContent: string): {
   return { progress, currentStep, totalSteps, currentEpoch, trainLoss, evalLoss };
 }
 
-// Training job input schema
-const createJobSchema = z.object({
-  name: z.string().min(1).max(256),
-  description: z.string().optional(),
-  baseModel: z.string().min(1),
-  modelPath: z.string().optional(),
-  outputPath: z.string().optional(),
-  trainingType: z.enum(["sft", "lora", "qlora", "full"]).default("lora"),
-  datasetPath: z.string().min(1),
-  epochs: z.number().min(1).max(100).default(3),
-  batchSize: z.number().min(1).max(128).default(4),
-  learningRate: z.string().default("2e-5"),
-  maxSeqLength: z.number().min(128).max(32768).default(2048),
-  gradientAccumulation: z.number().min(1).max(64).default(1),
-  warmupSteps: z.number().min(0).max(10000).default(100),
-  loraRank: z.number().min(1).max(256).default(16),
-  loraAlpha: z.number().min(1).max(512).default(32),
-  loraDropout: z.string().default("0.05"),
-  hostId: z.enum(["alpha", "beta"]),
-  gpuCount: z.number().min(1).max(8).default(1),
-});
-
-const updateJobSchema = z.object({
-  id: z.number(),
-  status: z.enum(["queued", "preparing", "running", "completed", "failed", "cancelled"]).optional(),
-  progress: z.number().min(0).max(100).optional(),
-  currentEpoch: z.number().optional(),
-  currentStep: z.number().optional(),
-  totalSteps: z.number().optional(),
-  trainLoss: z.string().optional(),
-  evalLoss: z.string().optional(),
-  errorMessage: z.string().optional(),
-});
+// Use shared schemas for input validation (ensures frontend/backend consistency)
+const createJobSchema = CreateTrainingJobSchema;
+const updateJobSchema = UpdateTrainingJobSchema;
 
 export const trainingRouter = router({
   // Get all training jobs
