@@ -78,7 +78,7 @@ import {
 import { toast } from "sonner";
 import { trpc } from "@/lib/trpc";
 import { cn } from "@/lib/utils";
-import { WebRTCPreviewV2 } from "@/components/WebRTCPreviewV2";
+import { WebRTCPreview } from "@/components/WebRTCPreview";
 import { InferenceOverlay, useSimulatedDetections } from "@/components/InferenceOverlay";
 import { Loader2 } from "lucide-react";
 
@@ -1579,14 +1579,15 @@ export default function Holoscan() {
             </CardContent>
           </Card>
 
-          {/* WebRTC Live Camera Preview */}
+          {/* Local Camera Preview */}
           <div className="mt-4">
-            <WebRTCPreviewV2
+            <WebRTCPreview
               hostId="alpha"
               camera={cameraConfig.device}
               resolution={cameraConfig.resolution}
               fps={cameraConfig.fps}
               format={cameraConfig.format}
+              useLocalCamera={true}
               onStreamStart={() => toast.success("Camera stream started")}
               onStreamStop={() => toast.info("Camera stream stopped")}
             />
