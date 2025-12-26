@@ -64,11 +64,11 @@ interface HostVersions {
   versions: VersionInfo[];
 }
 
-// Simulated version data for both DGX Spark hosts
+// Fallback version data for loading state only
 const hostVersionData: HostVersions[] = [
   {
     hostname: "DGX Spark Alpha",
-    ip: "192.168.50.139",
+    ip: "192.168.50.110",
     versions: [
       {
         name: "CUDA Toolkit",
@@ -129,7 +129,7 @@ const hostVersionData: HostVersions[] = [
   },
   {
     hostname: "DGX Spark Beta",
-    ip: "192.168.50.110",
+    ip: "192.168.50.139",
     versions: [
       {
         name: "CUDA Toolkit",
@@ -438,9 +438,9 @@ export default function CudaToolkit() {
         {/* Host Selector */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           {(["alpha", "beta"] as const).map((hostId, index) => {
-            const hostInfo = hostId === "alpha" 
-              ? { hostname: "DGX Spark Alpha", ip: "192.168.50.139" }
-              : { hostname: "DGX Spark Beta", ip: "192.168.50.110" };
+            const hostInfo = hostId === "alpha"
+              ? { hostname: "DGX Spark Alpha", ip: "192.168.50.110" }
+              : { hostname: "DGX Spark Beta", ip: "192.168.50.139" };
             const isSelected = selectedHostId === hostId;
             return (
             <motion.div

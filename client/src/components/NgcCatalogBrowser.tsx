@@ -317,8 +317,8 @@ const CATEGORIES = [
 ];
 
 const DGX_HOSTS = [
-  { id: "alpha" as const, name: "DGX Spark Alpha", ip: "192.168.50.139" },
-  { id: "beta" as const, name: "DGX Spark Beta", ip: "192.168.50.110" },
+  { id: "alpha" as const, name: "DGX Spark Alpha", ip: "192.168.50.110" },
+  { id: "beta" as const, name: "DGX Spark Beta", ip: "192.168.50.139" },
 ];
 
 export default function NgcCatalogBrowser() {

@@ -1,16 +1,12 @@
 /**
  * Centralized DGX Spark Host Configuration
- * 
+ *
  * This is the SINGLE SOURCE OF TRUTH for all host-related configuration.
  * All routers should import from this module instead of defining their own.
- * 
- * When running on Beta (192.168.50.110):
- *   - Beta is LOCAL (use local commands via child_process, no SSH)
- *   - Alpha is REMOTE (use SSH to 192.168.50.139)
- * 
- * When running on Alpha (192.168.50.139):
- *   - Alpha is LOCAL (use local commands via child_process, no SSH)
- *   - Beta is REMOTE (use SSH to 192.168.50.110)
+ *
+ * Physical hosts:
+ *   - gx10-alpha (192.168.50.110) - This is where the app runs (LOCAL)
+ *   - gx10-beta  (192.168.50.139) - Remote host monitored via SSH
  */
 
 import { exec as execCallback } from 'child_process';
@@ -37,33 +33,31 @@ export interface DGXHost {
 
 /**
  * DGX Spark host configurations
- * 
- * LOCAL_HOST env var determines which host the app is running on:
- * - "beta" (default): Running on 192.168.50.110, Beta is local, Alpha is remote
- * - "alpha": Running on 192.168.50.139, Alpha is local, Beta is remote
+ *
+ * The app runs on gx10-alpha (192.168.50.110) and SSHes to gx10-beta (192.168.50.139)
  */
 export const DGX_HOSTS: Record<HostId, DGXHost> = {
   alpha: {
     id: "alpha",
     name: "DGX Spark Alpha",
+    ip: "192.168.50.110",
+    localIp: "192.168.50.110",
+    host: "192.168.50.110",
+    port: 22,
+    sshHost: "192.168.50.110",
+    sshPort: 22,
+    isLocal: true, // App runs here
+  },
+  beta: {
+    id: "beta",
+    name: "DGX Spark Beta",
     ip: "192.168.50.139",
     localIp: "192.168.50.139",
     host: process.env.DGX_SSH_HOST || "192.168.50.139",
     port: parseInt(process.env.DGX_SSH_PORT || "22"),
     sshHost: process.env.DGX_SSH_HOST || "192.168.50.139",
     sshPort: parseInt(process.env.DGX_SSH_PORT || "22"),
-    isLocal: process.env.LOCAL_HOST === 'alpha',
-  },
-  beta: {
-    id: "beta",
-    name: "DGX Spark Beta",
-    ip: "192.168.50.110",
-    localIp: "192.168.50.110",
-    host: process.env.DGX_SSH_HOST_BETA || "192.168.50.110",
-    port: parseInt(process.env.DGX_SSH_PORT_BETA || "22"),
-    sshHost: process.env.DGX_SSH_HOST_BETA || "192.168.50.110",
-    sshPort: parseInt(process.env.DGX_SSH_PORT_BETA || "22"),
-    isLocal: process.env.LOCAL_HOST === 'beta' || process.env.LOCAL_HOST === undefined,
+    isLocal: false, // Remote, accessed via SSH
   },
 };
 

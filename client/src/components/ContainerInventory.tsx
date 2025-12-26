@@ -545,7 +545,7 @@ export function ContainerInventory() {
             <HostContainers
               hostId="alpha"
               hostName="DGX Spark Alpha"
-              hostIp="192.168.50.139"
+              hostIp="192.168.50.110"
               onActionComplete={handleActionComplete}
             />
           </TabsContent>
@@ -554,7 +554,7 @@ export function ContainerInventory() {
             <HostContainers
               hostId="beta"
               hostName="DGX Spark Beta"
-              hostIp="192.168.50.110"
+              hostIp="192.168.50.139"
               onActionComplete={handleActionComplete}
             />
           </TabsContent>
