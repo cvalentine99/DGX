@@ -161,7 +161,7 @@ export const webrtcRouter = router({
         sdp: z.string(),
       }),
     }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input }): Promise<{ success: boolean; error?: string; answer?: RTCSessionDescriptionInit }> => {
       const session = activeSessions.get(input.sessionId);
       if (!session) {
         return { success: false, error: "Session not found" };
@@ -170,9 +170,156 @@ export const webrtcRouter = router({
       session.offer = input.offer as RTCSessionDescriptionInit;
       session.lastActivity = Date.now();
 
-      // TODO: Implement real WebRTC signaling with GStreamer pipeline
-      // This requires a running GStreamer WebRTC pipeline to generate real SDP answer
-      throw new Error("WebRTC signaling not implemented: requires GStreamer WebRTC pipeline on DGX host");
+      const hostId = session.hostId as HostId;
+
+      try {
+        // Write the offer SDP to a temp file on the host
+        const offerFile = `/tmp/webrtc-${session.id}-offer.sdp`;
+        const answerFile = `/tmp/webrtc-${session.id}-answer.sdp`;
+        const pidFile = `/tmp/webrtc-${session.id}.pid`;
+
+        // Escape SDP for shell
+        const escapedSdp = input.offer.sdp.replace(/'/g, "'\"'\"'").replace(/\n/g, '\\n');
+        await executeOnHost(hostId, `echo -e '${escapedSdp}' > ${offerFile}`);
+
+        // Create a Python script that uses GStreamer WebRTC to process the offer
+        const webrtcScript = `
+import gi
+gi.require_version('Gst', '1.0')
+gi.require_version('GstWebRTC', '1.0')
+gi.require_version('GstSdp', '1.0')
+from gi.repository import Gst, GstWebRTC, GstSdp, GLib
+import sys
+import json
+
+Gst.init(None)
+
+class WebRTCAnswerer:
+    def __init__(self, offer_sdp, camera="${session.camera}", width=${session.resolution.split('x')[0]}, height=${session.resolution.split('x')[1]}, fps=${session.fps}):
+        self.offer_sdp = offer_sdp
+        self.camera = camera
+        self.width = width
+        self.height = height
+        self.fps = fps
+        self.answer = None
+        self.loop = GLib.MainLoop()
+
+        # Build pipeline
+        pipeline_str = f"""
+            v4l2src device={self.camera} !
+            video/x-raw,width={self.width},height={self.height},framerate={self.fps}/1 !
+            videoconvert !
+            queue !
+            vp8enc deadline=1 !
+            rtpvp8pay pt=96 !
+            webrtcbin name=sendrecv bundle-policy=max-bundle stun-server=stun://stun.l.google.com:19302
+        """
+
+        self.pipe = Gst.parse_launch(pipeline_str.replace('\\n', ' '))
+        self.webrtc = self.pipe.get_by_name('sendrecv')
+
+        self.webrtc.connect('on-negotiation-needed', self.on_negotiation_needed)
+        self.webrtc.connect('on-ice-candidate', self.on_ice_candidate)
+        self.webrtc.connect('pad-added', self.on_pad_added)
+
+        self.pipe.set_state(Gst.State.PLAYING)
+
+    def on_negotiation_needed(self, element):
+        # Set the remote offer
+        res, sdpmsg = GstSdp.SDPMessage.new_from_text(self.offer_sdp)
+        offer = GstWebRTC.WebRTCSessionDescription.new(GstWebRTC.WebRTCSDPType.OFFER, sdpmsg)
+        promise = Gst.Promise.new_with_change_func(self.on_offer_set)
+        self.webrtc.emit('set-remote-description', offer, promise)
+
+    def on_offer_set(self, promise):
+        promise.wait()
+        # Create answer
+        promise = Gst.Promise.new_with_change_func(self.on_answer_created)
+        self.webrtc.emit('create-answer', None, promise)
+
+    def on_answer_created(self, promise):
+        promise.wait()
+        reply = promise.get_reply()
+        answer = reply.get_value('answer')
+        self.webrtc.emit('set-local-description', answer, None)
+        self.answer = answer.sdp.as_text()
+
+        # Write answer to file
+        with open('${answerFile}', 'w') as f:
+            f.write(self.answer)
+
+        # Signal completion
+        self.loop.quit()
+
+    def on_ice_candidate(self, element, mline_index, candidate):
+        # In a real implementation, these would be sent to the client
+        pass
+
+    def on_pad_added(self, element, pad):
+        pass
+
+    def run(self):
+        try:
+            GLib.timeout_add_seconds(10, self.loop.quit)  # Timeout after 10 seconds
+            self.loop.run()
+        except Exception as e:
+            print(f"Error: {e}", file=sys.stderr)
+        finally:
+            self.pipe.set_state(Gst.State.NULL)
+
+if __name__ == '__main__':
+    with open('${offerFile}', 'r') as f:
+        offer_sdp = f.read()
+    answerer = WebRTCAnswerer(offer_sdp)
+    answerer.run()
+`;
+
+        // Write and execute the WebRTC script
+        const scriptFile = `/tmp/webrtc-${session.id}-answerer.py`;
+        const escapedScript = webrtcScript.replace(/'/g, "'\"'\"'");
+        await executeOnHost(hostId, `cat > ${scriptFile} << 'WEBRTC_SCRIPT_EOF'
+${webrtcScript}
+WEBRTC_SCRIPT_EOF`);
+
+        // Run the script in background with timeout
+        await executeOnHost(hostId, `timeout 15 python3 ${scriptFile} > /tmp/webrtc-${session.id}.log 2>&1 &`);
+
+        // Wait a moment for the script to generate the answer
+        await new Promise(resolve => setTimeout(resolve, 2000));
+
+        // Try to read the answer
+        const answerResult = await executeOnHost(hostId, `cat ${answerFile} 2>/dev/null || echo ""`);
+
+        if (answerResult.stdout && answerResult.stdout.trim() && answerResult.stdout.includes('v=0')) {
+          const answer: RTCSessionDescriptionInit = {
+            type: 'answer',
+            sdp: answerResult.stdout.trim(),
+          };
+
+          session.answer = answer;
+          session.status = 'streaming';
+
+          return {
+            success: true,
+            answer,
+          };
+        }
+
+        // If no answer yet, mark as connecting and let client poll
+        session.status = 'connecting';
+
+        return {
+          success: true,
+          answer: undefined, // Client should poll getAnswer
+        };
+      } catch (error: any) {
+        session.status = 'error';
+        session.error = error.message;
+        return {
+          success: false,
+          error: `WebRTC signaling failed: ${error.message}`,
+        };
+      }
     }),
 
   // Get the SDP answer for the client
