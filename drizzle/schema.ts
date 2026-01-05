@@ -325,3 +325,24 @@ export const trainingMetrics = mysqlTable("training_metrics", {
 
 export type TrainingMetric = typeof trainingMetrics.$inferSelect;
 export type InsertTrainingMetric = typeof trainingMetrics.$inferInsert;
+
+// NCCL health history for multi-node connectivity tracking
+export const ncclHealthHistory = mysqlTable("nccl_health_history", {
+  id: int("id").autoincrement().primaryKey(),
+  timestamp: timestamp("timestamp").defaultNow().notNull(),
+  hostPair: varchar("hostPair", { length: 32 }).notNull(), // e.g., "alpha-beta"
+  success: int("success").notNull(), // 1 = success, 0 = failure
+  avgBusBw: varchar("avgBusBw", { length: 32 }), // Bus bandwidth in GB/s
+  algBw: varchar("algBw", { length: 32 }), // Algorithm bandwidth in GB/s
+  latencyUs: varchar("latencyUs", { length: 32 }), // Latency in microseconds
+  duration: int("duration"), // Test duration in ms
+  rawLog: text("rawLog"), // Full NCCL stdout for audit
+  errorMessage: text("errorMessage"), // Error details if failed
+}, (table) => ({
+  // Index for efficient time-series queries
+  timestampIdx: index("idx_nccl_timestamp").on(table.timestamp),
+  hostPairIdx: index("idx_nccl_host_pair").on(table.hostPair, table.timestamp),
+}));
+
+export type NcclHealthHistory = typeof ncclHealthHistory.$inferSelect;
+export type InsertNcclHealthHistory = typeof ncclHealthHistory.$inferInsert;
