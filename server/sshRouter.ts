@@ -2,15 +2,16 @@ import { z } from "zod";
 import { publicProcedure, router } from "./_core/trpc";
 import { Client } from "ssh2";
 import { getSSHPool, initializeSSHPool, PoolStats } from "./sshConnectionPool";
-import { 
-  DGX_HOSTS, 
-  HostId, 
-  isLocalHost, 
+import {
+  DGX_HOSTS,
+  HostId,
+  isLocalHost,
   executeLocalCommand,
   getHost,
   getAllHosts,
   DGXHost,
 } from "./hostConfig";
+import { recordNcclHealthTest, getNcclHealthHistory, getRecentNcclHealthTests } from "./db";
 
 // Retry configuration for SSH connections
 const RETRY_CONFIG = {
@@ -6499,4 +6500,253 @@ PIPELINE_EOF`);
         return { success: false, error: error.message };
       }
     }),
+
+  // ============================================
+  // NCCL PROCEDURES
+  // ============================================
+  nccl: router({
+    /**
+     * Get NCCL status on a host
+     * Validates: NCCL presence + version, CUDA compatibility, fabric interfaces
+     */
+    getStatus: publicProcedure
+      .input(z.object({
+        hostId: z.enum(["alpha", "beta"]),
+      }))
+      .query(async ({ input }) => {
+        try {
+          const conn = await createSSHConnection(input.hostId);
+
+          // Run all diagnostic commands
+          const [ncclResult, gpuResult, interfaceResult] = await Promise.all([
+            executeSSHCommand(conn, "ldconfig -p | grep -i nccl"),
+            executeSSHCommand(conn, "nvidia-smi --query-gpu=name,driver_version --format=csv,noheader"),
+            executeSSHCommand(conn, "ip -brief addr | grep enp"),
+          ]);
+
+          conn.end();
+
+          // Parse NCCL libraries
+          const ncclLibraries = ncclResult.stdout
+            .trim()
+            .split("\n")
+            .filter(Boolean)
+            .map(line => {
+              const match = line.match(/^\s*(\S+)\s+\((.*?)\)\s+=>\s+(.+)$/);
+              if (match) {
+                return {
+                  name: match[1],
+                  arch: match[2],
+                  path: match[3],
+                };
+              }
+              return { name: line.trim(), arch: "", path: "" };
+            });
+
+          // Extract NCCL version from library name (e.g., libnccl.so.2.23.4)
+          const ncclVersionMatch = ncclResult.stdout.match(/libnccl\.so\.(\d+\.\d+\.\d+)/);
+          const ncclVersion = ncclVersionMatch ? ncclVersionMatch[1] : null;
+
+          // Parse GPU info
+          const gpus = gpuResult.stdout
+            .trim()
+            .split("\n")
+            .filter(Boolean)
+            .map((line, index) => {
+              const [name, driverVersion] = line.split(", ").map(s => s.trim());
+              return {
+                index,
+                name,
+                driverVersion,
+              };
+            });
+
+          // Parse fabric interfaces
+          const interfaces = interfaceResult.stdout
+            .trim()
+            .split("\n")
+            .filter(Boolean)
+            .map(line => {
+              const parts = line.trim().split(/\s+/);
+              const name = parts[0];
+              const state = parts[1];
+              const addresses = parts.slice(2).filter(p => p.includes("/") || p.includes(":"));
+              return {
+                name,
+                state,
+                addresses,
+                isUp: state === "UP",
+              };
+            });
+
+          // Check overall health
+          const ncclPresent = ncclLibraries.length > 0;
+          const gpuPresent = gpus.length > 0;
+          const fabricUp = interfaces.some(iface => iface.isUp && iface.name.startsWith("enp"));
+
+          return {
+            success: true,
+            hostId: input.hostId,
+            host: DGX_HOSTS[input.hostId],
+            nccl: {
+              present: ncclPresent,
+              version: ncclVersion,
+              libraries: ncclLibraries,
+            },
+            cuda: {
+              present: gpuPresent,
+              gpus,
+              driverVersion: gpus[0]?.driverVersion || null,
+            },
+            fabric: {
+              interfaces,
+              anyUp: fabricUp,
+            },
+            healthy: ncclPresent && gpuPresent && fabricUp,
+            timestamp: new Date().toISOString(),
+          };
+        } catch (error: any) {
+          return {
+            success: false,
+            hostId: input.hostId,
+            host: DGX_HOSTS[input.hostId],
+            error: error.message,
+            healthy: false,
+            timestamp: new Date().toISOString(),
+          };
+        }
+      }),
+
+    /**
+     * Test NCCL connectivity between alpha and beta hosts
+     * Runs all_gather_perf test using MPI over the fabric network
+     */
+    testConnectivity: publicProcedure
+      .mutation(async () => {
+        const startTime = Date.now();
+        const hostPair = "alpha-beta";
+
+        try {
+          // Execute from alpha only - this is the proven working command
+          const conn = await createSSHConnection("alpha");
+
+          const ncclTestCommand = `mpirun \\
+  --mca pml ob1 \\
+  --mca btl tcp,self \\
+  --mca btl_tcp_if_include enp1s0f0np0 \\
+  --mca oob_tcp_if_include enp1s0f0np0 \\
+  -np 2 \\
+  -H 192.168.100.10:1,192.168.100.11:1 \\
+  -x NCCL_SOCKET_IFNAME=enp1s0f0np0 \\
+  -x NCCL_DEBUG=INFO \\
+  /opt/nccl-tests/all_gather_perf -b 1M -e 1M -f 2`;
+
+          console.log("[NCCL] Running connectivity test from alpha...");
+          const result = await executeSSHCommand(conn, ncclTestCommand);
+          conn.end();
+
+          const duration = Date.now() - startTime;
+          const rawOutput = result.stdout + (result.stderr ? "\n" + result.stderr : "");
+
+          // Parse results from NCCL output
+          // Example output line:
+          // #       size         count      type   redop    root     time   algbw   busbw #wrong     check
+          //     1048576        262144     float    none      -1    1.234   849.12   1593.45      0      N/A
+
+          let bandwidth: number | null = null;
+          let algBandwidth: number | null = null;
+          let latency: number | null = null;
+
+          // Look for the data line (starts with whitespace and a number)
+          const lines = rawOutput.split("\n");
+          for (const line of lines) {
+            const dataMatch = line.match(/^\s+(\d+)\s+\d+\s+\w+\s+\w+\s+[-\d]+\s+([\d.]+)\s+([\d.]+)\s+([\d.]+)/);
+            if (dataMatch) {
+              latency = parseFloat(dataMatch[2]); // time in us
+              algBandwidth = parseFloat(dataMatch[3]); // algbw in GB/s
+              bandwidth = parseFloat(dataMatch[4]); // busbw in GB/s
+              break;
+            }
+          }
+
+          // Check for success - NCCL tests return 0 on success and output should contain bandwidth data
+          const testSuccess = result.code === 0 && bandwidth !== null;
+
+          // Save to database for audit trail
+          await recordNcclHealthTest({
+            hostPair,
+            success: testSuccess ? 1 : 0,
+            avgBusBw: bandwidth?.toString() || null,
+            algBw: algBandwidth?.toString() || null,
+            latencyUs: latency?.toString() || null,
+            duration,
+            rawLog: rawOutput,
+            errorMessage: !testSuccess ? (result.stderr || "NCCL test did not complete successfully") : null,
+          });
+
+          return {
+            success: testSuccess,
+            hostPair,
+            fabricNetwork: "192.168.100.0/24",
+            bandwidth: bandwidth,
+            algBandwidth: algBandwidth,
+            latency: latency,
+            duration,
+            exitCode: result.code,
+            rawOutput,
+            command: ncclTestCommand,
+            timestamp: new Date().toISOString(),
+            error: !testSuccess ? (result.stderr || "NCCL test did not complete successfully") : undefined,
+          };
+        } catch (error: any) {
+          // Save failure to database
+          await recordNcclHealthTest({
+            hostPair,
+            success: 0,
+            avgBusBw: null,
+            algBw: null,
+            latencyUs: null,
+            duration: Date.now() - startTime,
+            rawLog: "",
+            errorMessage: error.message,
+          });
+
+          return {
+            success: false,
+            hostPair,
+            fabricNetwork: "192.168.100.0/24",
+            bandwidth: null,
+            algBandwidth: null,
+            latency: null,
+            duration: Date.now() - startTime,
+            exitCode: -1,
+            rawOutput: "",
+            command: "",
+            timestamp: new Date().toISOString(),
+            error: error.message,
+          };
+        }
+      }),
+
+    /**
+     * Get NCCL health test history
+     */
+    getHistory: publicProcedure
+      .input(z.object({
+        hostPair: z.string().optional(),
+        limit: z.number().min(1).max(100).default(20),
+      }))
+      .query(async ({ input }) => {
+        if (input.hostPair) {
+          return {
+            success: true,
+            history: await getNcclHealthHistory(input.hostPair, input.limit),
+          };
+        }
+        return {
+          success: true,
+          history: await getRecentNcclHealthTests(input.limit),
+        };
+      }),
+  }),
 });

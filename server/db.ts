@@ -1,6 +1,6 @@
 import { eq, desc, gte, and, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/mysql2";
-import { InsertUser, users, containerPullHistory, InsertContainerPullHistory, gpuMetricsHistory, InsertGpuMetricsHistory, inferenceRequestLogs, InsertInferenceRequestLog, systemAlerts, InsertSystemAlert } from "../drizzle/schema";
+import { InsertUser, users, containerPullHistory, InsertContainerPullHistory, gpuMetricsHistory, InsertGpuMetricsHistory, inferenceRequestLogs, InsertInferenceRequestLog, systemAlerts, InsertSystemAlert, ncclHealthHistory, InsertNcclHealthHistory } from "../drizzle/schema";
 import { ENV } from './_core/env';
 
 let _db: ReturnType<typeof drizzle> | null = null;
@@ -316,5 +316,52 @@ export async function dismissAlert(id: number) {
       .where(eq(systemAlerts.id, id));
   } catch (error) {
     console.error("[Database] Failed to dismiss alert:", error);
+  }
+}
+
+// NCCL Health History
+export async function recordNcclHealthTest(entry: InsertNcclHealthHistory) {
+  const db = await getDb();
+  if (!db) return null;
+
+  try {
+    const result = await db.insert(ncclHealthHistory).values(entry);
+    return result[0].insertId;
+  } catch (error) {
+    console.error("[Database] Failed to record NCCL health test:", error);
+    return null;
+  }
+}
+
+export async function getNcclHealthHistory(hostPair: string, limit: number = 50) {
+  const db = await getDb();
+  if (!db) return [];
+
+  try {
+    return await db
+      .select()
+      .from(ncclHealthHistory)
+      .where(eq(ncclHealthHistory.hostPair, hostPair))
+      .orderBy(desc(ncclHealthHistory.timestamp))
+      .limit(limit);
+  } catch (error) {
+    console.error("[Database] Failed to get NCCL health history:", error);
+    return [];
+  }
+}
+
+export async function getRecentNcclHealthTests(limit: number = 20) {
+  const db = await getDb();
+  if (!db) return [];
+
+  try {
+    return await db
+      .select()
+      .from(ncclHealthHistory)
+      .orderBy(desc(ncclHealthHistory.timestamp))
+      .limit(limit);
+  } catch (error) {
+    console.error("[Database] Failed to get recent NCCL health tests:", error);
+    return [];
   }
 }
