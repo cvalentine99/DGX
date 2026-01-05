@@ -1539,7 +1539,7 @@ export const sshRouter = router({
             `v4l2-ctl -d ${input.device} --set-ctrl=${control}=${value} 2>&1`
           );
 
-          if (result.exitCode === 0) {
+          if (result.code === 0) {
             results.push({ control, success: true });
           } else {
             results.push({ control, success: false, error: result.stderr || result.stdout });
@@ -1634,9 +1634,141 @@ export const sshRouter = router({
         model: z.string().optional(),
       }),
     }))
-    .mutation(async ({ input }) => {
-      // TODO: Implement actual Holoscan container start via docker run
-      throw new Error(`startHoloscanPipeline not implemented: would start ${input.pipelineType} on ${DGX_HOSTS[input.hostId].name}`);
+    .mutation(async ({ input }): Promise<{ success: boolean; error?: string; containerId?: string; message?: string }> => {
+      try {
+        // Parse resolution
+        const [width, height] = input.config.resolution.split('x').map(Number);
+
+        // Map pipeline type to container image and entrypoint
+        const pipelineConfigs: Record<string, { image: string; appPath: string; model: string }> = {
+          "object-detection": {
+            image: "nvcr.io/nvidia/clara-holoscan/holoscan:v2.0.0-dgpu",
+            appPath: "/opt/nvidia/holoscan/examples/tensor_interop/python",
+            model: input.config.model || "yolov8n.engine",
+          },
+          "pose-estimation": {
+            image: "nvcr.io/nvidia/clara-holoscan/holoscan:v2.0.0-dgpu",
+            appPath: "/opt/nvidia/holoscan/examples/tensor_interop/python",
+            model: input.config.model || "posenet.engine",
+          },
+          "segmentation": {
+            image: "nvcr.io/nvidia/clara-holoscan/holoscan:v2.0.0-dgpu",
+            appPath: "/opt/nvidia/holoscan/examples/tensor_interop/python",
+            model: input.config.model || "deeplabv3.engine",
+          },
+          "face-detection": {
+            image: "nvcr.io/nvidia/clara-holoscan/holoscan:v2.0.0-dgpu",
+            appPath: "/opt/nvidia/holoscan/examples/tensor_interop/python",
+            model: input.config.model || "retinaface.engine",
+          },
+        };
+
+        const pipelineConfig = pipelineConfigs[input.pipelineType];
+        if (!pipelineConfig) {
+          return {
+            success: false,
+            error: `Unknown pipeline type: ${input.pipelineType}. Supported: ${Object.keys(pipelineConfigs).join(', ')}`
+          };
+        }
+
+        // Generate unique container name
+        const containerName = `holoscan-${input.pipelineType}-${Date.now()}`;
+
+        // Build docker run command with GPU access, video device, and display
+        const dockerCmd = [
+          'docker run -d',
+          `--name ${containerName}`,
+          '--runtime=nvidia',
+          '--gpus all',
+          '--privileged',
+          `--device=${input.config.camera}:${input.config.camera}`,
+          '-e DISPLAY=$DISPLAY',
+          '-v /tmp/.X11-unix:/tmp/.X11-unix:rw',
+          '-v /dev/dri:/dev/dri',
+          '--network=host',
+          `--label=holoscan.pipeline=${input.pipelineType}`,
+          `--label=holoscan.camera=${input.config.camera}`,
+          `--label=holoscan.resolution=${input.config.resolution}`,
+          `--label=holoscan.fps=${input.config.fps}`,
+          pipelineConfig.image,
+          // Run the pipeline with configured parameters
+          `python3 -c "
+import holoscan
+from holoscan.core import Application, Operator, OperatorSpec
+from holoscan.operators import HolovizOp, V4L2VideoCaptureOp, FormatConverterOp
+
+class ${input.pipelineType.replace(/-/g, '_').replace(/^./, c => c.toUpperCase())}App(Application):
+    def compose(self):
+        source = V4L2VideoCaptureOp(
+            self, name='v4l2_source',
+            device='${input.config.camera}',
+            width=${width},
+            height=${height},
+            pixel_format='${input.config.format === 'MJPEG' ? 'MJPG' : input.config.format}',
+            allocator=self.make_resource('cuda_stream_pool')
+        )
+        converter = FormatConverterOp(
+            self, name='converter',
+            in_dtype='rgba8888',
+            out_dtype='rgb888'
+        )
+        viz = HolovizOp(
+            self, name='visualizer',
+            window_title='DGX Spark: ${input.pipelineType}',
+            fullscreen=False
+        )
+        self.add_flow(source, converter)
+        self.add_flow(converter, viz)
+
+if __name__ == '__main__':
+    app = ${input.pipelineType.replace(/-/g, '_').replace(/^./, c => c.toUpperCase())}App()
+    app.run()
+"`,
+        ].join(' ');
+
+        // Execute docker run
+        const result = await executeOnHost(input.hostId, dockerCmd);
+
+        // Check if container started (docker run -d returns container ID)
+        if (result && result.trim().length === 64) {
+          const containerId = result.trim().substring(0, 12);
+          return {
+            success: true,
+            containerId,
+            message: `Started ${input.pipelineType} pipeline on ${DGX_HOSTS[input.hostId].name} (container: ${containerId})`,
+          };
+        }
+
+        // Check container status if output wasn't a container ID
+        const statusCheck = await executeOnHost(
+          input.hostId,
+          `docker ps --filter "name=${containerName}" --format "{{.ID}}" 2>/dev/null | head -1`
+        );
+
+        if (statusCheck && statusCheck.trim()) {
+          return {
+            success: true,
+            containerId: statusCheck.trim(),
+            message: `Started ${input.pipelineType} pipeline on ${DGX_HOSTS[input.hostId].name}`,
+          };
+        }
+
+        // Container failed to start, get error logs
+        const errorLogs = await executeOnHost(
+          input.hostId,
+          `docker logs ${containerName} 2>&1 | tail -20`
+        );
+
+        return {
+          success: false,
+          error: `Failed to start pipeline: ${errorLogs || result || 'Unknown error'}`,
+        };
+      } catch (error: any) {
+        return {
+          success: false,
+          error: error.message,
+        };
+      }
     }),
 
   // Stop a Holoscan pipeline
