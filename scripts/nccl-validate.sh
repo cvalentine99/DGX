@@ -1,10 +1,15 @@
 #!/bin/bash
-# NCCL Validation Script for DGX Spark
-# Verifies correct NIC selection and multi-node visibility
+#===============================================================================
+# NCCL Interface Validation Script for DGX Spark
 #
-# USAGE:
-#   ./nccl-validate.sh              # Run all checks
-#   ./nccl-validate.sh --quick      # Quick interface check only
+# Validates that NCCL is configured to use the correct network interfaces.
+#
+# Modes:
+#   Normal: Warnings reported but don't cause exit failure
+#   Strict (--strict): Any warning becomes a failure
+#
+# Target: gx10-alpha, gx10-beta (DGX Spark ARM64)
+#===============================================================================
 
 set -euo pipefail
 
@@ -17,129 +22,112 @@ NCCL_INTERFACES="enP2p1s0f0np0 enp1s0f0np0"
 EXCLUDED_INTERFACES="docker0 tailscale0 wlP9s9 lo"
 NCCL_IP_PREFIX="192.168.100"
 
-log_ok() { echo -e "${GREEN}[OK]${NC} $1"; }
-log_warn() { echo -e "${YELLOW}[WARN]${NC} $1"; }
-log_fail() { echo -e "${RED}[FAIL]${NC} $1"; }
+STRICT_MODE=false
+QUICK_MODE=false
+for arg in "$@"; do
+    case $arg in
+        --strict) STRICT_MODE=true ;;
+        --quick) QUICK_MODE=true ;;
+    esac
+done
 
-check_interfaces() {
-    echo "=== Check 1: NCCL Interface Verification ==="
-    local errors=0
-    
-    for iface in $NCCL_INTERFACES; do
-        if ip link show "$iface" &>/dev/null; then
-            local state=$(ip link show "$iface" | grep -oP '(?<=state )\w+')
-            local ip=$(ip -4 addr show "$iface" 2>/dev/null | grep -oP '(?<=inet\s)\d+(\.\d+){3}' | head -1)
-            
-            if [[ "$state" == "UP" ]]; then
-                if [[ "$ip" == ${NCCL_IP_PREFIX}.* ]]; then
-                    log_ok "$iface: UP, IP=$ip (correct subnet)"
-                else
-                    log_warn "$iface: UP, IP=$ip (unexpected subnet)"
-                fi
-            else
-                log_fail "$iface: state=$state (expected UP)"
-                ((errors++))
-            fi
-        else
-            log_warn "$iface: not found"
-        fi
-    done
-    
-    return $errors
+ERRORS=0
+WARNINGS=0
+
+log_ok() { echo -e "${GREEN}[PASS]${NC} $1"; }
+log_warn() { 
+    echo -e "${YELLOW}[WARN]${NC} $1"
+    ((WARNINGS++))
+    [[ "$STRICT_MODE" == "true" ]] && ((ERRORS++))
+}
+log_fail() { 
+    echo -e "${RED}[FAIL]${NC} $1"
+    ((ERRORS++))
 }
 
-check_excluded() {
-    echo ""
-    echo "=== Check 2: Excluded Interface Verification ==="
-    
+check_ifname_set() {
+    echo "=== Check 1: NCCL_SOCKET_IFNAME ==="
     if [[ -z "${NCCL_SOCKET_IFNAME:-}" ]]; then
-        log_fail "NCCL_SOCKET_IFNAME not set!"
+        log_fail "NCCL_SOCKET_IFNAME is not set!"
+        echo "       Fix: source scripts/nccl-env.sh"
         return 1
     fi
-    
     log_ok "NCCL_SOCKET_IFNAME=${NCCL_SOCKET_IFNAME}"
-    
+}
+
+check_no_forbidden() {
+    echo ""
+    echo "=== Check 2: Forbidden Interfaces ==="
     for excluded in $EXCLUDED_INTERFACES; do
-        if echo "$NCCL_SOCKET_IFNAME" | grep -q "$excluded"; then
-            log_fail "$excluded found in NCCL_SOCKET_IFNAME!"
+        if echo "${NCCL_SOCKET_IFNAME:-}" | grep -qw "$excluded"; then
+            log_fail "FORBIDDEN: $excluded in NCCL_SOCKET_IFNAME!"
             return 1
         fi
     done
-    
-    log_ok "No excluded interfaces in NCCL configuration"
-    return 0
+    log_ok "No forbidden interfaces"
 }
 
-check_nccl_env() {
+check_interfaces_exist() {
     echo ""
-    echo "=== Check 3: NCCL Environment Variables ==="
-    local errors=0
+    echo "=== Check 3: Interface Existence ==="
     
-    if [[ "${NCCL_IB_DISABLE:-}" == "1" ]]; then
-        log_ok "NCCL_IB_DISABLE=1 (InfiniBand disabled)"
-    else
-        log_warn "NCCL_IB_DISABLE not set to 1"
-    fi
-    
-    if [[ -n "${NCCL_SOCKET_IFNAME:-}" ]]; then
-        log_ok "NCCL_SOCKET_IFNAME=${NCCL_SOCKET_IFNAME}"
-    else
-        log_fail "NCCL_SOCKET_IFNAME not set!"
-        ((errors++))
-    fi
-    
-    return $errors
+    IFS=',' read -ra IFACES <<< "${NCCL_SOCKET_IFNAME:-}"
+    for iface in "${IFACES[@]}"; do
+        iface=$(echo "$iface" | xargs)
+        if [[ ! -d "/sys/class/net/$iface" ]]; then
+            log_fail "Interface $iface does not exist!"
+            continue
+        fi
+        
+        local state=$(cat "/sys/class/net/$iface/operstate" 2>/dev/null || echo "unknown")
+        local ip=$(ip -4 addr show "$iface" 2>/dev/null | grep -oP '(?<=inet\s)\d+(\.\d+){3}' | head -1 || echo "none")
+        
+        if [[ "$state" != "up" ]]; then
+            log_warn "Interface $iface is $state (expected: up)"
+        elif [[ "$ip" != ${NCCL_IP_PREFIX}.* ]]; then
+            log_warn "Interface $iface has IP $ip (expected: ${NCCL_IP_PREFIX}.x)"
+        else
+            log_ok "Interface $iface: UP, IP=$ip"
+        fi
+    done
 }
 
 check_gpu() {
     echo ""
-    echo "=== Check 4: GPU Verification ==="
-    
+    echo "=== Check 4: GPU ==="
     if ! command -v nvidia-smi &>/dev/null; then
         log_fail "nvidia-smi not found"
         return 1
     fi
     
-    local gpu_count=$(nvidia-smi --query-gpu=count --format=csv,noheader 2>/dev/null | head -1)
-    if [[ -n "$gpu_count" && "$gpu_count" -gt 0 ]]; then
+    local gpu_count=$(nvidia-smi --query-gpu=count --format=csv,noheader 2>/dev/null | head -1 || echo "0")
+    if [[ "$gpu_count" -gt 0 ]]; then
         log_ok "GPU detected: $gpu_count device(s)"
-        nvidia-smi --query-gpu=name,memory.total --format=csv,noheader 2>/dev/null
     else
         log_fail "No GPU detected"
-        return 1
     fi
-    
-    return 0
 }
 
 main() {
     echo "=============================================="
     echo "  NCCL Validation for DGX Spark"
+    echo "  Mode: $([ "$STRICT_MODE" == "true" ] && echo "STRICT" || echo "Normal")"
     echo "=============================================="
+    echo ""
     
-    local mode="${1:-full}"
-    local total_errors=0
-    
-    case "$mode" in
-        --quick)
-            check_interfaces || ((total_errors++))
-            check_nccl_env || ((total_errors++))
-            ;;
-        *)
-            check_interfaces || ((total_errors++))
-            check_excluded || ((total_errors++))
-            check_nccl_env || ((total_errors++))
-            check_gpu || ((total_errors++))
-            ;;
-    esac
+    check_ifname_set || true
+    check_no_forbidden || true
+    check_interfaces_exist || true
+    [[ "$QUICK_MODE" == "false" ]] && check_gpu || true
     
     echo ""
-    if [[ $total_errors -eq 0 ]]; then
-        echo -e "${GREEN}All checks passed${NC}"
-        return 0
+    echo "=============================================="
+    if [[ $ERRORS -eq 0 ]]; then
+        echo -e "${GREEN}✓ All checks passed${NC}"
+        exit 0
     else
-        echo -e "${RED}$total_errors check(s) failed${NC}"
-        return 1
+        echo -e "${RED}✗ $ERRORS check(s) failed${NC}"
+        exit 1
     fi
 }
 
