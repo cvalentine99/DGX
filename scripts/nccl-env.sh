@@ -3,11 +3,21 @@
 # Target: gx10-alpha, gx10-beta (ARM64, Ethernet fabric)
 #
 # USAGE:
-#   source /opt/nemo/scripts/nccl-env.sh
-#   # or
-#   . ./nccl-env.sh
+#   source scripts/nccl-env.sh
+#
+# Node Identity: Sets per-node topology dumps and logs to prevent
+# log blurring in multi-node runs.
 
-set -euo pipefail
+# =============================================================================
+# NODE IDENTITY
+# =============================================================================
+export NCCL_HOSTNAME="${HOSTNAME:-$(hostname -s)}"
+export NCCL_LOG_DIR="${NCCL_LOG_DIR:-/tmp/nccl-logs}"
+mkdir -p "$NCCL_LOG_DIR" 2>/dev/null || true
+
+# Per-node topology dump - critical for debugging multi-node issues
+export NCCL_TOPO_DUMP_FILE="${NCCL_LOG_DIR}/nccl-topo-${NCCL_HOSTNAME}.xml"
+export NCCL_DEBUG_FILE="${NCCL_LOG_DIR}/nccl-debug-${NCCL_HOSTNAME}.log"
 
 # =============================================================================
 # NCCL INTERFACE BINDING (CRITICAL)
@@ -29,7 +39,6 @@ export NCCL_SOCKET_IFNAME="enP2p1s0f0np0,enp1s0f0np0"
 # =============================================================================
 # INFINIBAND / ROCE SETTINGS
 # =============================================================================
-# DGX Spark uses Ethernet fabric, NOT InfiniBand or RoCE.
 export NCCL_IB_DISABLE=1
 
 # =============================================================================
@@ -43,11 +52,7 @@ export NCCL_P2P_LEVEL=NVL
 # =============================================================================
 # DEBUG SETTINGS
 # =============================================================================
-# For production, use WARN level only:
 export NCCL_DEBUG=WARN
-# Uncomment for debugging:
-# export NCCL_DEBUG=INFO
-# export NCCL_DEBUG_SUBSYS=INIT,NET
 
 # =============================================================================
 # HOST CONFIGURATION
@@ -58,13 +63,14 @@ export MASTER_ADDR="${MASTER_ADDR:-192.168.100.10}"
 export MASTER_PORT="${MASTER_PORT:-29500}"
 
 # =============================================================================
-# VALIDATION FUNCTION
+# HELPER FUNCTIONS
 # =============================================================================
 nccl_validate_env() {
     echo "=== NCCL Environment Validation ==="
+    echo "Host:                  ${NCCL_HOSTNAME}"
     echo "NCCL_SOCKET_IFNAME:    ${NCCL_SOCKET_IFNAME:-NOT SET}"
     echo "NCCL_IB_DISABLE:       ${NCCL_IB_DISABLE:-NOT SET}"
-    echo "NCCL_DEBUG:            ${NCCL_DEBUG:-NOT SET}"
+    echo "NCCL_TOPO_DUMP_FILE:   ${NCCL_TOPO_DUMP_FILE:-NOT SET}"
     echo "MASTER_ADDR:           ${MASTER_ADDR:-NOT SET}"
     
     for iface in $(echo "$NCCL_SOCKET_IFNAME" | tr ',' ' '); do
@@ -72,14 +78,27 @@ nccl_validate_env() {
             local ip=$(ip -4 addr show "$iface" 2>/dev/null | grep -oP '(?<=inet\s)\d+(\.\d+){3}' | head -1)
             echo "[OK] Interface $iface exists (IP: ${ip:-NO IP})"
         else
-            echo "[WARN] Interface $iface not found on this host"
+            echo "[WARN] Interface $iface not found"
         fi
     done
 }
 
-export -f nccl_validate_env
+nccl_enable_debug() {
+    export NCCL_DEBUG=INFO
+    export NCCL_DEBUG_SUBSYS=NET
+    echo "NCCL debug enabled. Look for: NET/Socket : Using [0]enP2p1s0f0np0"
+}
+
+nccl_disable_debug() {
+    export NCCL_DEBUG=WARN
+    unset NCCL_DEBUG_SUBSYS
+    echo "NCCL debug disabled"
+}
+
+export -f nccl_validate_env nccl_enable_debug nccl_disable_debug
 
 if [[ "${NCCL_ENV_QUIET:-0}" != "1" ]]; then
-    echo "NCCL environment configured for DGX Spark"
-    echo "Run 'nccl_validate_env' to verify interface binding"
+    echo "NCCL environment configured for DGX Spark (${NCCL_HOSTNAME})"
+    echo "  Topology dump: ${NCCL_TOPO_DUMP_FILE}"
+    echo "Run 'nccl_validate_env' to verify, 'nccl_enable_debug' before training"
 fi
