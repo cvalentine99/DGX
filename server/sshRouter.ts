@@ -6620,11 +6620,23 @@ PIPELINE_EOF`);
     /**
      * Test NCCL connectivity between alpha and beta hosts
      * Runs all_gather_perf test using MPI over the fabric network
+     *
+     * Network configuration (configurable via environment):
+     *   - NCCL_FABRIC_INTERFACE: Network interface for NCCL (default: enp1s0f0np0)
+     *   - NCCL_ALPHA_FABRIC_IP: Alpha fabric IP (default: 192.168.100.10)
+     *   - NCCL_BETA_FABRIC_IP: Beta fabric IP (default: 192.168.100.11)
+     *   - NCCL_TESTS_PATH: Path to nccl-tests binaries (default: /opt/nccl-tests)
      */
     testConnectivity: publicProcedure
       .mutation(async () => {
         const startTime = Date.now();
         const hostPair = "alpha-beta";
+
+        // Configurable NCCL network settings
+        const fabricInterface = process.env.NCCL_FABRIC_INTERFACE || "enp1s0f0np0";
+        const alphaFabricIp = process.env.NCCL_ALPHA_FABRIC_IP || "192.168.100.10";
+        const betaFabricIp = process.env.NCCL_BETA_FABRIC_IP || "192.168.100.11";
+        const ncclTestsPath = process.env.NCCL_TESTS_PATH || "/opt/nccl-tests";
 
         try {
           // Execute from alpha only - this is the proven working command
@@ -6633,13 +6645,13 @@ PIPELINE_EOF`);
           const ncclTestCommand = `mpirun \\
   --mca pml ob1 \\
   --mca btl tcp,self \\
-  --mca btl_tcp_if_include enp1s0f0np0 \\
-  --mca oob_tcp_if_include enp1s0f0np0 \\
+  --mca btl_tcp_if_include ${fabricInterface} \\
+  --mca oob_tcp_if_include ${fabricInterface} \\
   -np 2 \\
-  -H 192.168.100.10:1,192.168.100.11:1 \\
-  -x NCCL_SOCKET_IFNAME=enp1s0f0np0 \\
+  -H ${alphaFabricIp}:1,${betaFabricIp}:1 \\
+  -x NCCL_SOCKET_IFNAME=${fabricInterface} \\
   -x NCCL_DEBUG=INFO \\
-  /opt/nccl-tests/all_gather_perf -b 1M -e 1M -f 2`;
+  ${ncclTestsPath}/all_gather_perf -b 1M -e 1M -f 2`;
 
           console.log("[NCCL] Running connectivity test from alpha...");
           const result = await executeSSHCommand(conn, ncclTestCommand);

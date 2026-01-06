@@ -34,30 +34,47 @@ export interface DGXHost {
 /**
  * DGX Spark host configurations
  *
- * The app runs on gx10-alpha (192.168.50.110) and SSHes to gx10-beta (192.168.50.139)
+ * Physical hosts (NVIDIA DGX Spark Version 7.3.1, aarch64):
+ *   - gx10-alpha: WiFi 192.168.50.139, Fabric 192.168.100.10
+ *   - gx10-beta:  Ethernet 192.168.50.43, WiFi 192.168.50.54, Fabric 192.168.100.11
+ *
+ * The LOCAL_HOST env var determines which host runs the app locally.
+ * The other host is accessed via SSH.
  */
+
+// Determine which host is local based on environment variable
+const localHostId = process.env.LOCAL_HOST || "alpha";
+
 export const DGX_HOSTS: Record<HostId, DGXHost> = {
   alpha: {
     id: "alpha",
-    name: "DGX Spark Alpha",
-    ip: "192.168.50.110",
-    localIp: "192.168.50.110",
-    host: "192.168.50.110",
-    port: 22,
-    sshHost: "192.168.50.110",
-    sshPort: 22,
-    isLocal: true, // App runs here
+    name: "DGX Spark Alpha (gx10-alpha)",
+    ip: process.env.DGX_ALPHA_IP || "192.168.50.139",
+    localIp: process.env.DGX_ALPHA_IP || "192.168.50.139",
+    host: localHostId === "alpha"
+      ? (process.env.DGX_ALPHA_IP || "192.168.50.139")
+      : (process.env.DGX_SSH_HOST || process.env.DGX_ALPHA_IP || "192.168.50.139"),
+    port: localHostId === "alpha" ? 22 : parseInt(process.env.DGX_SSH_PORT || "22"),
+    sshHost: localHostId === "alpha"
+      ? (process.env.DGX_ALPHA_IP || "192.168.50.139")
+      : (process.env.DGX_SSH_HOST || process.env.DGX_ALPHA_IP || "192.168.50.139"),
+    sshPort: localHostId === "alpha" ? 22 : parseInt(process.env.DGX_SSH_PORT || "22"),
+    isLocal: localHostId === "alpha",
   },
   beta: {
     id: "beta",
-    name: "DGX Spark Beta",
-    ip: "192.168.50.139",
-    localIp: "192.168.50.139",
-    host: process.env.DGX_SSH_HOST || "192.168.50.139",
-    port: parseInt(process.env.DGX_SSH_PORT || "22"),
-    sshHost: process.env.DGX_SSH_HOST || "192.168.50.139",
-    sshPort: parseInt(process.env.DGX_SSH_PORT || "22"),
-    isLocal: false, // Remote, accessed via SSH
+    name: "DGX Spark Beta (gx10-beta)",
+    ip: process.env.DGX_BETA_IP || "192.168.50.43",
+    localIp: process.env.DGX_BETA_IP || "192.168.50.43",
+    host: localHostId === "beta"
+      ? (process.env.DGX_BETA_IP || "192.168.50.43")
+      : (process.env.DGX_SSH_HOST || process.env.DGX_BETA_IP || "192.168.50.43"),
+    port: localHostId === "beta" ? 22 : parseInt(process.env.DGX_SSH_PORT || "22"),
+    sshHost: localHostId === "beta"
+      ? (process.env.DGX_BETA_IP || "192.168.50.43")
+      : (process.env.DGX_SSH_HOST || process.env.DGX_BETA_IP || "192.168.50.43"),
+    sshPort: localHostId === "beta" ? 22 : parseInt(process.env.DGX_SSH_PORT || "22"),
+    isLocal: localHostId === "beta",
   },
 };
 

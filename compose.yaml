@@ -48,6 +48,14 @@ services:
       - DGX_SSH_PASSWORD=${DGX_SSH_PASSWORD:-}
       - DGX_SSH_PRIVATE_KEY=${DGX_SSH_PRIVATE_KEY:-}
       - DGX_SSH_PORT=${DGX_SSH_PORT:-22}
+      # Host IP addresses for DGX Spark (aarch64)
+      - DGX_ALPHA_IP=${DGX_ALPHA_IP:-192.168.50.139}
+      - DGX_BETA_IP=${DGX_BETA_IP:-192.168.50.43}
+      # NCCL fabric network configuration
+      - NCCL_FABRIC_INTERFACE=${NCCL_FABRIC_INTERFACE:-enp1s0f0np0}
+      - NCCL_ALPHA_FABRIC_IP=${NCCL_ALPHA_FABRIC_IP:-192.168.100.10}
+      - NCCL_BETA_FABRIC_IP=${NCCL_BETA_FABRIC_IP:-192.168.100.11}
+      - NCCL_TESTS_PATH=${NCCL_TESTS_PATH:-/opt/nccl-tests}
       - VITE_DEMO_MODE=${VITE_DEMO_MODE:-false}
     volumes:
       - app-data:/app/data

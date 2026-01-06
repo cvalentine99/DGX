@@ -24,22 +24,46 @@ if [[ $EUID -ne 0 ]]; then
    exit 1
 fi
 
-# Detect local IP
+# Detect hostname and local IP
+HOSTNAME=$(hostname)
 LOCAL_IP=$(hostname -I | awk '{print $1}')
-echo -e "${GREEN}Installing on: $LOCAL_IP${NC}"
+echo -e "${GREEN}Installing on: $HOSTNAME ($LOCAL_IP)${NC}"
 
-if [[ "$LOCAL_IP" == "192.168.50.110" ]]; then
-    echo -e "${GREEN}Detected: DGX Spark Beta (LOCAL)${NC}"
+# Detection based on hostname (most reliable for DGX Spark)
+# Actual network configuration:
+#   gx10-alpha: WiFi 192.168.50.139, Fabric 192.168.100.10
+#   gx10-beta:  Ethernet 192.168.50.43, WiFi 192.168.50.54, Fabric 192.168.100.11
+if [[ "$HOSTNAME" == "gx10-alpha" ]]; then
+    echo -e "${GREEN}Detected: DGX Spark Alpha (gx10-alpha) - LOCAL${NC}"
+    LOCAL_HOST="alpha"
+    REMOTE_IP="192.168.50.43"  # gx10-beta ethernet
+    LOCAL_ALPHA_IP="$LOCAL_IP"
+    LOCAL_BETA_IP="$REMOTE_IP"
+elif [[ "$HOSTNAME" == "gx10-beta" ]]; then
+    echo -e "${GREEN}Detected: DGX Spark Beta (gx10-beta) - LOCAL${NC}"
+    LOCAL_HOST="beta"
+    REMOTE_IP="192.168.50.139"  # gx10-alpha wifi
+    LOCAL_ALPHA_IP="$REMOTE_IP"
+    LOCAL_BETA_IP="$LOCAL_IP"
+# Fallback to IP-based detection if hostname doesn't match
+elif [[ "$LOCAL_IP" == "192.168.50.139" ]]; then
+    echo -e "${GREEN}Detected: DGX Spark Alpha by IP (LOCAL)${NC}"
+    LOCAL_HOST="alpha"
+    REMOTE_IP="192.168.50.43"
+    LOCAL_ALPHA_IP="$LOCAL_IP"
+    LOCAL_BETA_IP="$REMOTE_IP"
+elif [[ "$LOCAL_IP" == "192.168.50.43" ]] || [[ "$LOCAL_IP" == "192.168.50.54" ]]; then
+    echo -e "${GREEN}Detected: DGX Spark Beta by IP (LOCAL)${NC}"
     LOCAL_HOST="beta"
     REMOTE_IP="192.168.50.139"
-elif [[ "$LOCAL_IP" == "192.168.50.139" ]]; then
-    echo -e "${GREEN}Detected: DGX Spark Alpha (LOCAL)${NC}"
-    LOCAL_HOST="alpha"
-    REMOTE_IP="192.168.50.110"
+    LOCAL_ALPHA_IP="$REMOTE_IP"
+    LOCAL_BETA_IP="$LOCAL_IP"
 else
-    echo -e "${YELLOW}Unknown host - defaulting to Beta${NC}"
-    LOCAL_HOST="beta"
+    echo -e "${YELLOW}Unknown host - will prompt for configuration${NC}"
+    LOCAL_HOST=""
     REMOTE_IP=""
+    LOCAL_ALPHA_IP=""
+    LOCAL_BETA_IP=""
 fi
 
 #===============================================================================
@@ -209,9 +233,15 @@ cat > "$CONFIG_DIR/nemo.env" << EOF
 NODE_ENV=production
 PORT=3000
 
-# This tells the app which host it's running on (beta or alpha)
-# Beta = local commands, Alpha = SSH
+# This tells the app which host it's running on (alpha or beta)
+# The LOCAL_HOST runs commands locally, the other host is accessed via SSH
 LOCAL_HOST=$LOCAL_HOST
+
+# Host IP addresses (detected automatically, can be overridden)
+# gx10-alpha: WiFi 192.168.50.139, Fabric 192.168.100.10
+# gx10-beta:  Ethernet 192.168.50.43, WiFi 192.168.50.54, Fabric 192.168.100.11
+DGX_ALPHA_IP=${LOCAL_ALPHA_IP:-192.168.50.139}
+DGX_BETA_IP=${LOCAL_BETA_IP:-192.168.50.43}
 
 DATABASE_URL=$DATABASE_URL
 JWT_SECRET=$JWT_SECRET
@@ -226,6 +256,13 @@ NGC_API_KEY=$NGC_KEY
 HUGGINGFACE_TOKEN=$HF_TOKEN
 VLLM_API_URL=$VLLM_URL
 VLLM_API_KEY=$VLLM_KEY
+
+# NCCL fabric network configuration
+# These defaults match the DGX Spark fabric network (enp1s0f0np0)
+NCCL_FABRIC_INTERFACE=enp1s0f0np0
+NCCL_ALPHA_FABRIC_IP=192.168.100.10
+NCCL_BETA_FABRIC_IP=192.168.100.11
+NCCL_TESTS_PATH=/opt/nccl-tests
 
 # Demo mode - set to false for production (real data from API)
 VITE_DEMO_MODE=false
